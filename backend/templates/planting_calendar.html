@@ -408,7 +408,7 @@ function filterSeason(season) {
 
     // Update tab states
     $('.season-tab').removeClass('active');
-    event.target.closest('.season-tab').classList.add('active');
+    $(event.target).closest('.season-tab').addClass('active');
 
     // Filter events
     $('.event-item').each(function() {
