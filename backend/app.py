@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from models import db, GardenBed, PlantedItem, PlantingEvent, WinterPlan, CompostPile, CompostIngredient, Settings, Photo, HarvestRecord, SeedInventory, Property, PlacedStructure, Chicken, EggProduction, Beehive, HiveInspection, HoneyHarvest, Livestock, HealthRecord
+from models import db, GardenBed, PlantedItem, PlantingEvent, WinterPlan, CompostPile, CompostIngredient, Settings, Photo, HarvestRecord, SeedInventory, Property, PlacedStructure, Chicken, EggProduction, Duck, DuckEggProduction, Beehive, HiveInspection, HoneyHarvest, Livestock, HealthRecord
 from plant_database import PLANT_DATABASE, COMPOST_MATERIALS, get_plant_by_id, get_winter_hardy_plants
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES, get_structure_by_id
 from garden_methods import GARDEN_METHODS, BED_TEMPLATES, PLANT_GUILDS, get_sfg_quantity, get_row_spacing, get_intensive_spacing, calculate_plants_per_bed, get_methods_list, get_template_by_id, get_guild_by_id
@@ -895,6 +895,80 @@ def egg_production():
     # Get recent records (last 30 days)
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
     records = EggProduction.query.filter(EggProduction.date >= thirty_days_ago).order_by(EggProduction.date.desc()).all()
+    return jsonify([r.to_dict() for r in records])
+
+# Duck routes
+@app.route('/api/ducks', methods=['GET', 'POST'])
+def ducks_api():
+    """Get all ducks/waterfowl or create new flock"""
+    if request.method == 'POST':
+        data = request.json
+        hatch_date = None
+        if data.get('hatchDate'):
+            hatch_date = datetime.fromisoformat(data['hatchDate'].replace('Z', '+00:00'))
+
+        duck = Duck(
+            name=data['name'],
+            breed=data.get('breed'),
+            quantity=data.get('quantity', 1),
+            hatch_date=hatch_date,
+            purpose=data.get('purpose'),
+            sex=data.get('sex'),
+            coop_location=data.get('coopLocation'),
+            notes=data.get('notes')
+        )
+        db.session.add(duck)
+        db.session.commit()
+        return jsonify(duck.to_dict()), 201
+
+    ducks = Duck.query.filter_by(status='active').all()
+    return jsonify([d.to_dict() for d in ducks])
+
+@app.route('/api/ducks/<int:duck_id>', methods=['GET', 'PUT', 'DELETE'])
+def duck_detail(duck_id):
+    """Get, update, or delete a specific duck flock"""
+    duck = Duck.query.get_or_404(duck_id)
+
+    if request.method == 'DELETE':
+        db.session.delete(duck)
+        db.session.commit()
+        return '', 204
+
+    if request.method == 'PUT':
+        data = request.json
+        duck.name = data.get('name', duck.name)
+        duck.breed = data.get('breed', duck.breed)
+        duck.quantity = data.get('quantity', duck.quantity)
+        duck.purpose = data.get('purpose', duck.purpose)
+        duck.sex = data.get('sex', duck.sex)
+        duck.status = data.get('status', duck.status)
+        duck.coop_location = data.get('coopLocation', duck.coop_location)
+        duck.notes = data.get('notes', duck.notes)
+        db.session.commit()
+
+    return jsonify(duck.to_dict())
+
+# Duck egg production routes
+@app.route('/api/duck-egg-production', methods=['GET', 'POST'])
+def duck_egg_production():
+    """Get all duck egg records or add new record"""
+    if request.method == 'POST':
+        data = request.json
+        record = DuckEggProduction(
+            chicken_id=data['chickenId'],  # Using same field name for frontend compatibility
+            eggs_collected=data['eggsCollected'],
+            eggs_sold=data.get('eggsSold', 0),
+            eggs_eaten=data.get('eggsEaten', 0),
+            eggs_incubated=data.get('eggsIncubated', 0),
+            notes=data.get('notes')
+        )
+        db.session.add(record)
+        db.session.commit()
+        return jsonify(record.to_dict()), 201
+
+    # Get recent records (last 30 days)
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    records = DuckEggProduction.query.filter(DuckEggProduction.date >= thirty_days_ago).order_by(DuckEggProduction.date.desc()).all()
     return jsonify([r.to_dict() for r in records])
 
 # Beehive routes

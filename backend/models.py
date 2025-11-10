@@ -387,6 +387,67 @@ class EggProduction(db.Model):
             'notes': self.notes
         }
 
+class Duck(db.Model):
+    """Track ducks, geese, and other waterfowl flocks"""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100))  # Name or flock ID
+    breed = db.Column(db.String(100))  # Can include 'duck' or 'goose' type
+    quantity = db.Column(db.Integer, default=1)  # Number of birds
+    hatch_date = db.Column(db.DateTime)
+    purpose = db.Column(db.String(50))  # eggs, meat, dual-purpose, pet
+    sex = db.Column(db.String(20))  # hens, drakes, mixed
+    status = db.Column(db.String(20), default='active')  # active, sold, deceased
+    coop_location = db.Column(db.String(100))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    egg_records = db.relationship('DuckEggProduction', backref='flock', lazy=True, cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'breed': self.breed,
+            'quantity': self.quantity,
+            'hatchDate': self.hatch_date.isoformat() if self.hatch_date else None,
+            'purpose': self.purpose,
+            'sex': self.sex,
+            'status': self.status,
+            'coopLocation': self.coop_location,
+            'notes': self.notes,
+            'ageWeeks': self.get_age_weeks()
+        }
+
+    def get_age_weeks(self):
+        if not self.hatch_date:
+            return None
+        delta = datetime.utcnow() - self.hatch_date
+        return int(delta.days / 7)
+
+class DuckEggProduction(db.Model):
+    """Daily duck/waterfowl egg production records"""
+    id = db.Column(db.Integer, primary_key=True)
+    chicken_id = db.Column(db.Integer, db.ForeignKey('duck.id'), nullable=False)
+    date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    eggs_collected = db.Column(db.Integer, nullable=False)
+    eggs_sold = db.Column(db.Integer, default=0)
+    eggs_eaten = db.Column(db.Integer, default=0)
+    eggs_incubated = db.Column(db.Integer, default=0)
+    notes = db.Column(db.Text)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'chickenId': self.chicken_id,  # Keep same name for frontend compatibility
+            'date': self.date.isoformat() if self.date else None,
+            'eggsCollected': self.eggs_collected,
+            'eggsSold': self.eggs_sold,
+            'eggsEaten': self.eggs_eaten,
+            'eggsIncubated': self.eggs_incubated,
+            'notes': self.notes
+        }
+
 class Beehive(db.Model):
     """Track beehives and honey production"""
     id = db.Column(db.Integer, primary_key=True)

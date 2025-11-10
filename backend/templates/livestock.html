@@ -14,17 +14,22 @@
 <ul class="nav nav-tabs mb-4" id="livestockTabs" role="tablist">
     <li class="nav-item" role="presentation">
         <button class="nav-link active" id="chickens-tab" data-bs-toggle="tab" data-bs-target="#chickens" type="button" role="tab">
-            <i class="bi bi-egg"></i> Chickens & Eggs
+            🐔 Chickens
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ducks-tab" data-bs-toggle="tab" data-bs-target="#ducks" type="button" role="tab">
+            🦆 Ducks & Waterfowl
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bees-tab" data-bs-toggle="tab" data-bs-target="#bees" type="button" role="tab">
-            <i class="bi bi-bug"></i> Beehives
+            🐝 Bees
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="livestock-tab" data-bs-toggle="tab" data-bs-target="#livestock" type="button" role="tab">
-            <i class="bi bi-tree"></i> Other Livestock
+            🐐 Other Livestock
         </button>
     </li>
 </ul>
@@ -63,6 +68,45 @@
                     </div>
                     <div class="card-body">
                         <div id="eggProductionList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== DUCKS & WATERFOWL TAB ==================== -->
+    <div class="tab-pane fade" id="ducks" role="tabpanel">
+        <div class="row">
+            <!-- Duck Flocks List -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">🦆 My Waterfowl</h5>
+                        <button class="btn btn-sm btn-info" onclick="showAddDuckModal()">
+                            <i class="bi bi-plus"></i> Add Flock
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="ducksList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Duck Egg Production -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">🥚 Egg Production</h5>
+                        <button class="btn btn-sm btn-success" onclick="showLogDuckEggsModal()">
+                            <i class="bi bi-plus"></i> Log Eggs
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="duckEggProductionList">
                             <!-- Populated by JavaScript -->
                         </div>
                     </div>
@@ -126,12 +170,30 @@
 
     <!-- ==================== OTHER LIVESTOCK TAB ==================== -->
     <div class="tab-pane fade" id="livestock" role="tabpanel">
+        <!-- Quick Add Buttons -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card bg-light">
+                    <div class="card-body">
+                        <h6 class="mb-2">Quick Add:</h6>
+                        <button class="btn btn-sm btn-outline-primary me-2 mb-2" onclick="quickAddAnimal('goat')">🐐 Goat</button>
+                        <button class="btn btn-sm btn-outline-primary me-2 mb-2" onclick="quickAddAnimal('sheep')">🐑 Sheep</button>
+                        <button class="btn btn-sm btn-outline-primary me-2 mb-2" onclick="quickAddAnimal('pig')">🐷 Pig</button>
+                        <button class="btn btn-sm btn-outline-primary me-2 mb-2" onclick="quickAddAnimal('cow')">🐄 Cow</button>
+                        <button class="btn btn-sm btn-outline-primary me-2 mb-2" onclick="quickAddAnimal('rabbit')">🐰 Rabbit</button>
+                        <button class="btn btn-sm btn-outline-primary me-2 mb-2" onclick="quickAddAnimal('horse')">🐴 Horse</button>
+                        <button class="btn btn-sm btn-outline-primary me-2 mb-2" onclick="quickAddAnimal('turkey')">🦃 Turkey</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="row">
             <!-- Livestock List -->
             <div class="col-md-6">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><i class="bi bi-tree"></i> My Livestock</h5>
+                        <h5 class="mb-0">🐾 My Livestock</h5>
                         <button class="btn btn-sm btn-success" onclick="showAddLivestockModal()">
                             <i class="bi bi-plus"></i> Add Animal
                         </button>
@@ -272,6 +334,124 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" onclick="logEggs()">Log Eggs</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Duck Flock Modal -->
+<div class="modal fade" id="addDuckModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">Add Waterfowl Flock</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addDuckForm">
+                    <div class="mb-3">
+                        <label class="form-label">Flock Name *</label>
+                        <input type="text" class="form-control" id="duckName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Type *</label>
+                        <select class="form-select" id="duckType" required>
+                            <option value="duck">Duck</option>
+                            <option value="goose">Goose</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Breed</label>
+                        <input type="text" class="form-control" id="duckBreed" placeholder="Pekin, Khaki Campbell, Runner, etc.">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Quantity</label>
+                        <input type="number" class="form-control" id="duckQuantity" value="1" min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Hatch Date</label>
+                        <input type="date" class="form-control" id="duckHatchDate">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Purpose</label>
+                        <select class="form-select" id="duckPurpose">
+                            <option value="">Select...</option>
+                            <option value="eggs">Eggs</option>
+                            <option value="meat">Meat</option>
+                            <option value="dual-purpose">Dual Purpose</option>
+                            <option value="pet">Pet</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sex</label>
+                        <select class="form-select" id="duckSex">
+                            <option value="">Select...</option>
+                            <option value="hens">Hens/Females</option>
+                            <option value="drakes">Drakes/Males</option>
+                            <option value="mixed">Mixed</option>
+                            <option value="unknown">Unknown</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Housing Location</label>
+                        <input type="text" class="form-control" id="duckLocation">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="duckNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-info" onclick="addDuck()">Add Flock</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Duck Eggs Modal -->
+<div class="modal fade" id="logDuckEggsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Log Waterfowl Egg Production</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="logDuckEggsForm">
+                    <div class="mb-3">
+                        <label class="form-label">Flock *</label>
+                        <select class="form-select" id="duckEggFlockId" required>
+                            <option value="">Select flock...</option>
+                            <!-- Populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Collected *</label>
+                        <input type="number" class="form-control" id="duckEggsCollected" required min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Sold</label>
+                        <input type="number" class="form-control" id="duckEggsSold" value="0" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Eaten</label>
+                        <input type="number" class="form-control" id="duckEggsEaten" value="0" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Incubated</label>
+                        <input type="number" class="form-control" id="duckEggsIncubated" value="0" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="duckEggNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="logDuckEggs()">Log Eggs</button>
             </div>
         </div>
     </div>
@@ -632,6 +812,8 @@
 <script>
 let chickens = [];
 let eggProduction = [];
+let ducks = [];
+let duckEggProduction = [];
 let beehives = [];
 let inspections = [];
 let harvests = [];
@@ -645,6 +827,8 @@ $(document).ready(function() {
 function loadAllData() {
     loadChickens();
     loadEggProduction();
+    loadDucks();
+    loadDuckEggProduction();
     loadBeehives();
     loadInspections();
     loadHarvests();
@@ -803,6 +987,170 @@ function logEggs() {
         success: function() {
             $('#logEggsModal').modal('hide');
             loadEggProduction();
+        }
+    });
+}
+
+// ==================== DUCK FUNCTIONS ====================
+
+function loadDucks() {
+    $.get('/api/ducks', function(data) {
+        ducks = data;
+        displayDucks();
+        populateDuckDropdowns();
+    }).fail(function() {
+        // If ducks endpoint doesn't exist yet, show empty state
+        ducks = [];
+        displayDucks();
+    });
+}
+
+function displayDucks() {
+    const container = $('#ducksList');
+    if (ducks.length === 0) {
+        container.html('<p class="text-muted">No waterfowl flocks yet. Add your first flock!</p>');
+        return;
+    }
+
+    let html = '';
+    ducks.forEach(duck => {
+        const ageWeeks = duck.ageWeeks ? `${duck.ageWeeks} weeks old` : 'Age unknown';
+        const icon = duck.breed && duck.breed.toLowerCase().includes('goose') ? '🦢' : '🦆';
+        html += `
+            <div class="card mb-2">
+                <div class="card-body">
+                    <h6>${icon} ${duck.name} <span class="badge bg-info">${duck.quantity} birds</span></h6>
+                    <p class="mb-1 small">
+                        <strong>Type:</strong> ${duck.breed || 'N/A'}<br>
+                        <strong>Age:</strong> ${ageWeeks}<br>
+                        <strong>Purpose:</strong> ${duck.purpose || 'N/A'}<br>
+                        <strong>Location:</strong> ${duck.coopLocation || 'N/A'}
+                    </p>
+                    ${duck.notes ? `<p class="small mb-1"><em>${duck.notes}</em></p>` : ''}
+                    <button class="btn btn-sm btn-danger" onclick="deleteDuck(${duck.id})">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+    container.html(html);
+}
+
+function populateDuckDropdowns() {
+    const dropdown = $('#duckEggFlockId');
+    dropdown.empty().append('<option value="">Select flock...</option>');
+    ducks.forEach(duck => {
+        dropdown.append(`<option value="${duck.id}">${duck.name} (${duck.quantity} birds)</option>`);
+    });
+}
+
+function showAddDuckModal() {
+    $('#addDuckForm')[0].reset();
+    $('#addDuckModal').modal('show');
+}
+
+function addDuck() {
+    const data = {
+        name: $('#duckName').val(),
+        breed: $('#duckBreed').val() || $('#duckType').val(),
+        quantity: parseInt($('#duckQuantity').val()) || 1,
+        hatchDate: $('#duckHatchDate').val() || null,
+        purpose: $('#duckPurpose').val(),
+        sex: $('#duckSex').val(),
+        coopLocation: $('#duckLocation').val(),
+        notes: $('#duckNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/ducks',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#addDuckModal').modal('hide');
+            loadDucks();
+        }
+    });
+}
+
+function deleteDuck(id) {
+    if (confirm('Delete this flock?')) {
+        $.ajax({
+            url: '/api/ducks/' + id,
+            method: 'DELETE',
+            success: function() {
+                loadDucks();
+            }
+        });
+    }
+}
+
+// ==================== DUCK EGG PRODUCTION FUNCTIONS ====================
+
+function loadDuckEggProduction() {
+    $.get('/api/duck-egg-production', function(data) {
+        duckEggProduction = data;
+        displayDuckEggProduction();
+    }).fail(function() {
+        // If endpoint doesn't exist yet, show empty state
+        duckEggProduction = [];
+        displayDuckEggProduction();
+    });
+}
+
+function displayDuckEggProduction() {
+    const container = $('#duckEggProductionList');
+    if (duckEggProduction.length === 0) {
+        container.html('<p class="text-muted">No egg records yet.</p>');
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    duckEggProduction.slice(0, 10).forEach(record => {
+        const date = new Date(record.date).toLocaleDateString();
+        const duckName = ducks.find(d => d.id === record.chickenId)?.name || 'Unknown';
+        html += `
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between">
+                    <strong>${date} - ${duckName}</strong>
+                    <span class="badge bg-success">${record.eggsCollected} eggs</span>
+                </div>
+                <small>
+                    Sold: ${record.eggsSold} | Eaten: ${record.eggsEaten} | Incubated: ${record.eggsIncubated}
+                </small>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.html(html);
+}
+
+function showLogDuckEggsModal() {
+    if (ducks.length === 0) {
+        alert('Please add a waterfowl flock first!');
+        return;
+    }
+    $('#logDuckEggsForm')[0].reset();
+    $('#logDuckEggsModal').modal('show');
+}
+
+function logDuckEggs() {
+    const data = {
+        chickenId: parseInt($('#duckEggFlockId').val()),
+        eggsCollected: parseInt($('#duckEggsCollected').val()),
+        eggsSold: parseInt($('#duckEggsSold').val()) || 0,
+        eggsEaten: parseInt($('#duckEggsEaten').val()) || 0,
+        eggsIncubated: parseInt($('#duckEggsIncubated').val()) || 0,
+        notes: $('#duckEggNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/duck-egg-production',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#logDuckEggsModal').modal('hide');
+            loadDuckEggProduction();
         }
     });
 }
@@ -1133,6 +1481,13 @@ function deleteLivestock(id) {
     }
 }
 
+// Quick add animal with pre-filled species
+function quickAddAnimal(species) {
+    $('#addLivestockForm')[0].reset();
+    $('#livestockSpecies').val(species);
+    $('#addLivestockModal').modal('show');
+}
+
 // ==================== HEALTH RECORD FUNCTIONS ====================
 
 function loadHealthRecords() {
@@ -1207,20 +1562,45 @@ function addHealthRecord() {
 </script>
 
 <style>
+/* Enhanced tab styling */
+.nav-tabs {
+    border-bottom: 3px solid #dee2e6;
+    background-color: #f8f9fa;
+    padding: 10px 10px 0;
+    border-radius: 8px 8px 0 0;
+}
 .nav-tabs .nav-link {
-    color: #666;
+    color: #495057;
+    font-size: 1.1rem;
+    padding: 12px 20px;
+    margin: 0 5px;
+    border: 2px solid transparent;
+    border-radius: 8px 8px 0 0;
+    transition: all 0.3s ease;
+}
+.nav-tabs .nav-link:hover {
+    background-color: #e9ecef;
+    border-color: #dee2e6 #dee2e6 #fff;
 }
 .nav-tabs .nav-link.active {
     font-weight: bold;
+    background-color: white;
+    border-color: #dee2e6 #dee2e6 #fff;
+    color: #212529;
 }
 .list-group-item {
     border-left: 3px solid #28a745;
 }
 .card {
     transition: box-shadow 0.2s;
+    border-radius: 8px;
 }
 .card:hover {
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.btn-outline-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 </style>
 {% endblock %}
