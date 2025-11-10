@@ -493,6 +493,45 @@ let currentBed = null;
 let gridData = [];
 let plants = {{ plants|tojson }};
 let draggedPlant = null;
+let autoScrollInterval = null;
+
+// Auto-scroll functionality for dragging
+function startAutoScroll() {
+    // Track mouse position during drag
+    $(document).on('dragover.autoscroll', function(e) {
+        const scrollThreshold = 100; // pixels from edge to trigger scroll
+        const scrollSpeed = 10; // pixels per interval
+        const viewportHeight = $(window).height();
+        const mouseY = e.originalEvent.clientY;
+
+        // Clear any existing interval
+        if (autoScrollInterval) {
+            clearInterval(autoScrollInterval);
+            autoScrollInterval = null;
+        }
+
+        // Scroll down when near bottom
+        if (mouseY > viewportHeight - scrollThreshold) {
+            autoScrollInterval = setInterval(function() {
+                window.scrollBy(0, scrollSpeed);
+            }, 16); // ~60fps
+        }
+        // Scroll up when near top
+        else if (mouseY < scrollThreshold) {
+            autoScrollInterval = setInterval(function() {
+                window.scrollBy(0, -scrollSpeed);
+            }, 16);
+        }
+    });
+}
+
+function stopAutoScroll() {
+    if (autoScrollInterval) {
+        clearInterval(autoScrollInterval);
+        autoScrollInterval = null;
+    }
+    $(document).off('dragover.autoscroll');
+}
 
 // Plant icons mapping
 const plantIcons = {
@@ -541,10 +580,12 @@ function loadPlantPalette() {
         card.on('dragstart', function(e) {
             draggedPlant = plant;
             $(this).addClass('dragging');
+            startAutoScroll();
         });
 
         card.on('dragend', function(e) {
             $(this).removeClass('dragging');
+            stopAutoScroll();
         });
 
         palette.append(card);
