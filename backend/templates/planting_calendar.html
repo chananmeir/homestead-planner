@@ -517,10 +517,23 @@ function addEvent() {
         return;
     }
 
+    // Validate frost date
+    const lastFrostVal = $('#lastFrostDate').val();
+    if (!lastFrostVal) {
+        alert('Please set the Last Spring Frost date first');
+        return;
+    }
+
     const method = $('#plantingMethod').val();
     const season = $('#seasonSelect').val();
     const notes = $('#eventNotes').val();
-    const lastFrost = new Date($('#lastFrostDate').val());
+    const lastFrost = new Date(lastFrostVal);
+
+    // Check if date is valid
+    if (isNaN(lastFrost.getTime())) {
+        alert('Invalid frost date. Please check the Last Spring Frost date field.');
+        return;
+    }
 
     // Get days to maturity from selected option
     const daysToMaturity = parseInt($('#plantSelect option:selected').data('days')) || 60;
@@ -574,6 +587,17 @@ function addEvent() {
     )).then(() => {
         $('#addEventModal').modal('hide');
         location.reload();
+    }).catch(error => {
+        console.error('Error creating planting event:', error);
+        let errorMsg = 'Failed to create planting event. ';
+        if (error.responseJSON && error.responseJSON.error) {
+            errorMsg += error.responseJSON.error;
+        } else if (error.responseText) {
+            errorMsg += error.responseText;
+        } else {
+            errorMsg += 'Please check the console for details.';
+        }
+        alert(errorMsg);
     });
 }
 
