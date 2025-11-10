@@ -292,22 +292,29 @@ def planting_calendar():
 def planting_events():
     """Get all planting events or create new one"""
     if request.method == 'POST':
-        data = request.json
-        event = PlantingEvent(
-            plant_id=data['plantId'],
-            garden_bed_id=data.get('gardenBedId'),
-            season=data.get('season', 'spring'),
-            seed_start_date=datetime.fromisoformat(data['seedStartDate']) if data.get('seedStartDate') else None,
-            transplant_date=datetime.fromisoformat(data['transplantDate']) if data.get('transplantDate') else None,
-            direct_seed_date=datetime.fromisoformat(data['directSeedDate']) if data.get('directSeedDate') else None,
-            expected_harvest_date=datetime.fromisoformat(data['expectedHarvestDate']),
-            succession_planting=data.get('successionPlanting', False),
-            succession_interval=data.get('successionInterval'),
-            notes=data.get('notes', '')
-        )
-        db.session.add(event)
-        db.session.commit()
-        return jsonify(event.to_dict()), 201
+        try:
+            data = request.json
+            print(f"Received data: {data}")  # Debug log
+            event = PlantingEvent(
+                plant_id=data['plantId'],
+                garden_bed_id=data.get('gardenBedId'),
+                season=data.get('season', 'spring'),
+                seed_start_date=datetime.fromisoformat(data['seedStartDate']) if data.get('seedStartDate') else None,
+                transplant_date=datetime.fromisoformat(data['transplantDate']) if data.get('transplantDate') else None,
+                direct_seed_date=datetime.fromisoformat(data['directSeedDate']) if data.get('directSeedDate') else None,
+                expected_harvest_date=datetime.fromisoformat(data['expectedHarvestDate']),
+                succession_planting=data.get('successionPlanting', False),
+                succession_interval=data.get('successionInterval'),
+                notes=data.get('notes', '')
+            )
+            db.session.add(event)
+            db.session.commit()
+            return jsonify(event.to_dict()), 201
+        except Exception as e:
+            print(f"Error creating planting event: {str(e)}")  # Debug log
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
 
     events = PlantingEvent.query.all()
     return jsonify([event.to_dict() for event in events])
