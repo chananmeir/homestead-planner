@@ -173,7 +173,10 @@
                             <option value="{{ bed.id }}"
                                     data-width="{{ bed.width }}"
                                     data-length="{{ bed.length }}"
-                                    data-name="{{ bed.name }}">
+                                    data-name="{{ bed.name }}"
+                                    data-planning-method="{{ bed.planning_method or 'square-foot' }}"
+                                    data-location="{{ bed.location or '' }}"
+                                    data-sun-exposure="{{ bed.sun_exposure or 'full' }}">
                                 {{ bed.name }} ({{ bed.width }}' × {{ bed.length }}')
                             </option>
                             {% endfor %}
@@ -250,12 +253,22 @@
             </div>
             <div class="card-body">
                 <div class="grid-info">
-                    <div class="d-flex justify-content-between">
+                    <div class="d-flex justify-content-between mb-2">
                         <div>
                             <strong>Grid Size:</strong> <span id="gridSize"></span>
                         </div>
                         <div>
                             <strong>Plants Placed:</strong> <span id="plantCount">0</span>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong><i class="bi bi-diagram-3"></i> Planning Method:</strong> <span id="currentMethod" class="badge bg-success">Square Foot</span>
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="showEditBedModal()">
+                                <i class="bi bi-pencil"></i> Edit Bed
+                            </button>
                         </div>
                     </div>
                     <div class="legend">
@@ -389,6 +402,73 @@
     </div>
 </div>
 
+<!-- Edit Bed Modal -->
+<div class="modal fade" id="editBedModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Garden Bed</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editBedForm">
+                    <input type="hidden" id="editBedId">
+
+                    <div class="mb-3">
+                        <label class="form-label">Bed Name *</label>
+                        <input type="text" class="form-control" id="editBedName" required>
+                    </div>
+
+                    <!-- Planning Method Selection -->
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-diagram-3"></i> Planning Method *</label>
+                        <select class="form-select" id="editBedMethod" onchange="updateEditMethodInfo()" required>
+                            <option value="square-foot">Square Foot Gardening (SFG)</option>
+                            <option value="row">Row Gardening (Traditional)</option>
+                            <option value="intensive">Intensive/Bio-intensive</option>
+                            <option value="raised-bed">Raised Bed (Flexible)</option>
+                            <option value="permaculture">Permaculture Zones</option>
+                            <option value="container">Container Gardening</option>
+                        </select>
+                        <div id="editMethodInfo" class="alert alert-info mt-2" style="font-size: 0.85em;">
+                            <strong>Square Foot Gardening:</strong> 1 ft grid squares, perfect for beginners. Easy tracking and maximum space efficiency.
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Width (feet) *</label>
+                            <input type="number" class="form-control" id="editBedWidth" min="2" max="20" step="0.5" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Length (feet) *</label>
+                            <input type="number" class="form-control" id="editBedLength" min="2" max="30" step="0.5" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Sun Exposure</label>
+                            <select class="form-select" id="editBedSun">
+                                <option value="full">Full Sun</option>
+                                <option value="partial">Partial</option>
+                                <option value="shade">Shade</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Location</label>
+                            <input type="text" class="form-control" id="editBedLocation" placeholder="e.g., Backyard">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="updateBed()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -470,7 +550,7 @@ function loadBed() {
     const bedId = selector.val();
 
     if (!bedId) {
-        $('#plantPaletteSection, #gridSection').hide();
+        $('#plantPaletteSection, #gridSection, #densityCalculatorSection').hide();
         return;
     }
 
@@ -478,16 +558,33 @@ function loadBed() {
     const width = parseInt(option.data('width'));
     const length = parseInt(option.data('length'));
     const name = option.data('name');
+    const planningMethod = option.data('planning-method') || 'square-foot';
+    const location = option.data('location') || '';
+    const sunExposure = option.data('sun-exposure') || 'full';
 
     currentBed = {
         id: bedId,
         width: width,
         length: length,
-        name: name
+        name: name,
+        planningMethod: planningMethod,
+        location: location,
+        sunExposure: sunExposure
     };
 
     $('#bedTitle').text(name + ' Layout');
     $('#gridSize').text(`${width}' × ${length}' (${width * length} sq ft)`);
+
+    // Display planning method
+    const methodNames = {
+        'square-foot': 'Square Foot',
+        'row': 'Row Gardening',
+        'intensive': 'Intensive',
+        'raised-bed': 'Raised Bed',
+        'permaculture': 'Permaculture',
+        'container': 'Container'
+    };
+    $('#currentMethod').text(methodNames[planningMethod] || 'Square Foot');
 
     createGrid(width, length);
     loadExistingPlants(bedId);
@@ -880,6 +977,62 @@ function createBed() {
         success: function(bed) {
             $('#addBedModal').modal('hide');
             location.reload();
+        }
+    });
+}
+
+// Update method info in edit modal
+function updateEditMethodInfo() {
+    const method = $('#editBedMethod').val();
+    const info = METHOD_INFO[method] || '';
+    $('#editMethodInfo').html(info);
+}
+
+// Show edit bed modal with current bed data
+function showEditBedModal() {
+    if (!currentBed) {
+        alert('Please select a bed first');
+        return;
+    }
+
+    // Populate form with current bed data
+    $('#editBedId').val(currentBed.id);
+    $('#editBedName').val(currentBed.name);
+    $('#editBedWidth').val(currentBed.width);
+    $('#editBedLength').val(currentBed.length);
+    $('#editBedLocation').val(currentBed.location || '');
+    $('#editBedSun').val(currentBed.sunExposure || 'full');
+    $('#editBedMethod').val(currentBed.planningMethod || 'square-foot');
+    updateEditMethodInfo();
+
+    // Show modal
+    $('#editBedModal').modal('show');
+}
+
+// Update existing bed
+function updateBed() {
+    const bedId = $('#editBedId').val();
+    const data = {
+        name: $('#editBedName').val(),
+        width: parseFloat($('#editBedWidth').val()),
+        length: parseFloat($('#editBedLength').val()),
+        location: $('#editBedLocation').val(),
+        sunExposure: $('#editBedSun').val(),
+        planningMethod: $('#editBedMethod').val()
+    };
+
+    $.ajax({
+        url: `/api/garden-beds/${bedId}`,
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(bed) {
+            $('#editBedModal').modal('hide');
+            alert('Bed updated successfully! Reloading...');
+            location.reload();
+        },
+        error: function() {
+            alert('Error updating bed. Please try again.');
         }
     });
 }
