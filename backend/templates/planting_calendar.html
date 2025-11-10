@@ -2,13 +2,94 @@
 
 {% block title %}Planting Calendar - Homestead Tracker{% endblock %}
 
+{% block extra_css %}
+<style>
+.calendar-month {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 15px;
+    background-color: #f8f9fa;
+    min-height: 120px;
+}
+.calendar-month h6 {
+    color: var(--primary-green);
+    font-weight: bold;
+    margin-bottom: 10px;
+    border-bottom: 2px solid var(--primary-green);
+    padding-bottom: 5px;
+}
+.planting-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    margin: 2px;
+    border-radius: 12px;
+    background-color: #28a745;
+    color: white;
+    cursor: pointer;
+}
+.planting-badge:hover {
+    background-color: #218838;
+    transform: translateY(-1px);
+}
+.season-tab {
+    cursor: pointer;
+    padding: 10px 20px;
+    margin: 5px;
+    border-radius: 20px;
+    transition: all 0.3s;
+}
+.season-tab.active {
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+.season-spring { background: linear-gradient(135deg, #a8e6cf 0%, #dcedc1 100%); }
+.season-summer { background: linear-gradient(135deg, #ffd89b 0%, #ffeaa7 100%); }
+.season-fall { background: linear-gradient(135deg, #fab1a0 0%, #ff7675 100%); }
+.season-winter { background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%); }
+.timeline {
+    position: relative;
+    height: 80px;
+    background: linear-gradient(to right, #e3f2fd, #fff3e0, #ffebee, #e1f5fe);
+    border-radius: 8px;
+    margin: 20px 0;
+    overflow-x: auto;
+}
+.timeline-event {
+    position: absolute;
+    height: 60px;
+    background-color: #28a745;
+    border-radius: 4px;
+    padding: 5px;
+    font-size: 0.7rem;
+    color: white;
+    cursor: pointer;
+    overflow: hidden;
+    top: 10px;
+}
+.timeline-event:hover {
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.view-toggle {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+.view-toggle button {
+    flex: 1;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-body">
-                <h2><i class="bi bi-calendar-event"></i> Planting Calendar</h2>
-                <p class="text-muted">Plan your seed starting and transplanting schedule based on frost dates.</p>
+                <h2><i class="bi bi-calendar-event"></i> Year-Round Garden Planner</h2>
+                <p class="text-muted">Plan your seed starting, transplanting, and succession plantings throughout the entire year.</p>
             </div>
         </div>
     </div>
@@ -34,32 +115,129 @@
     </div>
 </div>
 
+<!-- View Toggle -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="mb-3">View Mode</h5>
+                <div class="view-toggle">
+                    <button class="btn btn-outline-primary active" id="btn-timeline" onclick="switchView('timeline')">
+                        <i class="bi bi-calendar3"></i> Timeline View
+                    </button>
+                    <button class="btn btn-outline-primary" id="btn-monthly" onclick="switchView('monthly')">
+                        <i class="bi bi-calendar-month"></i> Monthly Calendar
+                    </button>
+                    <button class="btn btn-outline-primary" id="btn-list" onclick="switchView('list')">
+                        <i class="bi bi-list-ul"></i> List View
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Season Filter -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="mb-3">Filter by Season</h5>
+                <div class="d-flex flex-wrap">
+                    <div class="season-tab season-spring active" onclick="filterSeason('all')">
+                        <strong>🌱 All Seasons</strong>
+                    </div>
+                    <div class="season-tab season-spring" onclick="filterSeason('spring')">
+                        <strong>🌸 Spring</strong><br>
+                        <small>Mar - May</small>
+                    </div>
+                    <div class="season-tab season-summer" onclick="filterSeason('summer')">
+                        <strong>☀️ Summer</strong><br>
+                        <small>Jun - Aug</small>
+                    </div>
+                    <div class="season-tab season-fall" onclick="filterSeason('fall')">
+                        <strong>🍂 Fall</strong><br>
+                        <small>Sep - Nov</small>
+                    </div>
+                    <div class="season-tab season-winter" onclick="filterSeason('winter')">
+                        <strong>❄️ Winter</strong><br>
+                        <small>Dec - Feb</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Add Event -->
 <div class="row mb-4">
     <div class="col-12">
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
+        <button class="btn btn-success btn-lg" data-bs-toggle="modal" data-bs-target="#addEventModal">
             <i class="bi bi-plus-circle"></i> Add Planting Event
         </button>
     </div>
 </div>
 
-<!-- Events List -->
-<div class="row">
+<!-- Timeline View -->
+<div id="timelineView" class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">Scheduled Plantings</h5>
+                <h5 class="mb-0">📅 Yearly Timeline</h5>
+            </div>
+            <div class="card-body">
+                <div class="text-muted mb-2">
+                    <small>Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec</small>
+                </div>
+                <div class="timeline" id="yearlyTimeline">
+                    <!-- Timeline events populated by JavaScript -->
+                </div>
+                <div class="text-muted mt-2">
+                    <small>💡 Hover over events to see details. Events show seed start through harvest periods.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Monthly Calendar View -->
+<div id="monthlyView" class="row" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">📆 Monthly Planting Calendar</h5>
+            </div>
+            <div class="card-body">
+                <div class="row" id="monthlyCalendar">
+                    <!-- Months populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- List View -->
+<div id="listView" class="row" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">📋 Scheduled Plantings</h5>
             </div>
             <div class="card-body">
                 {% if events|length == 0 %}
                 <p class="text-muted">No events scheduled yet. Add your first planting!</p>
                 {% else %}
-                <div class="list-group">
+                <div class="list-group" id="eventsList">
                     {% for event in events %}
-                    <div class="list-group-item">
+                    <div class="list-group-item event-item" data-season="{{ event.season or 'spring' }}">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <h6>{{ event.plant_id }}</h6>
+                                <h6>
+                                    {{ event.plant_id }}
+                                    {% if event.succession_planting %}
+                                    <span class="badge bg-info">♻️ Succession</span>
+                                    {% endif %}
+                                </h6>
                                 {% if event.seed_start_date %}
                                 <small>🌱 Start Seeds: {{ event.seed_start_date.strftime('%b %d, %Y') }}</small><br>
                                 {% endif %}
@@ -70,6 +248,12 @@
                                 <small>🌱 Direct Seed: {{ event.direct_seed_date.strftime('%b %d, %Y') }}</small><br>
                                 {% endif %}
                                 <small>🎉 Harvest: {{ event.expected_harvest_date.strftime('%b %d, %Y') }}</small>
+                                {% if event.succession_planting %}
+                                <br><small class="text-info">🔄 Repeat every {{ event.succession_interval }} days</small>
+                                {% endif %}
+                                {% if event.notes %}
+                                <br><small class="text-muted"><em>{{ event.notes }}</em></small>
+                                {% endif %}
                             </div>
                             <div>
                                 <button class="btn btn-sm btn-outline-danger" onclick="deleteEvent({{ event.id }})">
@@ -88,32 +272,89 @@
 
 <!-- Add Event Modal -->
 <div class="modal fade" id="addEventModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Add Planting Event</h5>
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">🌱 Add Planting Event</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Select Plant *</label>
+                        <select class="form-select" id="plantSelect">
+                            <option value="">Choose a plant...</option>
+                            {% for plant in plants %}
+                            <option value="{{ plant.id }}" data-days="{{ plant.daysToMaturity }}">
+                                {{ plant.name }} ({{ plant.daysToMaturity }} days to harvest)
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Season *</label>
+                        <select class="form-select" id="seasonSelect">
+                            <option value="spring">🌸 Spring (Mar-May)</option>
+                            <option value="summer">☀️ Summer (Jun-Aug)</option>
+                            <option value="fall">🍂 Fall (Sep-Nov)</option>
+                            <option value="winter">❄️ Winter (Dec-Feb)</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="mb-3">
-                    <label class="form-label">Select Plant</label>
-                    <select class="form-select" id="plantSelect">
-                        {% for plant in plants %}
-                        <option value="{{ plant.id }}">{{ plant.name }} ({{ plant.daysToMaturity }} days)</option>
-                        {% endfor %}
+                    <label class="form-label">Planting Method *</label>
+                    <select class="form-select" id="plantingMethod">
+                        <option value="transplant">🌱 Start Indoors & Transplant</option>
+                        <option value="direct">🌾 Direct Seed Outdoors</option>
                     </select>
                 </div>
+
+                <hr>
+
                 <div class="mb-3">
-                    <label class="form-label">Planting Method</label>
-                    <select class="form-select" id="plantingMethod">
-                        <option value="transplant">Start Indoors & Transplant</option>
-                        <option value="direct">Direct Seed</option>
-                    </select>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="successionPlanting" onchange="toggleSuccession()">
+                        <label class="form-check-label" for="successionPlanting">
+                            <strong>♻️ Enable Succession Planting</strong>
+                            <br><small class="text-muted">Plant the same crop every few weeks for continuous harvests</small>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="successionOptions" style="display: none;">
+                    <div class="card bg-light mb-3">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Repeat Interval (days)</label>
+                                    <select class="form-select" id="successionInterval">
+                                        <option value="7">Every week (7 days)</option>
+                                        <option value="14" selected>Every 2 weeks (14 days)</option>
+                                        <option value="21">Every 3 weeks (21 days)</option>
+                                        <option value="30">Every month (30 days)</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Number of Plantings</label>
+                                    <input type="number" class="form-control" id="successionCount" value="4" min="2" max="12">
+                                    <small class="text-muted">How many times to repeat this planting</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Notes (optional)</label>
+                    <textarea class="form-control" id="eventNotes" rows="2" placeholder="Add any notes about varieties, spacing, or special instructions..."></textarea>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="addEvent()">Add Event</button>
+                <button type="button" class="btn btn-success" onclick="addEvent()">
+                    <i class="bi bi-plus-circle"></i> Add to Calendar
+                </button>
             </div>
         </div>
     </div>
@@ -123,6 +364,16 @@
 
 {% block extra_js %}
 <script>
+let currentView = 'timeline';
+let currentSeason = 'all';
+let allEvents = {{ events|tojson|safe }};
+
+$(document).ready(function() {
+    renderTimeline();
+    renderMonthlyCalendar();
+});
+
+// Frost date updates
 $('#lastFrostDate, #firstFrostDate').on('change', function() {
     $.ajax({
         url: '/api/frost-dates',
@@ -138,42 +389,202 @@ $('#lastFrostDate, #firstFrostDate').on('change', function() {
     });
 });
 
-function addEvent() {
-    const plantId = $('#plantSelect').val();
-    const method = $('#plantingMethod').val();
-    const lastFrost = new Date($('#lastFrostDate').val());
+// View switching
+function switchView(view) {
+    currentView = view;
 
-    // Simple calculation - in production, get from plant data
-    const seedStart = new Date(lastFrost);
-    seedStart.setDate(seedStart.getDate() - 42); // 6 weeks before
+    // Update button states
+    $('.view-toggle button').removeClass('active');
+    $('#btn-' + view).addClass('active');
 
-    const transplant = new Date(lastFrost);
-    transplant.setDate(transplant.getDate() + 14); // 2 weeks after
+    // Show/hide views
+    $('#timelineView, #monthlyView, #listView').hide();
+    $('#' + view + 'View').show();
+}
 
-    const harvest = new Date(transplant);
-    harvest.setDate(harvest.getDate() + 60); // Approximate
+// Season filtering
+function filterSeason(season) {
+    currentSeason = season;
 
-    const data = {
-        plantId: plantId,
-        seedStartDate: method === 'transplant' ? seedStart.toISOString() : null,
-        transplantDate: method === 'transplant' ? transplant.toISOString() : null,
-        directSeedDate: method === 'direct' ? transplant.toISOString() : null,
-        expectedHarvestDate: harvest.toISOString()
-    };
+    // Update tab states
+    $('.season-tab').removeClass('active');
+    event.target.closest('.season-tab').classList.add('active');
 
-    $.ajax({
-        url: '/api/planting-events',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(data),
-        success: function() {
-            location.reload();
+    // Filter events
+    $('.event-item').each(function() {
+        const eventSeason = $(this).data('season');
+        if (season === 'all' || eventSeason === season) {
+            $(this).show();
+        } else {
+            $(this).hide();
         }
+    });
+
+    // Re-render views
+    renderTimeline();
+    renderMonthlyCalendar();
+}
+
+// Toggle succession planting options
+function toggleSuccession() {
+    const checked = $('#successionPlanting').is(':checked');
+    $('#successionOptions').toggle(checked);
+}
+
+// Render timeline view
+function renderTimeline() {
+    const timeline = $('#yearlyTimeline');
+    timeline.empty();
+
+    allEvents.forEach(event => {
+        // Filter by season if needed
+        if (currentSeason !== 'all' && event.season !== currentSeason) return;
+
+        // Calculate timeline position (percentage of year)
+        const startDate = new Date(event.seed_start_date || event.direct_seed_date || event.transplant_date);
+        const endDate = new Date(event.expected_harvest_date);
+
+        const startPercent = (startDate.getMonth() * 30 + startDate.getDate()) / 365 * 100;
+        const endPercent = (endDate.getMonth() * 30 + endDate.getDate()) / 365 * 100;
+        const width = endPercent - startPercent;
+
+        const eventDiv = $('<div class="timeline-event"></div>');
+        eventDiv.css({
+            left: startPercent + '%',
+            width: Math.max(width, 5) + '%'
+        });
+        eventDiv.attr('title', `${event.plant_id}: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`);
+        eventDiv.html(`<strong>${event.plant_id}</strong>`);
+
+        timeline.append(eventDiv);
     });
 }
 
+// Render monthly calendar
+function renderMonthlyCalendar() {
+    const container = $('#monthlyCalendar');
+    container.empty();
+
+    const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                   'July', 'August', 'September', 'October', 'November', 'December'];
+
+    months.forEach((month, index) => {
+        const monthDiv = $(`
+            <div class="col-md-4 col-lg-3">
+                <div class="calendar-month">
+                    <h6>${month}</h6>
+                    <div class="month-events"></div>
+                </div>
+            </div>
+        `);
+
+        // Add events for this month
+        const eventsDiv = monthDiv.find('.month-events');
+        allEvents.forEach(event => {
+            // Filter by season
+            if (currentSeason !== 'all' && event.season !== currentSeason) return;
+
+            const dates = [
+                event.seed_start_date,
+                event.transplant_date,
+                event.direct_seed_date,
+                event.expected_harvest_date
+            ].filter(d => d !== null);
+
+            dates.forEach(dateStr => {
+                const date = new Date(dateStr);
+                if (date.getMonth() === index) {
+                    const badge = $(`<span class="planting-badge">${event.plant_id}</span>`);
+                    badge.attr('title', `${event.plant_id} - ${date.toLocaleDateString()}`);
+                    eventsDiv.append(badge);
+                }
+            });
+        });
+
+        if (eventsDiv.children().length === 0) {
+            eventsDiv.html('<small class="text-muted">No plantings</small>');
+        }
+
+        container.append(monthDiv);
+    });
+}
+
+// Add planting event (with succession support)
+function addEvent() {
+    const plantId = $('#plantSelect').val();
+    if (!plantId) {
+        alert('Please select a plant');
+        return;
+    }
+
+    const method = $('#plantingMethod').val();
+    const season = $('#seasonSelect').val();
+    const notes = $('#eventNotes').val();
+    const lastFrost = new Date($('#lastFrostDate').val());
+
+    // Get days to maturity from selected option
+    const daysToMaturity = parseInt($('#plantSelect option:selected').data('days')) || 60;
+
+    // Calculate dates
+    const seedStart = new Date(lastFrost);
+    seedStart.setDate(seedStart.getDate() - 42); // 6 weeks before last frost
+
+    const transplant = new Date(lastFrost);
+    transplant.setDate(transplant.getDate() + 14); // 2 weeks after last frost
+
+    const directSeed = new Date(lastFrost);
+    directSeed.setDate(directSeed.getDate() + 7); // 1 week after last frost
+
+    const harvestDate = method === 'transplant' ? new Date(transplant) : new Date(directSeed);
+    harvestDate.setDate(harvestDate.getDate() + daysToMaturity);
+
+    // Check for succession planting
+    const isSuccession = $('#successionPlanting').is(':checked');
+    const successionInterval = parseInt($('#successionInterval').val()) || 14;
+    const successionCount = parseInt($('#successionCount').val()) || 1;
+
+    // Create events (one or multiple for succession)
+    const eventsToCreate = [];
+    for (let i = 0; i < (isSuccession ? successionCount : 1); i++) {
+        const offsetDays = i * successionInterval;
+
+        const eventData = {
+            plantId: plantId,
+            season: season,
+            seedStartDate: method === 'transplant' ? addDays(seedStart, offsetDays).toISOString() : null,
+            transplantDate: method === 'transplant' ? addDays(transplant, offsetDays).toISOString() : null,
+            directSeedDate: method === 'direct' ? addDays(directSeed, offsetDays).toISOString() : null,
+            expectedHarvestDate: addDays(harvestDate, offsetDays).toISOString(),
+            successionPlanting: isSuccession,
+            successionInterval: isSuccession ? successionInterval : null,
+            notes: notes
+        };
+
+        eventsToCreate.push(eventData);
+    }
+
+    // Create all events
+    Promise.all(eventsToCreate.map(data =>
+        $.ajax({
+            url: '/api/planting-events',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data)
+        })
+    )).then(() => {
+        $('#addEventModal').modal('hide');
+        location.reload();
+    });
+}
+
+function addDays(date, days) {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+}
+
 function deleteEvent(id) {
-    if (confirm('Delete this event?')) {
+    if (confirm('Delete this planting event?')) {
         $.ajax({
             url: '/api/planting-events/' + id,
             method: 'DELETE',

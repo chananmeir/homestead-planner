@@ -61,6 +61,7 @@ class PlantingEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     plant_id = db.Column(db.String(50), nullable=False)
     garden_bed_id = db.Column(db.Integer)
+    season = db.Column(db.String(20), default='spring')  # spring, summer, fall, winter
     seed_start_date = db.Column(db.DateTime)
     transplant_date = db.Column(db.DateTime)
     direct_seed_date = db.Column(db.DateTime)
@@ -74,13 +75,21 @@ class PlantingEvent(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'plant_id': self.plant_id,
             'plantId': self.plant_id,
             'gardenBedId': self.garden_bed_id,
+            'season': self.season,
+            'seed_start_date': self.seed_start_date.isoformat() if self.seed_start_date else None,
             'seedStartDate': self.seed_start_date.isoformat() if self.seed_start_date else None,
+            'transplant_date': self.transplant_date.isoformat() if self.transplant_date else None,
             'transplantDate': self.transplant_date.isoformat() if self.transplant_date else None,
+            'direct_seed_date': self.direct_seed_date.isoformat() if self.direct_seed_date else None,
             'directSeedDate': self.direct_seed_date.isoformat() if self.direct_seed_date else None,
+            'expected_harvest_date': self.expected_harvest_date.isoformat() if self.expected_harvest_date else None,
             'expectedHarvestDate': self.expected_harvest_date.isoformat() if self.expected_harvest_date else None,
+            'succession_planting': self.succession_planting,
             'successionPlanting': self.succession_planting,
+            'succession_interval': self.succession_interval,
             'successionInterval': self.succession_interval,
             'completed': self.completed,
             'notes': self.notes

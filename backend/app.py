@@ -296,6 +296,7 @@ def planting_events():
         event = PlantingEvent(
             plant_id=data['plantId'],
             garden_bed_id=data.get('gardenBedId'),
+            season=data.get('season', 'spring'),
             seed_start_date=datetime.fromisoformat(data['seedStartDate']) if data.get('seedStartDate') else None,
             transplant_date=datetime.fromisoformat(data['transplantDate']) if data.get('transplantDate') else None,
             direct_seed_date=datetime.fromisoformat(data['directSeedDate']) if data.get('directSeedDate') else None,
