@@ -18,6 +18,16 @@ import io
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///homestead.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Helper function to parse ISO format strings with Z suffix
+def parse_iso_datetime(iso_string):
+    """Parse ISO format datetime string, handling 'Z' suffix for UTC"""
+    if not iso_string:
+        return None
+    # Replace 'Z' with '+00:00' for Python's fromisoformat
+    if iso_string.endswith('Z'):
+        iso_string = iso_string[:-1] + '+00:00'
+    return datetime.fromisoformat(iso_string)
 app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -299,16 +309,17 @@ def planting_events():
                 plant_id=data['plantId'],
                 garden_bed_id=data.get('gardenBedId'),
                 season=data.get('season', 'spring'),
-                seed_start_date=datetime.fromisoformat(data['seedStartDate']) if data.get('seedStartDate') else None,
-                transplant_date=datetime.fromisoformat(data['transplantDate']) if data.get('transplantDate') else None,
-                direct_seed_date=datetime.fromisoformat(data['directSeedDate']) if data.get('directSeedDate') else None,
-                expected_harvest_date=datetime.fromisoformat(data['expectedHarvestDate']),
+                seed_start_date=parse_iso_datetime(data.get('seedStartDate')),
+                transplant_date=parse_iso_datetime(data.get('transplantDate')),
+                direct_seed_date=parse_iso_datetime(data.get('directSeedDate')),
+                expected_harvest_date=parse_iso_datetime(data['expectedHarvestDate']),
                 succession_planting=data.get('successionPlanting', False),
                 succession_interval=data.get('successionInterval'),
                 notes=data.get('notes', '')
             )
             db.session.add(event)
             db.session.commit()
+            print(f"Successfully created planting event: {event.id}")  # Debug log
             return jsonify(event.to_dict()), 201
         except Exception as e:
             print(f"Error creating planting event: {str(e)}")  # Debug log
