@@ -1,0 +1,648 @@
+{% extends "base.html" %}
+
+{% block title %}Property Designer - Homestead Tracker{% endblock %}
+
+{% block extra_css %}
+<style>
+.property-canvas {
+    position: relative;
+    background-color: #f0e6d2;
+    background-image:
+        linear-gradient(rgba(139, 69, 19, 0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139, 69, 19, 0.1) 1px, transparent 1px);
+    background-size: 20px 20px;
+    border: 3px solid #8b4513;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: crosshair;
+    min-height: 600px;
+}
+
+.placed-structure {
+    position: absolute;
+    border: 2px solid #333;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    cursor: move;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    user-select: none;
+}
+
+.placed-structure:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+    z-index: 100;
+}
+
+.placed-structure.selected {
+    border: 3px solid #ffc107;
+    box-shadow: 0 0 15px rgba(255, 193, 7, 0.6);
+    z-index: 101;
+}
+
+.structure-label {
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.9);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    white-space: nowrap;
+    font-weight: bold;
+}
+
+.structure-palette {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.structure-card {
+    padding: 10px;
+    margin-bottom: 8px;
+    background: white;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.structure-card:hover {
+    border-color: #ffc107;
+    transform: translateX(4px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.structure-card-icon {
+    font-size: 2rem;
+    margin-right: 10px;
+}
+
+.structure-card-info {
+    flex: 1;
+}
+
+.structure-card-name {
+    font-weight: 600;
+    margin-bottom: 3px;
+}
+
+.structure-card-size {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.category-header {
+    background: #f8f9fa;
+    padding: 8px;
+    margin: 10px 0 5px 0;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.category-header:hover {
+    background: #e9ecef;
+}
+
+.zoom-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 200;
+    background: white;
+    padding: 5px;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.grid-line-toggle {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 200;
+}
+
+.property-info-bar {
+    background: #e3f2fd;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <h2><i class="bi bi-map"></i> Property Designer</h2>
+                <p class="lead mb-0">Master homestead layout - Place all structures, coops, greenhouses, orchards, and more!</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Property Selection -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Select Your Property</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <select class="form-select" id="propertySelector" onchange="loadProperty()">
+                            <option value="">Choose a property...</option>
+                            {% for prop in properties %}
+                            <option value="{{ prop.id }}"
+                                    data-width="{{ prop.width }}"
+                                    data-length="{{ prop.length }}"
+                                    data-name="{{ prop.name }}">
+                                {{ prop.name }} ({{ prop.width }}' × {{ prop.length }}' - {{ (prop.width * prop.length / 43560)|round(2) }} acres)
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#addPropertyModal">
+                            <i class="bi bi-plus-circle"></i> Create New Property
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row" id="designerSection" style="display: none;">
+    <!-- Structure Palette -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-tools"></i> Structure Library</h5>
+            </div>
+            <div class="card-body structure-palette" id="structurePalette">
+                <!-- Structures will be loaded here by category -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Property Canvas -->
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0" id="propertyTitle">Property Layout</h5>
+                <div>
+                    <button class="btn btn-sm btn-success" onclick="saveLayout()">
+                        <i class="bi bi-save"></i> Save Layout
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="clearAll()">
+                        <i class="bi bi-trash"></i> Clear All
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="property-info-bar">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>Property Size:</strong> <span id="propertySize"></span>
+                        </div>
+                        <div>
+                            <strong>Structures Placed:</strong> <span id="structureCount">0</span>
+                        </div>
+                        <div>
+                            <strong>Total Cost:</strong> $<span id="totalCost">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="position: relative;">
+                    <div class="grid-line-toggle">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleGrid()">
+                            <i class="bi bi-grid"></i> Toggle Grid
+                        </button>
+                    </div>
+
+                    <div class="property-canvas" id="propertyCanvas">
+                        <!-- Structures will be placed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="alert alert-info mt-3">
+            <h6><i class="bi bi-info-circle"></i> How to Use</h6>
+            <ol class="mb-0">
+                <li>Select or create your property (set dimensions)</li>
+                <li>Click on a structure from the library on the left</li>
+                <li>Click on the canvas to place it</li>
+                <li>Drag structures to reposition them</li>
+                <li>Click a structure to view details or delete it</li>
+                <li>Save your layout when done!</li>
+            </ol>
+        </div>
+    </div>
+</div>
+
+<!-- Add Property Modal -->
+<div class="modal fade" id="addPropertyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create Property</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addPropertyForm">
+                    <div class="mb-3">
+                        <label class="form-label">Property Name</label>
+                        <input type="text" class="form-control" id="propName" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Width (feet)</label>
+                            <input type="number" class="form-control" id="propWidth" value="200" min="50" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Length (feet)</label>
+                            <input type="number" class="form-control" id="propLength" value="200" min="50" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Address (optional)</label>
+                        <input type="text" class="form-control" id="propAddress">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">USDA Zone (optional)</label>
+                            <input type="text" class="form-control" id="propZone" placeholder="e.g., 5b">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Soil Type (optional)</label>
+                            <select class="form-select" id="propSoil">
+                                <option value="">Select...</option>
+                                <option value="clay">Clay</option>
+                                <option value="loam">Loam</option>
+                                <option value="sandy">Sandy</option>
+                                <option value="silty">Silty</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" onclick="createProperty()">Create Property</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentProperty = null;
+let placedStructures = [];
+let structures = {{ structures|tojson }};
+let categories = {{ categories|tojson }};
+let selectedStructureType = null;
+let selectedStructure = null;
+let isDragging = false;
+let dragOffset = {x: 0, y: 0};
+let scale = 2; // pixels per foot
+
+// Load structure palette
+function loadStructurePalette() {
+    const palette = $('#structurePalette');
+    palette.empty();
+
+    Object.keys(categories).forEach(catId => {
+        const category = categories[catId];
+        const catStructures = structures.filter(s => s.category === catId);
+
+        if (catStructures.length > 0) {
+            const header = $(`<div class="category-header">${category.name}</div>`);
+            palette.append(header);
+
+            catStructures.forEach(structure => {
+                const card = $(`
+                    <div class="structure-card d-flex align-items-center" data-structure-id="${structure.id}">
+                        <div class="structure-card-icon">${structure.icon}</div>
+                        <div class="structure-card-info">
+                            <div class="structure-card-name">${structure.name}</div>
+                            <div class="structure-card-size">${structure.width}' × ${structure.length}' - $${structure.cost}</div>
+                        </div>
+                    </div>
+                `);
+
+                card.on('click', function() {
+                    $('.structure-card').removeClass('border-warning');
+                    $(this).addClass('border-warning');
+                    selectedStructureType = structure;
+                    $('#propertyCanvas').css('cursor', 'copy');
+                });
+
+                palette.append(card);
+            });
+        }
+    });
+}
+
+// Load property
+function loadProperty() {
+    const selector = $('#propertySelector');
+    const propId = selector.val();
+
+    if (!propId) {
+        $('#designerSection').hide();
+        return;
+    }
+
+    const option = selector.find(':selected');
+    const width = parseInt(option.data('width'));
+    const length = parseInt(option.data('length'));
+    const name = option.data('name');
+
+    currentProperty = {
+        id: propId,
+        width: width,
+        length: length,
+        name: name
+    };
+
+    $('#propertyTitle').text(name + ' Layout');
+    $('#propertySize').text(`${width}' × ${length}' (${(width * length / 43560).toFixed(2)} acres)`);
+
+    // Set canvas size
+    const canvas = $('#propertyCanvas');
+    canvas.css({
+        width: (width * scale) + 'px',
+        height: (length * scale) + 'px'
+    });
+
+    loadExistingStructures(propId);
+    $('#designerSection').show();
+}
+
+// Canvas click to place structure
+$('#propertyCanvas').on('click', function(e) {
+    if (!selectedStructureType || isDragging) return;
+
+    const canvas = $(this);
+    const rect = canvas[0].getBoundingClientRect();
+    const x = (e.clientX - rect.left) / scale;
+    const y = (e.clientY - rect.top) / scale;
+
+    placeStructure(x, y, selectedStructureType);
+
+    // Reset selection
+    $('.structure-card').removeClass('border-warning');
+    selectedStructureType = null;
+    canvas.css('cursor', 'crosshair');
+});
+
+// Place structure on canvas
+function placeStructure(x, y, structureType) {
+    const structure = {
+        id: Date.now(),
+        structureId: structureType.id,
+        type: structureType,
+        x: x,
+        y: y,
+        rotation: 0
+    };
+
+    const elem = createStructureElement(structure);
+    $('#propertyCanvas').append(elem);
+    placedStructures.push(structure);
+
+    updateStats();
+}
+
+// Create structure DOM element
+function createStructureElement(structure) {
+    const type = structure.type;
+    const elem = $(`
+        <div class="placed-structure"
+             data-structure-id="${structure.id}"
+             style="left: ${structure.x * scale}px;
+                    top: ${structure.y * scale}px;
+                    width: ${type.width * scale}px;
+                    height: ${type.length * scale}px;
+                    background-color: ${type.color};
+                    opacity: 0.8;">
+            <span>${type.icon}</span>
+            <div class="structure-label">${type.name}</div>
+        </div>
+    `);
+
+    // Make draggable
+    elem.on('mousedown', function(e) {
+        e.stopPropagation();
+        isDragging = true;
+        selectedStructure = structure;
+
+        $('.placed-structure').removeClass('selected');
+        $(this).addClass('selected');
+
+        const rect = this.getBoundingClientRect();
+        dragOffset.x = e.clientX - rect.left;
+        dragOffset.y = e.clientY - rect.top;
+    });
+
+    elem.on('dblclick', function(e) {
+        e.stopPropagation();
+        showStructureDetails(structure);
+    });
+
+    return elem;
+}
+
+// Mouse move for dragging
+$(document).on('mousemove', function(e) {
+    if (!isDragging || !selectedStructure) return;
+
+    const canvas = $('#propertyCanvas');
+    const canvasRect = canvas[0].getBoundingClientRect();
+
+    const newX = (e.clientX - canvasRect.left - dragOffset.x) / scale;
+    const newY = (e.clientY - canvasRect.top - dragOffset.y) / scale;
+
+    // Keep within bounds
+    const maxX = currentProperty.width - selectedStructure.type.width;
+    const maxY = currentProperty.length - selectedStructure.type.length;
+
+    selectedStructure.x = Math.max(0, Math.min(newX, maxX));
+    selectedStructure.y = Math.max(0, Math.min(newY, maxY));
+
+    $(`.placed-structure[data-structure-id="${selectedStructure.id}"]`).css({
+        left: (selectedStructure.x * scale) + 'px',
+        top: (selectedStructure.y * scale) + 'px'
+    });
+});
+
+// Mouse up to stop dragging
+$(document).on('mouseup', function() {
+    isDragging = false;
+    selectedStructure = null;
+});
+
+// Show structure details
+function showStructureDetails(structure) {
+    const type = structure.type;
+    let msg = `${type.icon} ${type.name}\n`;
+    msg += `📐 Size: ${type.width}' × ${type.length}'\n`;
+    msg += `📍 Position: (${Math.round(structure.x)}', ${Math.round(structure.y)}')\n`;
+    msg += `💰 Cost: $${type.cost}\n`;
+    msg += `📝 ${type.description}\n\n`;
+    msg += 'Delete this structure?';
+
+    if (confirm(msg)) {
+        deleteStructure(structure.id);
+    }
+}
+
+// Delete structure
+function deleteStructure(id) {
+    placedStructures = placedStructures.filter(s => s.id !== id);
+    $(`.placed-structure[data-structure-id="${id}"]`).remove();
+    updateStats();
+}
+
+// Update stats
+function updateStats() {
+    $('#structureCount').text(placedStructures.length);
+    const totalCost = placedStructures.reduce((sum, s) => sum + (s.type.cost || 0), 0);
+    $('#totalCost').text(totalCost.toLocaleString());
+}
+
+// Load existing structures
+function loadExistingStructures(propertyId) {
+    $.get(`/api/properties/${propertyId}`, function(property) {
+        placedStructures = [];
+        $('#propertyCanvas .placed-structure').remove();
+
+        property.structures.forEach(item => {
+            const structureType = structures.find(s => s.id === item.structureId);
+            if (structureType) {
+                const structure = {
+                    id: item.id,
+                    structureId: item.structureId,
+                    type: structureType,
+                    x: item.position.x,
+                    y: item.position.y,
+                    rotation: item.rotation || 0,
+                    saved: true
+                };
+
+                const elem = createStructureElement(structure);
+                $('#propertyCanvas').append(elem);
+                placedStructures.push(structure);
+            }
+        });
+
+        updateStats();
+    });
+}
+
+// Save layout
+function saveLayout() {
+    if (!currentProperty) return;
+
+    if (placedStructures.length === 0) {
+        alert('No structures to save!');
+        return;
+    }
+
+    // Delete all existing structures
+    $.get(`/api/properties/${currentProperty.id}`, function(property) {
+        const deletePromises = property.structures.map(item => {
+            return $.ajax({
+                url: `/api/placed-structures/${item.id}`,
+                method: 'DELETE'
+            });
+        });
+
+        Promise.all(deletePromises).then(() => {
+            // Add all current structures
+            const addPromises = placedStructures.map(structure => {
+                return $.ajax({
+                    url: '/api/placed-structures',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        propertyId: currentProperty.id,
+                        structureId: structure.structureId,
+                        name: structure.type.name,
+                        position: { x: Math.round(structure.x), y: Math.round(structure.y) },
+                        rotation: structure.rotation || 0,
+                        cost: structure.type.cost
+                    })
+                });
+            });
+
+            Promise.all(addPromises).then(() => {
+                alert('Property layout saved successfully!');
+            });
+        });
+    });
+}
+
+// Clear all structures
+function clearAll() {
+    if (confirm('Clear all structures from the property?')) {
+        placedStructures = [];
+        $('#propertyCanvas .placed-structure').remove();
+        updateStats();
+    }
+}
+
+// Toggle grid
+function toggleGrid() {
+    const canvas = $('#propertyCanvas');
+    if (canvas.css('background-image') === 'none') {
+        canvas.css('background-image', 'linear-gradient(rgba(139, 69, 19, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 69, 19, 0.1) 1px, transparent 1px)');
+    } else {
+        canvas.css('background-image', 'none');
+    }
+}
+
+// Create property
+function createProperty() {
+    const data = {
+        name: $('#propName').val(),
+        width: parseFloat($('#propWidth').val()),
+        length: parseFloat($('#propLength').val()),
+        address: $('#propAddress').val(),
+        zone: $('#propZone').val(),
+        soilType: $('#propSoil').val()
+    };
+
+    $.ajax({
+        url: '/api/properties',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(property) {
+            $('#addPropertyModal').modal('hide');
+            location.reload();
+        }
+    });
+}
+
+// Initialize
+$(document).ready(function() {
+    loadStructurePalette();
+});
+</script>
+{% endblock %}

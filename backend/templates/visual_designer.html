@@ -1,0 +1,892 @@
+{% extends "base.html" %}
+
+{% block title %}Visual Garden Designer - Homestead Tracker{% endblock %}
+
+{% block extra_css %}
+<style>
+.garden-grid {
+    display: grid;
+    gap: 2px;
+    background-color: #8b4513;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    margin: 20px 0;
+}
+
+.grid-cell {
+    background-color: #d2691e;
+    border: 1px solid #8b4513;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    min-height: 50px;
+}
+
+.grid-cell:hover {
+    background-color: #cd853f;
+    transform: scale(1.05);
+}
+
+.grid-cell.occupied {
+    background-color: #90ee90;
+    border: 2px solid #2d7a3e;
+}
+
+.grid-cell.occupied:hover {
+    background-color: #7cdb7c;
+}
+
+.plant-icon {
+    font-size: 2rem;
+    cursor: move;
+    user-select: none;
+}
+
+.plant-palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.plant-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    background-color: white;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    cursor: grab;
+    transition: all 0.2s;
+    min-width: 100px;
+}
+
+.plant-card:hover {
+    border-color: #2d7a3e;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.plant-card.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+.plant-card-icon {
+    font-size: 2.5rem;
+    margin-bottom: 5px;
+}
+
+.plant-card-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+.plant-card-info {
+    font-size: 0.7rem;
+    color: #6c757d;
+    text-align: center;
+}
+
+.grid-info {
+    background-color: #e3f2fd;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.legend {
+    display: flex;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.legend-box {
+    width: 20px;
+    height: 20px;
+    border: 1px solid #333;
+    border-radius: 3px;
+}
+
+.plant-detail-popup {
+    position: absolute;
+    background: white;
+    border: 2px solid #2d7a3e;
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 1000;
+    min-width: 200px;
+}
+
+.companion-good {
+    color: #28a745;
+}
+
+.companion-bad {
+    color: #dc3545;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h2><i class="bi bi-grid-3x3"></i> Visual Garden Designer</h2>
+                <p class="lead mb-0">Drag and drop plants to design your garden layout</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bed Selection -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Select Garden Bed</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <select class="form-select" id="bedSelector" onchange="loadBed()">
+                            <option value="">Choose a bed...</option>
+                            {% for bed in beds %}
+                            <option value="{{ bed.id }}"
+                                    data-width="{{ bed.width }}"
+                                    data-length="{{ bed.length }}"
+                                    data-name="{{ bed.name }}">
+                                {{ bed.name }} ({{ bed.width }}' × {{ bed.length }}')
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBedModal">
+                            <i class="bi bi-plus-circle"></i> Create New Bed
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Plant Palette -->
+<div class="row mb-4" id="plantPaletteSection" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-palette"></i> Plant Palette - Drag to Grid</h5>
+            </div>
+            <div class="card-body">
+                <input type="text" class="form-control mb-3" id="plantSearch" placeholder="Search plants...">
+                <div class="plant-palette" id="plantPalette">
+                    <!-- Plants will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Planting Density Calculator -->
+<div class="row mb-4" id="densityCalculatorSection" style="display: none;">
+    <div class="col-12">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white">
+                <h6 class="mb-0"><i class="bi bi-calculator"></i> Planting Density Calculator - How many plants fit?</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <label class="form-label">Select Plant:</label>
+                        <select class="form-select form-select-sm" id="densityPlant">
+                            <option value="">Choose plant...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <div id="densityResult" class="alert alert-success mb-0" style="display: none;">
+                            <!-- Results appear here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Garden Grid -->
+<div class="row mb-4" id="gridSection" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0" id="bedTitle">Garden Layout</h5>
+                <div>
+                    <button class="btn btn-sm btn-success" onclick="saveLayout()">
+                        <i class="bi bi-save"></i> Save Layout
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="clearGrid()">
+                        <i class="bi bi-trash"></i> Clear All
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="grid-info">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>Grid Size:</strong> <span id="gridSize"></span>
+                        </div>
+                        <div>
+                            <strong>Plants Placed:</strong> <span id="plantCount">0</span>
+                        </div>
+                    </div>
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-box" style="background-color: #d2691e;"></div>
+                            <span>Empty</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box" style="background-color: #90ee90;"></div>
+                            <span>Planted</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="gardenGrid" class="garden-grid">
+                    <!-- Grid will be generated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Instructions -->
+<div class="row">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <h5><i class="bi bi-info-circle"></i> How to Use</h5>
+            <ol>
+                <li><strong>Select a garden bed</strong> from the dropdown (or create a new one)</li>
+                <li><strong>Drag plants</strong> from the palette onto the grid</li>
+                <li><strong>Click a planted cell</strong> to see plant details or remove it</li>
+                <li><strong>Save your layout</strong> when you're done</li>
+            </ol>
+            <p class="mb-0"><strong>Tip:</strong> The grid represents 1-foot squares. Plant spacing is automatically calculated!</p>
+            <hr>
+            <h6>🌿 Companion Planting Indicators:</h6>
+            <ul class="mb-0">
+                <li><strong class="text-success">Green border + ✅</strong> = Good companion plants nearby</li>
+                <li><strong class="text-danger">Red border + ⚠️</strong> = Incompatible plants nearby</li>
+                <li>You'll be warned before placing incompatible plants together!</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Add Bed Modal -->
+<div class="modal fade" id="addBedModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create Garden Bed</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addBedForm">
+                    <!-- Template Selection (Optional) -->
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-lightning-fill text-warning"></i> Quick Start with Template (Optional)</label>
+                        <select class="form-select" id="bedTemplate" onchange="loadTemplate()">
+                            <option value="">Create blank bed</option>
+                            <optgroup label="Square Foot Gardening">
+                                <option value="sfg-4x4-beginner">SFG 4x4 Beginner Mix</option>
+                                <option value="sfg-4x4-tomato-heavy">SFG 4x4 Tomato Lover</option>
+                            </optgroup>
+                            <optgroup label="Row Gardening">
+                                <option value="row-3x10-classic">Row Garden 3x10 Classic</option>
+                            </optgroup>
+                            <optgroup label="Intensive">
+                                <option value="intensive-4x8-production">Intensive 4x8 High Production</option>
+                            </optgroup>
+                            <optgroup label="Succession Planting">
+                                <option value="salad-greens-succession">Succession Salad Greens</option>
+                            </optgroup>
+                        </select>
+                        <small class="text-muted">Templates auto-fill plants and dimensions</small>
+                    </div>
+
+                    <hr>
+
+                    <div class="mb-3">
+                        <label class="form-label">Bed Name *</label>
+                        <input type="text" class="form-control" id="bedName" required>
+                    </div>
+
+                    <!-- Planning Method Selection -->
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-diagram-3"></i> Planning Method *</label>
+                        <select class="form-select" id="bedMethod" onchange="updateMethodInfo()" required>
+                            <option value="square-foot">Square Foot Gardening (SFG)</option>
+                            <option value="row">Row Gardening (Traditional)</option>
+                            <option value="intensive">Intensive/Bio-intensive</option>
+                            <option value="raised-bed">Raised Bed (Flexible)</option>
+                            <option value="permaculture">Permaculture Zones</option>
+                            <option value="container">Container Gardening</option>
+                        </select>
+                        <div id="methodInfo" class="alert alert-info mt-2" style="font-size: 0.85em;">
+                            <strong>Square Foot Gardening:</strong> 1 ft grid squares, perfect for beginners. Easy tracking and maximum space efficiency.
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Width (feet) *</label>
+                            <input type="number" class="form-control" id="bedWidth" value="4" min="2" max="20" step="0.5" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Length (feet) *</label>
+                            <input type="number" class="form-control" id="bedLength" value="8" min="2" max="30" step="0.5" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Sun Exposure</label>
+                            <select class="form-select" id="bedSun">
+                                <option value="full">Full Sun</option>
+                                <option value="partial">Partial</option>
+                                <option value="shade">Shade</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Location</label>
+                            <input type="text" class="form-control" id="bedLocation" placeholder="e.g., Backyard">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createBed()">Create Bed</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentBed = null;
+let gridData = [];
+let plants = {{ plants|tojson }};
+let draggedPlant = null;
+
+// Plant icons mapping
+const plantIcons = {
+    'tomato': '🍅',
+    'pepper': '🌶️',
+    'cucumber': '🥒',
+    'zucchini': '🥒',
+    'carrot': '🥕',
+    'beet': '🫐',
+    'radish': '🔴',
+    'onion': '🧅',
+    'lettuce': '🥬',
+    'spinach': '🥬',
+    'kale': '🥬',
+    'basil': '🌿',
+    'parsley': '🌿',
+    'default': '🌱'
+};
+
+function getPlantIcon(plantName) {
+    const name = plantName.toLowerCase();
+    for (let key in plantIcons) {
+        if (name.includes(key)) {
+            return plantIcons[key];
+        }
+    }
+    return plantIcons.default;
+}
+
+// Load plant palette
+function loadPlantPalette() {
+    const palette = $('#plantPalette');
+    palette.empty();
+
+    plants.forEach(plant => {
+        const icon = getPlantIcon(plant.name);
+        const card = $(`
+            <div class="plant-card" draggable="true" data-plant-id="${plant.id}">
+                <div class="plant-card-icon">${icon}</div>
+                <div class="plant-card-name">${plant.name}</div>
+                <div class="plant-card-info">${plant.daysToMaturity} days</div>
+                <div class="plant-card-info">${plant.spacing}" spacing</div>
+            </div>
+        `);
+
+        card.on('dragstart', function(e) {
+            draggedPlant = plant;
+            $(this).addClass('dragging');
+        });
+
+        card.on('dragend', function(e) {
+            $(this).removeClass('dragging');
+        });
+
+        palette.append(card);
+    });
+}
+
+// Search plants
+$('#plantSearch').on('input', function() {
+    const search = $(this).val().toLowerCase();
+    $('.plant-card').each(function() {
+        const text = $(this).text().toLowerCase();
+        $(this).toggle(text.indexOf(search) > -1);
+    });
+});
+
+// Load bed and create grid
+function loadBed() {
+    const selector = $('#bedSelector');
+    const bedId = selector.val();
+
+    if (!bedId) {
+        $('#plantPaletteSection, #gridSection').hide();
+        return;
+    }
+
+    const option = selector.find(':selected');
+    const width = parseInt(option.data('width'));
+    const length = parseInt(option.data('length'));
+    const name = option.data('name');
+
+    currentBed = {
+        id: bedId,
+        width: width,
+        length: length,
+        name: name
+    };
+
+    $('#bedTitle').text(name + ' Layout');
+    $('#gridSize').text(`${width}' × ${length}' (${width * length} sq ft)`);
+
+    createGrid(width, length);
+    loadExistingPlants(bedId);
+    loadPlantPalette();
+    initDensityCalculator();
+
+    $('#plantPaletteSection, #gridSection, #densityCalculatorSection').show();
+}
+
+// Create grid
+function createGrid(width, length) {
+    const grid = $('#gardenGrid');
+    grid.empty();
+    grid.css('grid-template-columns', `repeat(${width}, 1fr)`);
+
+    gridData = [];
+
+    for (let y = 0; y < length; y++) {
+        for (let x = 0; x < width; x++) {
+            const cell = $(`<div class="grid-cell" data-x="${x}" data-y="${y}"></div>`);
+
+            cell.on('dragover', function(e) {
+                e.preventDefault();
+            });
+
+            cell.on('drop', function(e) {
+                e.preventDefault();
+                if (draggedPlant) {
+                    placePlant(x, y, draggedPlant);
+                }
+            });
+
+            cell.on('click', function() {
+                const existing = gridData.find(p => p.x === x && p.y === y);
+                if (existing && existing.plant) {
+                    showPlantDetails(existing, $(this));
+                }
+            });
+
+            grid.append(cell);
+            gridData.push({ x, y, plant: null });
+        }
+    }
+}
+
+// Get adjacent plants
+function getAdjacentPlants(x, y) {
+    const adjacent = [];
+    const directions = [
+        {dx: -1, dy: 0},  // left
+        {dx: 1, dy: 0},   // right
+        {dx: 0, dy: -1},  // up
+        {dx: 0, dy: 1}    // down
+    ];
+
+    directions.forEach(dir => {
+        const adjX = x + dir.dx;
+        const adjY = y + dir.dy;
+        const adjCell = gridData.find(p => p.x === adjX && p.y === adjY);
+        if (adjCell && adjCell.plant) {
+            adjacent.push({
+                x: adjX,
+                y: adjY,
+                plant: adjCell.plant
+            });
+        }
+    });
+
+    return adjacent;
+}
+
+// Check companion planting relationships
+function checkCompanionPlants(x, y, plant) {
+    const adjacent = getAdjacentPlants(x, y);
+    const warnings = [];
+    const goods = [];
+
+    adjacent.forEach(adj => {
+        // Check if incompatible
+        if (plant.incompatiblePlants && plant.incompatiblePlants.includes(adj.plant.id)) {
+            warnings.push(`❌ ${plant.name} is incompatible with ${adj.plant.name}`);
+        }
+        // Check if good companion
+        else if (plant.companionPlants && plant.companionPlants.includes(adj.plant.id)) {
+            goods.push(`✅ ${plant.name} grows well with ${adj.plant.name}`);
+        }
+    });
+
+    return { warnings, goods };
+}
+
+// Update companion indicators on all cells
+function updateCompanionIndicators() {
+    gridData.forEach(item => {
+        if (item.plant) {
+            const cell = $(`.grid-cell[data-x="${item.x}"][data-y="${item.y}"]`);
+            const companions = checkCompanionPlants(item.x, item.y, item.plant);
+
+            // Remove existing indicators
+            cell.find('.companion-indicator').remove();
+
+            // Add visual indicators
+            if (companions.warnings.length > 0) {
+                cell.css('border-color', '#dc3545');
+                cell.css('border-width', '3px');
+                const indicator = $('<div class="companion-indicator" style="position: absolute; top: 2px; right: 2px; font-size: 1rem;">⚠️</div>');
+                cell.append(indicator);
+            } else if (companions.goods.length > 0) {
+                cell.css('border-color', '#28a745');
+                cell.css('border-width', '3px');
+                const indicator = $('<div class="companion-indicator" style="position: absolute; top: 2px; right: 2px; font-size: 1rem;">✅</div>');
+                cell.append(indicator);
+            } else {
+                cell.css('border-color', '#2d7a3e');
+                cell.css('border-width', '2px');
+            }
+        }
+    });
+}
+
+// Place plant on grid
+function placePlant(x, y, plant) {
+    const cell = $(`.grid-cell[data-x="${x}"][data-y="${y}"]`);
+    const existing = gridData.find(p => p.x === x && p.y === y);
+
+    if (existing.plant) {
+        alert('This cell is already occupied!');
+        return;
+    }
+
+    // Check companion planting
+    const companions = checkCompanionPlants(x, y, plant);
+
+    // Show warnings for incompatible plants
+    if (companions.warnings.length > 0) {
+        const warningMsg = '⚠️ Warning: Incompatible plants nearby!\n\n' +
+                          companions.warnings.join('\n') +
+                          '\n\nPlace anyway?';
+        if (!confirm(warningMsg)) {
+            return;
+        }
+    }
+
+    // Show good companion info
+    if (companions.goods.length > 0) {
+        const goodMsg = '✅ Good companions nearby!\n\n' + companions.goods.join('\n');
+        setTimeout(() => alert(goodMsg), 100);
+    }
+
+    const icon = getPlantIcon(plant.name);
+    cell.addClass('occupied').html(`<span class="plant-icon" title="${plant.name}">${icon}</span>`);
+
+    existing.plant = plant;
+    updatePlantCount();
+
+    // Update companion indicators for adjacent cells
+    updateCompanionIndicators();
+}
+
+// Remove plant from grid
+function removePlant(x, y) {
+    const cell = $(`.grid-cell[data-x="${x}"][data-y="${y}"]`);
+    const existing = gridData.find(p => p.x === x && p.y === y);
+
+    cell.removeClass('occupied').empty();
+    cell.css('border-color', '#8b4513');
+    cell.css('border-width', '1px');
+    existing.plant = null;
+    updatePlantCount();
+
+    // Update companion indicators for remaining plants
+    updateCompanionIndicators();
+}
+
+// Show plant details
+function showPlantDetails(gridItem, cellElement) {
+    const plant = gridItem.plant;
+    const companions = checkCompanionPlants(gridItem.x, gridItem.y, plant);
+
+    let msg = `🌱 Plant: ${plant.name}\n`;
+    msg += `📍 Position: (${gridItem.x}, ${gridItem.y})\n`;
+    msg += `⏱️ Days to Maturity: ${plant.daysToMaturity}\n`;
+    msg += `📏 Spacing: ${plant.spacing}"\n`;
+
+    if (companions.goods.length > 0) {
+        msg += `\n✅ Good Companions Nearby:\n`;
+        companions.goods.forEach(g => msg += `  ${g}\n`);
+    }
+
+    if (companions.warnings.length > 0) {
+        msg += `\n⚠️ Incompatible Plants Nearby:\n`;
+        companions.warnings.forEach(w => msg += `  ${w}\n`);
+    }
+
+    msg += '\n\nRemove this plant?';
+
+    if (confirm(msg)) {
+        removePlant(gridItem.x, gridItem.y);
+    }
+}
+
+// Update plant count
+function updatePlantCount() {
+    const count = gridData.filter(p => p.plant !== null).length;
+    $('#plantCount').text(count);
+}
+
+// Load existing plants from database
+function loadExistingPlants(bedId) {
+    $.get(`/api/garden-beds/${bedId}`, function(bed) {
+        bed.plants.forEach(item => {
+            const plant = plants.find(p => p.id === item.plantId);
+            if (plant && item.position) {
+                const x = item.position.x;
+                const y = item.position.y;
+                placePlant(x, y, plant);
+            }
+        });
+    });
+}
+
+// Save layout
+function saveLayout() {
+    if (!currentBed) return;
+
+    const plantedItems = gridData.filter(p => p.plant !== null);
+
+    if (plantedItems.length === 0) {
+        alert('No plants to save!');
+        return;
+    }
+
+    // Delete all existing plants for this bed first
+    $.get(`/api/garden-beds/${currentBed.id}`, function(bed) {
+        const deletePromises = bed.plants.map(item => {
+            return $.ajax({
+                url: `/api/planted-items/${item.id}`,
+                method: 'DELETE'
+            });
+        });
+
+        Promise.all(deletePromises).then(() => {
+            // Now add all plants with their positions
+            const addPromises = plantedItems.map(item => {
+                return $.ajax({
+                    url: '/api/planted-items',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        plantId: item.plant.id,
+                        gardenBedId: currentBed.id,
+                        quantity: 1,
+                        status: 'planned',
+                        position: { x: item.x, y: item.y }
+                    })
+                });
+            });
+
+            Promise.all(addPromises).then(() => {
+                alert('Garden layout saved successfully!');
+            });
+        });
+    });
+}
+
+// Clear grid
+function clearGrid() {
+    if (confirm('Clear all plants from the grid?')) {
+        gridData.forEach(item => {
+            if (item.plant) {
+                removePlant(item.x, item.y);
+            }
+        });
+    }
+}
+
+// Initialize density calculator
+function initDensityCalculator() {
+    const dropdown = $('#densityPlant');
+    dropdown.empty().append('<option value="">Choose plant...</option>');
+
+    // Populate with all plants
+    plants.forEach(plant => {
+        dropdown.append(`<option value="${plant.id}">${plant.name}</option>`);
+    });
+
+    // Calculate density when plant is selected
+    dropdown.off('change').on('change', function() {
+        calculatePlantDensity($(this).val());
+    });
+}
+
+// Calculate planting density
+function calculatePlantDensity(plantId) {
+    if (!plantId || !currentBed) {
+        $('#densityResult').hide();
+        return;
+    }
+
+    $.ajax({
+        url: '/api/spacing-calculator',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            plantId: plantId,
+            bedWidth: currentBed.width,
+            bedLength: currentBed.length,
+            method: currentBed.planningMethod || 'square-foot'
+        }),
+        success: function(result) {
+            const plant = plants.find(p => p.id === plantId);
+            let html = `<strong>${plant.name}</strong> in ${currentBed.width}' × ${currentBed.length}' bed using <strong>${result.method}</strong> method:<br>`;
+
+            if (result.method === 'square-foot') {
+                html += `<i class="bi bi-check-circle text-success"></i> <strong>${result.perSquare}</strong> plants per square foot = <strong>${result.totalPlants} total plants</strong>`;
+            } else if (result.method === 'row') {
+                html += `<i class="bi bi-check-circle text-success"></i> ${result.numRows} rows × ${result.plantsPerRow} plants = <strong>${result.totalPlants} total plants</strong><br>`;
+                html += `<small>Row spacing: ${result.rowSpacing}", Plant spacing: ${result.plantSpacing}"</small>`;
+            } else if (result.method === 'intensive') {
+                html += `<i class="bi bi-check-circle text-success"></i> Hexagonal spacing at ${result.spacing}" = <strong>${result.totalPlants} total plants</strong>`;
+            }
+
+            $('#densityResult').html(html).show();
+        },
+        error: function() {
+            $('#densityResult').html('<i class="bi bi-exclamation-triangle"></i> Unable to calculate spacing for this plant.').show();
+        }
+    });
+}
+
+// Method info descriptions
+const METHOD_INFO = {
+    'square-foot': '<strong>Square Foot Gardening (SFG):</strong> 1 ft grid squares, perfect for beginners. Easy tracking and maximum space efficiency. Ideal for 3x3, 4x4, or 4x8 beds.',
+    'row': '<strong>Row Gardening:</strong> Traditional method with rows and paths between. Good for larger spaces and mechanical cultivation. Rows are 12-36" apart.',
+    'intensive': '<strong>Intensive/Bio-intensive:</strong> Hexagonal spacing for maximum yield. Requires 24" deep double-dug beds. Best for experienced gardeners focused on sustainability.',
+    'raised-bed': '<strong>Raised Bed:</strong> Flexible method for various heights (6-24"+). Better drainage, warmer soil, and easier access. Can use any planting method inside.',
+    'permaculture': '<strong>Permaculture Zones:</strong> Zone-based planning with perennials and guilds. Mimics nature with low maintenance. Focus on mature plant size and companion planting.',
+    'container': '<strong>Container Gardening:</strong> Pots, buckets, and containers. Perfect for patios, balconies, or renters. Mobile and flexible - move with sun or bring indoors.'
+};
+
+// Update method info when method changes
+function updateMethodInfo() {
+    const method = $('#bedMethod').val();
+    const info = METHOD_INFO[method] || '';
+    $('#methodInfo').html(info);
+
+    // Update default dimensions based on method
+    if (method === 'square-foot') {
+        $('#bedWidth').val(4);
+        $('#bedLength').val(4);
+    } else if (method === 'row') {
+        $('#bedWidth').val(3);
+        $('#bedLength').val(10);
+    } else if (method === 'intensive') {
+        $('#bedWidth').val(4);
+        $('#bedLength').val(8);
+    }
+}
+
+// Load template and auto-fill form
+function loadTemplate() {
+    const templateId = $('#bedTemplate').val();
+    if (!templateId) return;
+
+    $.get('/api/bed-templates/' + templateId, function(template) {
+        $('#bedName').val(template.name);
+        $('#bedWidth').val(template.bedSize.width);
+        $('#bedLength').val(template.bedSize.length);
+        $('#bedMethod').val(template.method);
+        updateMethodInfo();
+    });
+}
+
+// Create new bed
+function createBed() {
+    const data = {
+        name: $('#bedName').val(),
+        width: parseFloat($('#bedWidth').val()),
+        length: parseFloat($('#bedLength').val()),
+        location: $('#bedLocation').val(),
+        sunExposure: $('#bedSun').val(),
+        planningMethod: $('#bedMethod').val()
+    };
+
+    $.ajax({
+        url: '/api/garden-beds',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(bed) {
+            $('#addBedModal').modal('hide');
+            location.reload();
+        }
+    });
+}
+
+// Initialize on page load
+$(document).ready(function() {
+    loadPlantPalette();
+});
+</script>
+{% endblock %}

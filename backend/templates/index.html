@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Homestead Tracker{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center py-5">
+                <h1 class="display-4"><i class="bi bi-flower2"></i> Welcome to Homestead Tracker</h1>
+                <p class="lead">Your complete solution for year-round garden planning and management</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Garden Planner -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-flower1 text-success" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Garden Planner</h5>
+                <p class="card-text">Create and manage garden beds, track plantings, and optimize your layout with companion planting.</p>
+                <a href="/garden-planner" class="btn btn-primary">Get Started</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Visual Designer -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-success">
+            <div class="card-body text-center">
+                <i class="bi bi-grid-3x3 text-success" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Garden Designer</h5>
+                <p class="card-text">Drag-and-drop garden layout designer! Place plants visually on a grid and see your garden come to life.</p>
+                <a href="/visual-designer" class="btn btn-success">Design Now</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Property Designer -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-warning">
+            <div class="card-body text-center">
+                <i class="bi bi-map text-warning" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Property Designer ⭐ NEW</h5>
+                <p class="card-text">Master homestead layout! Place coops, greenhouses, orchards, sheds, and all structures on your entire property.</p>
+                <a href="/property-designer" class="btn btn-warning">Design Property</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Planting Calendar -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-calendar-event text-primary" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Planting Calendar</h5>
+                <p class="card-text">Schedule seed starting and transplanting based on your frost dates for optimal timing.</p>
+                <a href="/planting-calendar" class="btn btn-primary">View Calendar</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Winter Garden -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-snow text-info" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Winter Garden</h5>
+                <p class="card-text">Plan season extension using Eliot Coleman & Nico Jabour's proven techniques.</p>
+                <a href="/winter-garden" class="btn btn-primary">Plan Winter</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weather -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-cloud-sun text-warning" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Weather & Alerts</h5>
+                <p class="card-text">Monitor weather conditions, frost warnings, and growing degree days.</p>
+                <a href="/weather" class="btn btn-primary">View Weather</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compost Tracker -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-recycle text-success" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Compost Tracker</h5>
+                <p class="card-text">Manage compost piles with automatic C:N ratio calculations for perfect compost.</p>
+                <a href="/compost-tracker" class="btn btn-primary">Track Compost</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Harvest Tracker -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-basket text-warning" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Harvest Tracker</h5>
+                <p class="card-text">Log your harvests, track quantities, and monitor quality over time.</p>
+                <a href="/harvest-tracker" class="btn btn-primary">View Harvests</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seed Inventory -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-flower3 text-danger" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Seed Inventory</h5>
+                <p class="card-text">Manage your seed collection, track germination rates, and expiration dates.</p>
+                <a href="/seed-inventory" class="btn btn-primary">View Seeds</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Photo Gallery -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-camera text-info" style="font-size: 3rem;"></i>
+                <h5 class="card-title mt-3">Photo Gallery</h5>
+                <p class="card-text">Document your garden's progress with photos and track plant development.</p>
+                <a href="/photos" class="btn btn-primary">View Photos</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Card -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 bg-light">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-info-circle"></i> Key Features</h5>
+                <ul class="list-unstyled">
+                    <li><i class="bi bi-check-circle text-success"></i> 57+ Plants (Veggies, Herbs, Flowers, Fruits)</li>
+                    <li><i class="bi bi-check-circle text-success"></i> 35+ Homestead Structures</li>
+                    <li><i class="bi bi-check-circle text-success"></i> Property Layout Designer</li>
+                    <li><i class="bi bi-check-circle text-success"></i> Companion Planting Hints</li>
+                    <li><i class="bi bi-check-circle text-success"></i> Winter-Hardy Varieties</li>
+                    <li><i class="bi bi-check-circle text-success"></i> Frost Date Calculator</li>
+                    <li><i class="bi bi-check-circle text-success"></i> C:N Ratio Tracker</li>
+                    <li><i class="bi bi-check-circle text-success"></i> Season Extension</li>
+                    <li><i class="bi bi-check-circle text-success"></i> Harvest Tracking</li>
+                    <li><i class="bi bi-check-circle text-success"></i> Photo Gallery & PDF Export</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tips Section -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightbulb"></i> Getting Started Tips
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>For New Users:</h6>
+                        <ol>
+                            <li>Set your frost dates in the Planting Calendar</li>
+                            <li>Create your first garden bed in Garden Planner</li>
+                            <li>Browse the plant database and add your favorites</li>
+                            <li>Schedule plantings based on your zone</li>
+                        </ol>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Winter Gardening:</h6>
+                        <p>Learn from the experts! Eliot Coleman and Nico Jabour have proven that with proper season extension techniques, you can harvest fresh vegetables year-round, even in cold climates.</p>
+                        <p><strong>Key principle:</strong> Each layer of protection adds ~10-15°F of frost protection!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

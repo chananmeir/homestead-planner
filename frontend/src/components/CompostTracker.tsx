@@ -1,0 +1,554 @@
+import React, { useState } from 'react';
+import { CompostPile, CompostIngredient, COMPOST_MATERIALS } from '../types';
+import { format, addDays, differenceInDays } from 'date-fns';
+
+const CompostTracker: React.FC = () => {
+  const [compostPiles, setCompostPiles] = useState<CompostPile[]>([]);
+  const [showAddPile, setShowAddPile] = useState(false);
+  const [showIngredientForm, setShowIngredientForm] = useState<string | null>(null);
+
+  const [newPile, setNewPile] = useState({
+    name: '',
+    location: '',
+    width: 3,
+    length: 3,
+    height: 3,
+  });
+
+  const [newIngredient, setNewIngredient] = useState({
+    material: '',
+    amount: 0,
+  });
+
+  const addCompostPile = () => {
+    if (!newPile.name || !newPile.location) return;
+
+    const pile: CompostPile = {
+      id: String(Date.now()),
+      name: newPile.name,
+      startDate: new Date(),
+      location: newPile.location,
+      size: {
+        width: newPile.width,
+        length: newPile.length,
+        height: newPile.height,
+      },
+      ingredients: [],
+      turnSchedule: generateTurnSchedule(),
+      estimatedReadyDate: addDays(new Date(), 90), // 3 months default
+      moisture: 'ideal',
+      carbonNitrogenRatio: 30,
+      status: 'building',
+    };
+
+    setCompostPiles([...compostPiles, pile]);
+    setShowAddPile(false);
+    setNewPile({ name: '', location: '', width: 3, length: 3, height: 3 });
+  };
+
+  const generateTurnSchedule = (): Date[] => {
+    // Turn every 7 days for the first month, then every 14 days
+    const schedule: Date[] = [];
+    const today = new Date();
+
+    for (let i = 1; i <= 4; i++) {
+      schedule.push(addDays(today, i * 7));
+    }
+    for (let i = 1; i <= 4; i++) {
+      schedule.push(addDays(today, 28 + i * 14));
+    }
+
+    return schedule;
+  };
+
+  const addIngredient = (pileId: string) => {
+    if (!newIngredient.material || newIngredient.amount <= 0) return;
+
+    const material = COMPOST_MATERIALS[newIngredient.material];
+    if (!material) return;
+
+    const ingredient: CompostIngredient = {
+      name: newIngredient.material,
+      amount: newIngredient.amount,
+      type: material.type,
+      addedDate: new Date(),
+      carbonNitrogenRatio: material.cnRatio,
+    };
+
+    const updatedPiles = compostPiles.map((pile) => {
+      if (pile.id === pileId) {
+        const updatedIngredients = [...pile.ingredients, ingredient];
+        const newCNRatio = calculateCNRatio(updatedIngredients);
+
+        return {
+          ...pile,
+          ingredients: updatedIngredients,
+          carbonNitrogenRatio: newCNRatio,
+        };
+      }
+      return pile;
+    });
+
+    setCompostPiles(updatedPiles);
+    setShowIngredientForm(null);
+    setNewIngredient({ material: '', amount: 0 });
+  };
+
+  const calculateCNRatio = (ingredients: CompostIngredient[]): number => {
+    if (ingredients.length === 0) return 30;
+
+    let totalCarbon = 0;
+    let totalNitrogen = 0;
+
+    ingredients.forEach((ingredient) => {
+      const carbon = (ingredient.carbonNitrogenRatio * ingredient.amount) / 31;
+      const nitrogen = ingredient.amount / 31;
+      totalCarbon += carbon;
+      totalNitrogen += nitrogen;
+    });
+
+    return totalNitrogen === 0 ? 30 : totalCarbon / totalNitrogen;
+  };
+
+  const markPileTurned = (pileId: string) => {
+    setCompostPiles(
+      compostPiles.map((pile) =>
+        pile.id === pileId ? { ...pile, lastTurned: new Date() } : pile
+      )
+    );
+  };
+
+  const updatePileStatus = (pileId: string, status: CompostPile['status']) => {
+    setCompostPiles(
+      compostPiles.map((pile) => (pile.id === pileId ? { ...pile, status } : pile))
+    );
+  };
+
+  const updateMoisture = (pileId: string, moisture: CompostPile['moisture']) => {
+    setCompostPiles(
+      compostPiles.map((pile) =>
+        pile.id === pileId ? { ...pile, moisture } : pile
+      )
+    );
+  };
+
+  const deletePile = (pileId: string) => {
+    setCompostPiles(compostPiles.filter((pile) => pile.id !== pileId));
+  };
+
+  const getCNRatioColor = (ratio: number) => {
+    if (ratio >= 25 && ratio <= 35) return 'text-green-600';
+    if (ratio >= 20 && ratio <= 40) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const getCNRatioStatus = (ratio: number) => {
+    if (ratio >= 25 && ratio <= 35) return 'Ideal';
+    if (ratio >= 20 && ratio <= 40) return 'Good';
+    if (ratio < 20) return 'Too much nitrogen (wet, smelly)';
+    return 'Too much carbon (slow)';
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-2xl font-bold text-gray-800 mb-4">
+          ♻️ Compost Tracker
+        </h2>
+        <p className="text-gray-600">
+          Manage your compost piles, track ingredients, and maintain the perfect
+          carbon-to-nitrogen ratio for fast, efficient composting.
+        </p>
+      </div>
+
+      {/* Add Pile Button */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <button
+          onClick={() => setShowAddPile(!showAddPile)}
+          className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+        >
+          {showAddPile ? 'Cancel' : '+ Add Compost Pile'}
+        </button>
+
+        {showAddPile && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pile Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newPile.name}
+                    onChange={(e) =>
+                      setNewPile({ ...newPile, name: e.target.value })
+                    }
+                    placeholder="e.g., Main Pile, Kitchen Scraps"
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Location
+                  </label>
+                  <input
+                    type="text"
+                    value={newPile.location}
+                    onChange={(e) =>
+                      setNewPile({ ...newPile, location: e.target.value })
+                    }
+                    placeholder="e.g., Back corner, Near shed"
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Pile Size (feet)
+                </label>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs text-gray-600">Width</label>
+                    <input
+                      type="number"
+                      value={newPile.width}
+                      onChange={(e) =>
+                        setNewPile({ ...newPile, width: Number(e.target.value) })
+                      }
+                      min="1"
+                      max="10"
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600">Length</label>
+                    <input
+                      type="number"
+                      value={newPile.length}
+                      onChange={(e) =>
+                        setNewPile({ ...newPile, length: Number(e.target.value) })
+                      }
+                      min="1"
+                      max="10"
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600">Height</label>
+                    <input
+                      type="number"
+                      value={newPile.height}
+                      onChange={(e) =>
+                        setNewPile({ ...newPile, height: Number(e.target.value) })
+                      }
+                      min="1"
+                      max="6"
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={addCompostPile}
+                disabled={!newPile.name || !newPile.location}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                Create Pile
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Compost Piles */}
+      {compostPiles.length === 0 ? (
+        <div className="bg-white rounded-lg shadow-md p-12 text-center">
+          <p className="text-gray-500">
+            No compost piles yet. Create your first pile to start tracking!
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {compostPiles.map((pile) => (
+            <div key={pile.id} className="bg-white rounded-lg shadow-md p-6">
+              {/* Pile Header */}
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-800">
+                    {pile.name}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    {pile.location} • Started{' '}
+                    {format(pile.startDate, 'MMM d, yyyy')}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Size: {pile.size.width}' × {pile.size.length}' ×{' '}
+                    {pile.size.height}'
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <select
+                    value={pile.status}
+                    onChange={(e) =>
+                      updatePileStatus(pile.id, e.target.value as CompostPile['status'])
+                    }
+                    className="px-3 py-1 border rounded-lg text-sm"
+                  >
+                    <option value="building">Building</option>
+                    <option value="cooking">Cooking</option>
+                    <option value="curing">Curing</option>
+                    <option value="ready">Ready</option>
+                  </select>
+                  <button
+                    onClick={() => deletePile(pile.id)}
+                    className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              {/* C:N Ratio */}
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-semibold text-gray-700">
+                      Carbon:Nitrogen Ratio
+                    </h4>
+                    <p className="text-sm text-gray-600">Ideal: 25-35:1</p>
+                  </div>
+                  <div className="text-right">
+                    <div
+                      className={`text-3xl font-bold ${getCNRatioColor(
+                        pile.carbonNitrogenRatio
+                      )}`}
+                    >
+                      {pile.carbonNitrogenRatio.toFixed(1)}:1
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      {getCNRatioStatus(pile.carbonNitrogenRatio)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Moisture & Temperature */}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Moisture Level
+                  </label>
+                  <select
+                    value={pile.moisture}
+                    onChange={(e) =>
+                      updateMoisture(pile.id, e.target.value as CompostPile['moisture'])
+                    }
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="dry">Too Dry</option>
+                    <option value="ideal">Ideal (like a wrung sponge)</option>
+                    <option value="wet">Too Wet</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Last Turned
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={
+                        pile.lastTurned
+                          ? format(pile.lastTurned, 'MMM d, yyyy')
+                          : 'Never'
+                      }
+                      readOnly
+                      className="flex-1 px-3 py-2 border rounded-lg bg-gray-50"
+                    />
+                    <button
+                      onClick={() => markPileTurned(pile.id)}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      Turn Now
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ingredients */}
+              <div className="mb-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="font-semibold text-gray-700">
+                    Ingredients ({pile.ingredients.length})
+                  </h4>
+                  <button
+                    onClick={() =>
+                      setShowIngredientForm(
+                        showIngredientForm === pile.id ? null : pile.id
+                      )
+                    }
+                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                  >
+                    {showIngredientForm === pile.id ? 'Cancel' : '+ Add Material'}
+                  </button>
+                </div>
+
+                {showIngredientForm === pile.id && (
+                  <div className="mb-3 p-3 bg-gray-50 rounded border">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Material
+                        </label>
+                        <select
+                          value={newIngredient.material}
+                          onChange={(e) =>
+                            setNewIngredient({
+                              ...newIngredient,
+                              material: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                        >
+                          <option value="">Select material...</option>
+                          <optgroup label="Green (Nitrogen)">
+                            <option value="grass-clippings">Grass Clippings</option>
+                            <option value="food-scraps">Food Scraps</option>
+                            <option value="coffee-grounds">Coffee Grounds</option>
+                            <option value="fresh-manure">Fresh Manure</option>
+                            <option value="hay-fresh">Fresh Hay</option>
+                          </optgroup>
+                          <optgroup label="Brown (Carbon)">
+                            <option value="dried-leaves">Dried Leaves</option>
+                            <option value="straw">Straw</option>
+                            <option value="wood-chips">Wood Chips</option>
+                            <option value="cardboard">Cardboard</option>
+                            <option value="paper">Paper</option>
+                            <option value="sawdust">Sawdust</option>
+                          </optgroup>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Amount (cubic feet)
+                        </label>
+                        <input
+                          type="number"
+                          value={newIngredient.amount || ''}
+                          onChange={(e) =>
+                            setNewIngredient({
+                              ...newIngredient,
+                              amount: Number(e.target.value),
+                            })
+                          }
+                          min="0"
+                          step="0.5"
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => addIngredient(pile.id)}
+                      disabled={
+                        !newIngredient.material || newIngredient.amount <= 0
+                      }
+                      className="mt-2 px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {pile.ingredients.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-4">
+                      No materials added yet
+                    </p>
+                  ) : (
+                    pile.ingredients.map((ingredient, index) => (
+                      <div
+                        key={index}
+                        className="flex justify-between items-center p-2 bg-gray-50 rounded"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`px-2 py-1 text-xs rounded ${
+                              ingredient.type === 'green'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-yellow-100 text-yellow-800'
+                            }`}
+                          >
+                            {ingredient.type}
+                          </span>
+                          <span className="text-sm font-medium text-gray-700">
+                            {ingredient.name.replace(/-/g, ' ')}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {ingredient.amount} cu ft • C:N {ingredient.carbonNitrogenRatio}
+                          :1
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Ready Date */}
+              <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-blue-900">
+                    Estimated Ready Date
+                  </span>
+                  <span className="text-sm text-blue-800">
+                    {format(pile.estimatedReadyDate, 'MMM d, yyyy')} (
+                    {differenceInDays(pile.estimatedReadyDate, new Date())} days)
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Composting Tips */}
+      <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+        <h3 className="font-semibold text-green-900 mb-3">
+          ♻️ Composting Best Practices
+        </h3>
+        <ul className="text-sm text-green-800 space-y-2">
+          <li>
+            • <strong>C:N Ratio:</strong> Aim for 25-35:1. Too much nitrogen
+            (low ratio) causes odor. Too much carbon (high ratio) slows
+            decomposition.
+          </li>
+          <li>
+            • <strong>Moisture:</strong> Should feel like a wrung-out sponge. Add
+            water if too dry, add dry browns if too wet.
+          </li>
+          <li>
+            • <strong>Aeration:</strong> Turn pile every 7-14 days to add oxygen and
+            speed decomposition.
+          </li>
+          <li>
+            • <strong>Temperature:</strong> Active piles heat to 130-160°F, killing
+            weed seeds and pathogens.
+          </li>
+          <li>
+            • <strong>Size:</strong> Minimum 3'×3'×3' for proper heat generation.
+          </li>
+          <li>
+            • <strong>Timeline:</strong> Hot compost: 3-4 months. Cold compost: 6-12
+            months.
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+export default CompostTracker;

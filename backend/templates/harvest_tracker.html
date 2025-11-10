@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Harvest Tracker - Homestead Tracker{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2><i class="bi bi-basket"></i> Harvest Tracker</h2>
+                        <p class="text-muted">Log your harvests and track productivity</p>
+                    </div>
+                    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addHarvestModal">
+                        <i class="bi bi-plus-circle"></i> Log Harvest
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header"><h5>Harvest Records</h5></div>
+            <div class="card-body">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Plant</th>
+                            <th>Quantity</th>
+                            <th>Quality</th>
+                            <th>Notes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for record in records %}
+                        <tr>
+                            <td>{{ record.harvest_date.strftime('%b %d, %Y') }}</td>
+                            <td>{{ record.plant_id }}</td>
+                            <td>{{ record.quantity }} {{ record.unit }}</td>
+                            <td><span class="badge bg-{% if record.quality == 'excellent' %}success{% elif record.quality == 'good' %}primary{% else %}warning{% endif %}">{{ record.quality }}</span></td>
+                            <td>{{ record.notes or '-' }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-danger" onclick="deleteHarvest({{ record.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addHarvestModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Log Harvest</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="harvestForm">
+                    <div class="mb-3">
+                        <label>Plant</label>
+                        <select class="form-select" id="plantId" required>
+                            {% for plant in plants %}
+                            <option value="{{ plant.id }}">{{ plant.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label>Quantity</label>
+                            <input type="number" class="form-control" id="quantity" step="0.1" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label>Unit</label>
+                            <select class="form-select" id="unit">
+                                <option value="lbs">lbs</option>
+                                <option value="oz">oz</option>
+                                <option value="count">count</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label>Quality</label>
+                        <select class="form-select" id="quality">
+                            <option value="excellent">Excellent</option>
+                            <option value="good" selected>Good</option>
+                            <option value="fair">Fair</option>
+                            <option value="poor">Poor</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>Date</label>
+                        <input type="date" class="form-control" id="harvestDate" value="{{ today }}">
+                    </div>
+                    <div class="mb-3">
+                        <label>Notes</label>
+                        <textarea class="form-control" id="notes"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="addHarvest()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function addHarvest() {
+    const data = {
+        plantId: $('#plantId').val(),
+        quantity: parseFloat($('#quantity').val()),
+        unit: $('#unit').val(),
+        quality: $('#quality').val(),
+        harvestDate: $('#harvestDate').val() ? new Date($('#harvestDate').val()).toISOString() : new Date().toISOString(),
+        notes: $('#notes').val()
+    };
+
+    $.ajax({
+        url: '/api/harvests',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            location.reload();
+        }
+    });
+}
+
+function deleteHarvest(id) {
+    if (confirm('Delete this harvest record?')) {
+        $.ajax({
+            url: '/api/harvests/' + id,
+            method: 'DELETE',
+            success: function() {
+                location.reload();
+            }
+        });
+    }
+}
+</script>
+{% endblock %}

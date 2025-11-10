@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Seed Inventory - Homestead Tracker{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2><i class="bi bi-seeds"></i> Seed Inventory</h2>
+                        <p class="text-muted">Track your seed collection and germination rates</p>
+                    </div>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSeedModal">
+                        <i class="bi bi-plus-circle"></i> Add Seed
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header"><h5>Seed Collection</h5></div>
+            <div class="card-body">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Variety</th>
+                            <th>Brand</th>
+                            <th>Quantity</th>
+                            <th>Germination %</th>
+                            <th>Expires</th>
+                            <th>Location</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for seed in seeds %}
+                        <tr>
+                            <td><strong>{{ seed.variety }}</strong></td>
+                            <td>{{ seed.brand or '-' }}</td>
+                            <td>{{ seed.quantity or '-' }}</td>
+                            <td>
+                                {% if seed.germination_rate %}
+                                <span class="badge bg-{% if seed.germination_rate >= 80 %}success{% elif seed.germination_rate >= 60 %}warning{% else %}danger{% endif %}">
+                                    {{ seed.germination_rate }}%
+                                </span>
+                                {% else %}-{% endif %}
+                            </td>
+                            <td>{{ seed.expiration_date.strftime('%Y') if seed.expiration_date else '-' }}</td>
+                            <td>{{ seed.location or '-' }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-danger" onclick="deleteSeed({{ seed.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addSeedModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Seed</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="seedForm">
+                    <div class="mb-3">
+                        <label>Plant Type</label>
+                        <select class="form-select" id="plantId" required>
+                            {% for plant in plants %}
+                            <option value="{{ plant.id }}">{{ plant.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>Variety</label>
+                        <input type="text" class="form-control" id="variety" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label>Brand</label>
+                            <input type="text" class="form-control" id="brand">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label>Quantity</label>
+                            <input type="number" class="form-control" id="quantity">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label>Purchase Date</label>
+                            <input type="date" class="form-control" id="purchaseDate">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label>Expiration Date</label>
+                            <input type="date" class="form-control" id="expirationDate">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label>Germination Rate (%)</label>
+                            <input type="number" class="form-control" id="germinationRate" min="0" max="100">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label>Storage Location</label>
+                            <input type="text" class="form-control" id="location">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label>Notes</label>
+                        <textarea class="form-control" id="notes"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="addSeed()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function addSeed() {
+    const data = {
+        plantId: $('#plantId').val(),
+        variety: $('#variety').val(),
+        brand: $('#brand').val(),
+        quantity: parseInt($('#quantity').val()) || null,
+        purchaseDate: $('#purchaseDate').val() || null,
+        expirationDate: $('#expirationDate').val() || null,
+        germinationRate: parseFloat($('#germinationRate').val()) || null,
+        location: $('#location').val(),
+        notes: $('#notes').val()
+    };
+
+    $.ajax({
+        url: '/api/seeds',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            location.reload();
+        }
+    });
+}
+
+function deleteSeed(id) {
+    if (confirm('Delete this seed?')) {
+        $.ajax({
+            url: '/api/seeds/' + id,
+            method: 'DELETE',
+            success: function() {
+                location.reload();
+            }
+        });
+    }
+}
+</script>
+{% endblock %}

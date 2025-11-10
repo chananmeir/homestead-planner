@@ -1,0 +1,1226 @@
+{% extends "base.html" %}
+
+{% block title %}Livestock Tracking - Homestead Tracker{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-piggy-bank"></i> Livestock Tracking</h2>
+        <p class="lead">Track your chickens, bees, and other livestock with detailed records</p>
+    </div>
+</div>
+
+<!-- Tab Navigation -->
+<ul class="nav nav-tabs mb-4" id="livestockTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="chickens-tab" data-bs-toggle="tab" data-bs-target="#chickens" type="button" role="tab">
+            <i class="bi bi-egg"></i> Chickens & Eggs
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="bees-tab" data-bs-toggle="tab" data-bs-target="#bees" type="button" role="tab">
+            <i class="bi bi-bug"></i> Beehives
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="livestock-tab" data-bs-toggle="tab" data-bs-target="#livestock" type="button" role="tab">
+            <i class="bi bi-tree"></i> Other Livestock
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="livestockTabContent">
+
+    <!-- ==================== CHICKENS TAB ==================== -->
+    <div class="tab-pane fade show active" id="chickens" role="tabpanel">
+        <div class="row">
+            <!-- Chicken Flocks List -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-egg-fried"></i> My Flocks</h5>
+                        <button class="btn btn-sm btn-primary" onclick="showAddChickenModal()">
+                            <i class="bi bi-plus"></i> Add Flock
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="chickensList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Egg Production -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-egg"></i> Egg Production</h5>
+                        <button class="btn btn-sm btn-success" onclick="showLogEggsModal()">
+                            <i class="bi bi-plus"></i> Log Eggs
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="eggProductionList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== BEES TAB ==================== -->
+    <div class="tab-pane fade" id="bees" role="tabpanel">
+        <div class="row">
+            <!-- Beehives List -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-bug"></i> My Hives</h5>
+                        <button class="btn btn-sm btn-warning" onclick="showAddBeehiveModal()">
+                            <i class="bi bi-plus"></i> Add Hive
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="beehivesList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hive Inspections & Harvests -->
+            <div class="col-md-6">
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-clipboard-check"></i> Recent Inspections</h6>
+                        <button class="btn btn-sm btn-info" onclick="showLogInspectionModal()">
+                            <i class="bi bi-plus"></i> Log Inspection
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="inspectionsList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-droplet"></i> Honey Harvests</h6>
+                        <button class="btn btn-sm btn-warning" onclick="showLogHarvestModal()">
+                            <i class="bi bi-plus"></i> Log Harvest
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="harvestsList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== OTHER LIVESTOCK TAB ==================== -->
+    <div class="tab-pane fade" id="livestock" role="tabpanel">
+        <div class="row">
+            <!-- Livestock List -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-tree"></i> My Livestock</h5>
+                        <button class="btn btn-sm btn-success" onclick="showAddLivestockModal()">
+                            <i class="bi bi-plus"></i> Add Animal
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="livestockList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Health Records -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-heart-pulse"></i> Health Records</h5>
+                        <button class="btn btn-sm btn-danger" onclick="showAddHealthRecordModal()">
+                            <i class="bi bi-plus"></i> Add Record
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="healthRecordsList">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MODALS ==================== -->
+
+<!-- Add Chicken Flock Modal -->
+<div class="modal fade" id="addChickenModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Chicken Flock</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addChickenForm">
+                    <div class="mb-3">
+                        <label class="form-label">Flock Name *</label>
+                        <input type="text" class="form-control" id="chickenName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Breed</label>
+                        <input type="text" class="form-control" id="chickenBreed" placeholder="Rhode Island Red, Leghorn, etc.">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Quantity</label>
+                        <input type="number" class="form-control" id="chickenQuantity" value="1" min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Hatch Date</label>
+                        <input type="date" class="form-control" id="chickenHatchDate">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Purpose</label>
+                        <select class="form-select" id="chickenPurpose">
+                            <option value="">Select...</option>
+                            <option value="eggs">Eggs</option>
+                            <option value="meat">Meat</option>
+                            <option value="dual-purpose">Dual Purpose</option>
+                            <option value="show">Show</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sex</label>
+                        <select class="form-select" id="chickenSex">
+                            <option value="">Select...</option>
+                            <option value="hens">Hens</option>
+                            <option value="roosters">Roosters</option>
+                            <option value="mixed">Mixed</option>
+                            <option value="unknown">Unknown</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Coop Location</label>
+                        <input type="text" class="form-control" id="chickenCoopLocation">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="chickenNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="addChicken()">Add Flock</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Eggs Modal -->
+<div class="modal fade" id="logEggsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Log Egg Production</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="logEggsForm">
+                    <div class="mb-3">
+                        <label class="form-label">Flock *</label>
+                        <select class="form-select" id="eggChickenId" required>
+                            <option value="">Select flock...</option>
+                            <!-- Populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Collected *</label>
+                        <input type="number" class="form-control" id="eggsCollected" required min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Sold</label>
+                        <input type="number" class="form-control" id="eggsSold" value="0" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Eaten</label>
+                        <input type="number" class="form-control" id="eggsEaten" value="0" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Incubated</label>
+                        <input type="number" class="form-control" id="eggsIncubated" value="0" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="eggNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="logEggs()">Log Eggs</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Beehive Modal -->
+<div class="modal fade" id="addBeehiveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Beehive</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addBeehiveForm">
+                    <div class="mb-3">
+                        <label class="form-label">Hive Name *</label>
+                        <input type="text" class="form-control" id="hiveName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Hive Type</label>
+                        <select class="form-select" id="hiveType">
+                            <option value="">Select...</option>
+                            <option value="Langstroth">Langstroth</option>
+                            <option value="Top Bar">Top Bar</option>
+                            <option value="Warre">Warre</option>
+                            <option value="Flow Hive">Flow Hive</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Install Date</label>
+                        <input type="date" class="form-control" id="hiveInstallDate">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Queen Marked?</label>
+                        <select class="form-select" id="hiveQueenMarked">
+                            <option value="false">No</option>
+                            <option value="true">Yes</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Queen Color</label>
+                        <input type="text" class="form-control" id="hiveQueenColor" placeholder="White, Yellow, Red, Green, Blue">
+                        <small class="text-muted">Year marking: White=1/6, Yellow=2/7, Red=3/8, Green=4/9, Blue=5/0</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Location</label>
+                        <input type="text" class="form-control" id="hiveLocation">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="hiveNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" onclick="addBeehive()">Add Hive</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Hive Inspection Modal -->
+<div class="modal fade" id="logInspectionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Log Hive Inspection</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="logInspectionForm">
+                    <div class="mb-3">
+                        <label class="form-label">Hive *</label>
+                        <select class="form-select" id="inspectionHiveId" required>
+                            <option value="">Select hive...</option>
+                            <!-- Populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Queen Seen?</label>
+                        <select class="form-select" id="inspectionQueenSeen">
+                            <option value="">Unknown</option>
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Eggs Seen?</label>
+                        <select class="form-select" id="inspectionEggsSeen">
+                            <option value="">Unknown</option>
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Brood Pattern</label>
+                        <select class="form-select" id="inspectionBroodPattern">
+                            <option value="">Select...</option>
+                            <option value="excellent">Excellent</option>
+                            <option value="good">Good</option>
+                            <option value="spotty">Spotty</option>
+                            <option value="poor">Poor</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Temperament</label>
+                        <select class="form-select" id="inspectionTemperament">
+                            <option value="">Select...</option>
+                            <option value="calm">Calm</option>
+                            <option value="defensive">Defensive</option>
+                            <option value="aggressive">Aggressive</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Population</label>
+                        <select class="form-select" id="inspectionPopulation">
+                            <option value="">Select...</option>
+                            <option value="strong">Strong</option>
+                            <option value="medium">Medium</option>
+                            <option value="weak">Weak</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Honey Stores</label>
+                        <select class="form-select" id="inspectionHoneyStores">
+                            <option value="">Select...</option>
+                            <option value="full">Full</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Pests/Diseases</label>
+                        <input type="text" class="form-control" id="inspectionPests" placeholder="Varroa, small hive beetle, etc.">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Actions Taken</label>
+                        <input type="text" class="form-control" id="inspectionActions" placeholder="Added super, treated for mites, etc.">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="inspectionNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-info" onclick="logInspection()">Log Inspection</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Honey Harvest Modal -->
+<div class="modal fade" id="logHarvestModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Log Honey Harvest</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="logHarvestForm">
+                    <div class="mb-3">
+                        <label class="form-label">Hive *</label>
+                        <select class="form-select" id="harvestHiveId" required>
+                            <option value="">Select hive...</option>
+                            <!-- Populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Frames Harvested</label>
+                        <input type="number" class="form-control" id="harvestFrames" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Honey Weight (lbs)</label>
+                        <input type="number" class="form-control" id="harvestHoneyWeight" step="0.1" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Wax Weight (lbs)</label>
+                        <input type="number" class="form-control" id="harvestWaxWeight" step="0.1" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="harvestNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" onclick="logHarvest()">Log Harvest</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Livestock Modal -->
+<div class="modal fade" id="addLivestockModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Livestock Animal</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addLivestockForm">
+                    <div class="mb-3">
+                        <label class="form-label">Species *</label>
+                        <select class="form-select" id="livestockSpecies" required>
+                            <option value="">Select...</option>
+                            <option value="goat">Goat</option>
+                            <option value="sheep">Sheep</option>
+                            <option value="pig">Pig</option>
+                            <option value="cow">Cow</option>
+                            <option value="rabbit">Rabbit</option>
+                            <option value="turkey">Turkey</option>
+                            <option value="duck">Duck</option>
+                            <option value="goose">Goose</option>
+                            <option value="horse">Horse</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" id="livestockName">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Breed</label>
+                        <input type="text" class="form-control" id="livestockBreed">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tag Number</label>
+                        <input type="text" class="form-control" id="livestockTagNumber">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Birth Date</label>
+                        <input type="date" class="form-control" id="livestockBirthDate">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sex</label>
+                        <select class="form-select" id="livestockSex">
+                            <option value="">Select...</option>
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="unknown">Unknown</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Purpose</label>
+                        <select class="form-select" id="livestockPurpose">
+                            <option value="">Select...</option>
+                            <option value="dairy">Dairy</option>
+                            <option value="meat">Meat</option>
+                            <option value="fiber">Fiber</option>
+                            <option value="breeding">Breeding</option>
+                            <option value="pet">Pet</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sire (Father)</label>
+                        <input type="text" class="form-control" id="livestockSire">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Dam (Mother)</label>
+                        <input type="text" class="form-control" id="livestockDam">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Location</label>
+                        <input type="text" class="form-control" id="livestockLocation">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Weight (lbs)</label>
+                        <input type="number" class="form-control" id="livestockWeight" step="0.1" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="livestockNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="addLivestock()">Add Animal</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Health Record Modal -->
+<div class="modal fade" id="addHealthRecordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Health Record</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addHealthRecordForm">
+                    <div class="mb-3">
+                        <label class="form-label">Animal *</label>
+                        <select class="form-select" id="healthLivestockId" required>
+                            <option value="">Select animal...</option>
+                            <!-- Populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Type *</label>
+                        <select class="form-select" id="healthType" required>
+                            <option value="">Select...</option>
+                            <option value="vaccination">Vaccination</option>
+                            <option value="deworming">Deworming</option>
+                            <option value="illness">Illness</option>
+                            <option value="injury">Injury</option>
+                            <option value="hoof-trim">Hoof Trim</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Treatment</label>
+                        <input type="text" class="form-control" id="healthTreatment">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Medication</label>
+                        <input type="text" class="form-control" id="healthMedication">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Dosage</label>
+                        <input type="text" class="form-control" id="healthDosage">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Veterinarian</label>
+                        <input type="text" class="form-control" id="healthVeterinarian">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cost</label>
+                        <input type="number" class="form-control" id="healthCost" step="0.01" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Next Due Date</label>
+                        <input type="date" class="form-control" id="healthNextDueDate">
+                        <small class="text-muted">For vaccinations/dewormings that need to be repeated</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-control" id="healthNotes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="addHealthRecord()">Add Record</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let chickens = [];
+let eggProduction = [];
+let beehives = [];
+let inspections = [];
+let harvests = [];
+let livestock = [];
+let healthRecords = [];
+
+$(document).ready(function() {
+    loadAllData();
+});
+
+function loadAllData() {
+    loadChickens();
+    loadEggProduction();
+    loadBeehives();
+    loadInspections();
+    loadHarvests();
+    loadLivestock();
+    loadHealthRecords();
+}
+
+// ==================== CHICKEN FUNCTIONS ====================
+
+function loadChickens() {
+    $.get('/api/chickens', function(data) {
+        chickens = data;
+        displayChickens();
+        populateChickenDropdowns();
+    });
+}
+
+function displayChickens() {
+    const container = $('#chickensList');
+    if (chickens.length === 0) {
+        container.html('<p class="text-muted">No flocks yet. Add your first flock!</p>');
+        return;
+    }
+
+    let html = '';
+    chickens.forEach(chicken => {
+        const ageWeeks = chicken.ageWeeks ? `${chicken.ageWeeks} weeks old` : 'Age unknown';
+        html += `
+            <div class="card mb-2">
+                <div class="card-body">
+                    <h6>${chicken.name} <span class="badge bg-primary">${chicken.quantity} birds</span></h6>
+                    <p class="mb-1 small">
+                        <strong>Breed:</strong> ${chicken.breed || 'N/A'}<br>
+                        <strong>Age:</strong> ${ageWeeks}<br>
+                        <strong>Purpose:</strong> ${chicken.purpose || 'N/A'}<br>
+                        <strong>Location:</strong> ${chicken.coopLocation || 'N/A'}
+                    </p>
+                    ${chicken.notes ? `<p class="small mb-1"><em>${chicken.notes}</em></p>` : ''}
+                    <button class="btn btn-sm btn-danger" onclick="deleteChicken(${chicken.id})">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+    container.html(html);
+}
+
+function populateChickenDropdowns() {
+    const dropdown = $('#eggChickenId');
+    dropdown.empty().append('<option value="">Select flock...</option>');
+    chickens.forEach(chicken => {
+        dropdown.append(`<option value="${chicken.id}">${chicken.name} (${chicken.quantity} birds)</option>`);
+    });
+}
+
+function showAddChickenModal() {
+    $('#addChickenForm')[0].reset();
+    $('#addChickenModal').modal('show');
+}
+
+function addChicken() {
+    const data = {
+        name: $('#chickenName').val(),
+        breed: $('#chickenBreed').val(),
+        quantity: parseInt($('#chickenQuantity').val()) || 1,
+        hatchDate: $('#chickenHatchDate').val() || null,
+        purpose: $('#chickenPurpose').val(),
+        sex: $('#chickenSex').val(),
+        coopLocation: $('#chickenCoopLocation').val(),
+        notes: $('#chickenNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/chickens',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#addChickenModal').modal('hide');
+            loadChickens();
+        }
+    });
+}
+
+function deleteChicken(id) {
+    if (confirm('Delete this flock?')) {
+        $.ajax({
+            url: '/api/chickens/' + id,
+            method: 'DELETE',
+            success: function() {
+                loadChickens();
+            }
+        });
+    }
+}
+
+// ==================== EGG PRODUCTION FUNCTIONS ====================
+
+function loadEggProduction() {
+    $.get('/api/egg-production', function(data) {
+        eggProduction = data;
+        displayEggProduction();
+    });
+}
+
+function displayEggProduction() {
+    const container = $('#eggProductionList');
+    if (eggProduction.length === 0) {
+        container.html('<p class="text-muted">No egg records yet.</p>');
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    eggProduction.slice(0, 10).forEach(record => {
+        const date = new Date(record.date).toLocaleDateString();
+        const chickenName = chickens.find(c => c.id === record.chickenId)?.name || 'Unknown';
+        html += `
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between">
+                    <strong>${date} - ${chickenName}</strong>
+                    <span class="badge bg-success">${record.eggsCollected} eggs</span>
+                </div>
+                <small>
+                    Sold: ${record.eggsSold} | Eaten: ${record.eggsEaten} | Incubated: ${record.eggsIncubated}
+                </small>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.html(html);
+}
+
+function showLogEggsModal() {
+    if (chickens.length === 0) {
+        alert('Please add a chicken flock first!');
+        return;
+    }
+    $('#logEggsForm')[0].reset();
+    $('#logEggsModal').modal('show');
+}
+
+function logEggs() {
+    const data = {
+        chickenId: parseInt($('#eggChickenId').val()),
+        eggsCollected: parseInt($('#eggsCollected').val()),
+        eggsSold: parseInt($('#eggsSold').val()) || 0,
+        eggsEaten: parseInt($('#eggsEaten').val()) || 0,
+        eggsIncubated: parseInt($('#eggsIncubated').val()) || 0,
+        notes: $('#eggNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/egg-production',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#logEggsModal').modal('hide');
+            loadEggProduction();
+        }
+    });
+}
+
+// ==================== BEEHIVE FUNCTIONS ====================
+
+function loadBeehives() {
+    $.get('/api/beehives', function(data) {
+        beehives = data;
+        displayBeehives();
+        populateBeehiveDropdowns();
+    });
+}
+
+function displayBeehives() {
+    const container = $('#beehivesList');
+    if (beehives.length === 0) {
+        container.html('<p class="text-muted">No hives yet. Add your first hive!</p>');
+        return;
+    }
+
+    let html = '';
+    beehives.forEach(hive => {
+        const queenInfo = hive.queenMarked ? `👑 ${hive.queenColor || 'Marked'}` : 'Queen not marked';
+        html += `
+            <div class="card mb-2">
+                <div class="card-body">
+                    <h6>${hive.name} <span class="badge bg-warning">${hive.type || 'Hive'}</span></h6>
+                    <p class="mb-1 small">
+                        <strong>Queen:</strong> ${queenInfo}<br>
+                        <strong>Location:</strong> ${hive.location || 'N/A'}<br>
+                        <strong>Status:</strong> ${hive.status}
+                    </p>
+                    ${hive.notes ? `<p class="small mb-1"><em>${hive.notes}</em></p>` : ''}
+                    <button class="btn btn-sm btn-danger" onclick="deleteBeehive(${hive.id})">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+    container.html(html);
+}
+
+function populateBeehiveDropdowns() {
+    const dropdowns = [$('#inspectionHiveId'), $('#harvestHiveId')];
+    dropdowns.forEach(dropdown => {
+        dropdown.empty().append('<option value="">Select hive...</option>');
+        beehives.forEach(hive => {
+            dropdown.append(`<option value="${hive.id}">${hive.name}</option>`);
+        });
+    });
+}
+
+function showAddBeehiveModal() {
+    $('#addBeehiveForm')[0].reset();
+    $('#addBeehiveModal').modal('show');
+}
+
+function addBeehive() {
+    const data = {
+        name: $('#hiveName').val(),
+        type: $('#hiveType').val(),
+        installDate: $('#hiveInstallDate').val() || null,
+        queenMarked: $('#hiveQueenMarked').val() === 'true',
+        queenColor: $('#hiveQueenColor').val(),
+        location: $('#hiveLocation').val(),
+        notes: $('#hiveNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/beehives',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#addBeehiveModal').modal('hide');
+            loadBeehives();
+        }
+    });
+}
+
+function deleteBeehive(id) {
+    if (confirm('Delete this hive?')) {
+        $.ajax({
+            url: '/api/beehives/' + id,
+            method: 'DELETE',
+            success: function() {
+                loadBeehives();
+            }
+        });
+    }
+}
+
+// ==================== INSPECTION FUNCTIONS ====================
+
+function loadInspections() {
+    $.get('/api/hive-inspections', function(data) {
+        inspections = data;
+        displayInspections();
+    });
+}
+
+function displayInspections() {
+    const container = $('#inspectionsList');
+    if (inspections.length === 0) {
+        container.html('<p class="text-muted">No inspections yet.</p>');
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    inspections.slice(0, 5).forEach(inspection => {
+        const date = new Date(inspection.date).toLocaleDateString();
+        const hiveName = beehives.find(h => h.id === inspection.beehiveId)?.name || 'Unknown';
+        const queenIcon = inspection.queenSeen ? '👑' : '';
+        html += `
+            <div class="list-group-item">
+                <strong>${date} - ${hiveName}</strong> ${queenIcon}<br>
+                <small>
+                    Brood: ${inspection.broodPattern || 'N/A'} |
+                    Population: ${inspection.population || 'N/A'} |
+                    Temperament: ${inspection.temperament || 'N/A'}
+                </small>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.html(html);
+}
+
+function showLogInspectionModal() {
+    if (beehives.length === 0) {
+        alert('Please add a beehive first!');
+        return;
+    }
+    $('#logInspectionForm')[0].reset();
+    $('#logInspectionModal').modal('show');
+}
+
+function logInspection() {
+    const data = {
+        beehiveId: parseInt($('#inspectionHiveId').val()),
+        queenSeen: $('#inspectionQueenSeen').val() === 'true' ? true : ($('#inspectionQueenSeen').val() === 'false' ? false : null),
+        eggsSeen: $('#inspectionEggsSeen').val() === 'true' ? true : ($('#inspectionEggsSeen').val() === 'false' ? false : null),
+        broodPattern: $('#inspectionBroodPattern').val(),
+        temperament: $('#inspectionTemperament').val(),
+        population: $('#inspectionPopulation').val(),
+        honeyStores: $('#inspectionHoneyStores').val(),
+        pestsDiseases: $('#inspectionPests').val(),
+        actionsTaken: $('#inspectionActions').val(),
+        notes: $('#inspectionNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/hive-inspections',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#logInspectionModal').modal('hide');
+            loadInspections();
+        }
+    });
+}
+
+// ==================== HARVEST FUNCTIONS ====================
+
+function loadHarvests() {
+    $.get('/api/honey-harvests', function(data) {
+        harvests = data;
+        displayHarvests();
+    });
+}
+
+function displayHarvests() {
+    const container = $('#harvestsList');
+    if (harvests.length === 0) {
+        container.html('<p class="text-muted">No honey harvests yet.</p>');
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    harvests.slice(0, 5).forEach(harvest => {
+        const date = new Date(harvest.date).toLocaleDateString();
+        const hiveName = beehives.find(h => h.id === harvest.beehiveId)?.name || 'Unknown';
+        html += `
+            <div class="list-group-item">
+                <strong>${date} - ${hiveName}</strong><br>
+                <small>
+                    Honey: ${harvest.honeyWeight || 0} lbs |
+                    Wax: ${harvest.waxWeight || 0} lbs |
+                    Frames: ${harvest.framesHarvested || 0}
+                </small>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.html(html);
+}
+
+function showLogHarvestModal() {
+    if (beehives.length === 0) {
+        alert('Please add a beehive first!');
+        return;
+    }
+    $('#logHarvestForm')[0].reset();
+    $('#logHarvestModal').modal('show');
+}
+
+function logHarvest() {
+    const data = {
+        beehiveId: parseInt($('#harvestHiveId').val()),
+        framesHarvested: parseInt($('#harvestFrames').val()) || 0,
+        honeyWeight: parseFloat($('#harvestHoneyWeight').val()) || 0,
+        waxWeight: parseFloat($('#harvestWaxWeight').val()) || 0,
+        notes: $('#harvestNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/honey-harvests',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#logHarvestModal').modal('hide');
+            loadHarvests();
+        }
+    });
+}
+
+// ==================== LIVESTOCK FUNCTIONS ====================
+
+function loadLivestock() {
+    $.get('/api/livestock', function(data) {
+        livestock = data;
+        displayLivestock();
+        populateLivestockDropdown();
+    });
+}
+
+function displayLivestock() {
+    const container = $('#livestockList');
+    if (livestock.length === 0) {
+        container.html('<p class="text-muted">No livestock yet. Add your first animal!</p>');
+        return;
+    }
+
+    let html = '';
+    livestock.forEach(animal => {
+        const ageMonths = animal.ageMonths ? `${animal.ageMonths} months old` : 'Age unknown';
+        const speciesIcon = {
+            'goat': '🐐', 'sheep': '🐑', 'pig': '🐷', 'cow': '🐄',
+            'rabbit': '🐰', 'horse': '🐴', 'turkey': '🦃', 'duck': '🦆', 'goose': '🦢'
+        }[animal.species] || '🐾';
+
+        html += `
+            <div class="card mb-2">
+                <div class="card-body">
+                    <h6>${speciesIcon} ${animal.name || 'Unnamed'}
+                        <span class="badge bg-success">${animal.species}</span>
+                    </h6>
+                    <p class="mb-1 small">
+                        <strong>Tag:</strong> ${animal.tagNumber || 'N/A'}<br>
+                        <strong>Breed:</strong> ${animal.breed || 'N/A'}<br>
+                        <strong>Age:</strong> ${ageMonths}<br>
+                        <strong>Sex:</strong> ${animal.sex || 'N/A'}<br>
+                        <strong>Purpose:</strong> ${animal.purpose || 'N/A'}<br>
+                        <strong>Weight:</strong> ${animal.weight ? animal.weight + ' lbs' : 'N/A'}
+                    </p>
+                    ${animal.notes ? `<p class="small mb-1"><em>${animal.notes}</em></p>` : ''}
+                    <button class="btn btn-sm btn-danger" onclick="deleteLivestock(${animal.id})">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+    container.html(html);
+}
+
+function populateLivestockDropdown() {
+    const dropdown = $('#healthLivestockId');
+    dropdown.empty().append('<option value="">Select animal...</option>');
+    livestock.forEach(animal => {
+        const displayName = animal.name || `${animal.species} #${animal.tagNumber || animal.id}`;
+        dropdown.append(`<option value="${animal.id}">${displayName}</option>`);
+    });
+}
+
+function showAddLivestockModal() {
+    $('#addLivestockForm')[0].reset();
+    $('#addLivestockModal').modal('show');
+}
+
+function addLivestock() {
+    const data = {
+        species: $('#livestockSpecies').val(),
+        name: $('#livestockName').val(),
+        breed: $('#livestockBreed').val(),
+        tagNumber: $('#livestockTagNumber').val(),
+        birthDate: $('#livestockBirthDate').val() || null,
+        sex: $('#livestockSex').val(),
+        purpose: $('#livestockPurpose').val(),
+        sire: $('#livestockSire').val(),
+        dam: $('#livestockDam').val(),
+        location: $('#livestockLocation').val(),
+        weight: parseFloat($('#livestockWeight').val()) || null,
+        notes: $('#livestockNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/livestock',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#addLivestockModal').modal('hide');
+            loadLivestock();
+        }
+    });
+}
+
+function deleteLivestock(id) {
+    if (confirm('Delete this animal?')) {
+        $.ajax({
+            url: '/api/livestock/' + id,
+            method: 'DELETE',
+            success: function() {
+                loadLivestock();
+            }
+        });
+    }
+}
+
+// ==================== HEALTH RECORD FUNCTIONS ====================
+
+function loadHealthRecords() {
+    $.get('/api/health-records', function(data) {
+        healthRecords = data;
+        displayHealthRecords();
+    });
+}
+
+function displayHealthRecords() {
+    const container = $('#healthRecordsList');
+    if (healthRecords.length === 0) {
+        container.html('<p class="text-muted">No health records yet.</p>');
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    healthRecords.slice(0, 10).forEach(record => {
+        const date = new Date(record.date).toLocaleDateString();
+        const animal = livestock.find(a => a.id === record.livestockId);
+        const animalName = animal ? (animal.name || `${animal.species} #${animal.tagNumber}`) : 'Unknown';
+
+        html += `
+            <div class="list-group-item">
+                <strong>${date} - ${animalName}</strong>
+                <span class="badge bg-info">${record.type}</span><br>
+                <small>
+                    ${record.treatment ? `Treatment: ${record.treatment}<br>` : ''}
+                    ${record.medication ? `Medication: ${record.medication}` : ''}
+                    ${record.nextDueDate ? `<br>Next due: ${new Date(record.nextDueDate).toLocaleDateString()}` : ''}
+                </small>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.html(html);
+}
+
+function showAddHealthRecordModal() {
+    if (livestock.length === 0) {
+        alert('Please add a livestock animal first!');
+        return;
+    }
+    $('#addHealthRecordForm')[0].reset();
+    $('#addHealthRecordModal').modal('show');
+}
+
+function addHealthRecord() {
+    const data = {
+        livestockId: parseInt($('#healthLivestockId').val()),
+        type: $('#healthType').val(),
+        treatment: $('#healthTreatment').val(),
+        medication: $('#healthMedication').val(),
+        dosage: $('#healthDosage').val(),
+        veterinarian: $('#healthVeterinarian').val(),
+        cost: parseFloat($('#healthCost').val()) || null,
+        nextDueDate: $('#healthNextDueDate').val() || null,
+        notes: $('#healthNotes').val()
+    };
+
+    $.ajax({
+        url: '/api/health-records',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#addHealthRecordModal').modal('hide');
+            loadHealthRecords();
+        }
+    });
+}
+</script>
+
+<style>
+.nav-tabs .nav-link {
+    color: #666;
+}
+.nav-tabs .nav-link.active {
+    font-weight: bold;
+}
+.list-group-item {
+    border-left: 3px solid #28a745;
+}
+.card {
+    transition: box-shadow 0.2s;
+}
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+</style>
+{% endblock %}

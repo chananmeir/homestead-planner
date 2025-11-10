@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Weather - Homestead Tracker{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h2><i class="bi bi-cloud-sun"></i> Weather & Alerts</h2>
+                <p class="text-muted">Monitor conditions and receive alerts to protect your garden.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Current Conditions -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-thermometer-half" style="font-size: 3rem;"></i>
+                <h3 class="mt-2">65°F</h3>
+                <p class="text-muted">Current Temperature</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-droplet" style="font-size: 3rem;"></i>
+                <h3 class="mt-2">0.2"</h3>
+                <p class="text-muted">Precipitation Today</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <i class="bi bi-wind" style="font-size: 3rem;"></i>
+                <h3 class="mt-2">8 mph</h3>
+                <p class="text-muted">Wind Speed</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alerts -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-warning" role="alert">
+            <h5><i class="bi bi-exclamation-triangle"></i> Frost Warning</h5>
+            <p>Frost warning tonight. Temperatures expected to drop to 30°F. Protect tender plants!</p>
+        </div>
+    </div>
+</div>
+
+<!-- 7-Day Forecast -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">7-Day Forecast</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    {% for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
+                    <div class="col">
+                        <strong>{{ day }}</strong><br>
+                        <i class="bi bi-sun" style="font-size: 2rem;"></i><br>
+                        <span class="text-success">72°</span> / <span class="text-primary">52°</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Integration Note -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <h5><i class="bi bi-info-circle"></i> Weather API Integration</h5>
+            <p class="mb-0">For production, integrate with OpenWeatherMap or Weather.gov API for real-time data and alerts.</p>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

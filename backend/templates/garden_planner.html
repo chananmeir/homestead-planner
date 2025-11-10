@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}Garden Planner - Homestead Tracker{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h2><i class="bi bi-flower1"></i> Garden Planner</h2>
+                <p class="text-muted">Design your garden beds, select plants, and track their growth throughout the season.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Garden Bed -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Garden Beds</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-primary mb-3" data-bs-toggle="modal" data-bs-target="#addBedModal">
+                    <i class="bi bi-plus-circle"></i> Add Garden Bed
+                </button>
+
+                <div class="row" id="bedsContainer">
+                    {% for bed in beds %}
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card border-success">
+                            <div class="card-body">
+                                <h5 class="card-title">{{ bed.name }}</h5>
+                                <p class="card-text">
+                                    <strong>Size:</strong> {{ bed.width }}' × {{ bed.length }}'<br>
+                                    <strong>Location:</strong> {{ bed.location }}<br>
+                                    <strong>Sun:</strong> {{ bed.sun_exposure }}<br>
+                                    <strong>Plants:</strong> {{ bed.planted_items|length }}
+                                </p>
+                                <button class="btn btn-sm btn-success" onclick="viewBed({{ bed.id }})">
+                                    <i class="bi bi-eye"></i> View Plants
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteBed({{ bed.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Selected Bed Details -->
+<div class="row" id="bedDetails" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0" id="bedName"></h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-primary mb-3" data-bs-toggle="modal" data-bs-target="#addPlantModal">
+                    <i class="bi bi-plus-circle"></i> Add Plant
+                </button>
+                <div id="plantsList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Bed Modal -->
+<div class="modal fade" id="addBedModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Garden Bed</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addBedForm">
+                    <div class="mb-3">
+                        <label class="form-label">Bed Name</label>
+                        <input type="text" class="form-control" id="bedName" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Width (feet)</label>
+                            <input type="number" class="form-control" id="bedWidth" value="4" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Length (feet)</label>
+                            <input type="number" class="form-control" id="bedLength" value="8" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Sun Exposure</label>
+                            <select class="form-select" id="bedSun">
+                                <option value="full">Full Sun</option>
+                                <option value="partial">Partial</option>
+                                <option value="shade">Shade</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Location</label>
+                        <input type="text" class="form-control" id="bedLocation" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="addBed()">Add Bed</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Plant Modal -->
+<div class="modal fade" id="addPlantModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Plant to Bed</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" class="form-control mb-3" id="plantSearch" placeholder="Search plants...">
+                <div id="plantsListModal" style="max-height: 400px; overflow-y: auto;">
+                    {% for plant in plants %}
+                    <div class="card mb-2 plant-item" data-plant-id="{{ plant.id }}">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <h6 class="mb-1">{{ plant.name }}</h6>
+                                    <small class="text-muted">{{ plant.scientificName }}</small><br>
+                                    <span class="badge bg-secondary">{{ plant.category }}</span>
+                                    {% if plant.winterHardy %}
+                                    <span class="badge badge-winter">❄️ Winter Hardy</span>
+                                    {% endif %}
+                                    <span class="badge badge-hardy">{{ plant.frostTolerance }}</span>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <small>{{ plant.daysToMaturity }} days</small><br>
+                                    <button class="btn btn-sm btn-success" onclick="addPlantToBed('{{ plant.id }}')">
+                                        <i class="bi bi-plus"></i> Add
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentBedId = null;
+
+// Search plants
+$('#plantSearch').on('input', function() {
+    const search = $(this).val().toLowerCase();
+    $('.plant-item').each(function() {
+        const text = $(this).text().toLowerCase();
+        $(this).toggle(text.indexOf(search) > -1);
+    });
+});
+
+function addBed() {
+    const data = {
+        name: $('#bedName').val(),
+        width: parseFloat($('#bedWidth').val()),
+        length: parseFloat($('#bedLength').val()),
+        location: $('#bedLocation').val(),
+        sunExposure: $('#bedSun').val()
+    };
+
+    $.ajax({
+        url: '/api/garden-beds',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            location.reload();
+        }
+    });
+}
+
+function deleteBed(id) {
+    if (confirm('Are you sure you want to delete this bed?')) {
+        $.ajax({
+            url: '/api/garden-beds/' + id,
+            method: 'DELETE',
+            success: function() {
+                location.reload();
+            }
+        });
+    }
+}
+
+function viewBed(id) {
+    currentBedId = id;
+    $.get('/api/garden-beds/' + id, function(bed) {
+        $('#bedName').text(bed.name);
+        $('#bedDetails').show();
+
+        let html = '';
+        if (bed.plants.length === 0) {
+            html = '<p class="text-muted">No plants added yet.</p>';
+        } else {
+            bed.plants.forEach(function(plant) {
+                html += `
+                    <div class="card mb-2">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-6">
+                                    <h6>${plant.plantId}</h6>
+                                    <small>Planted: ${new Date(plant.plantedDate).toLocaleDateString()}</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <select class="form-select form-select-sm" onchange="updatePlantStatus(${plant.id}, this.value)">
+                                        <option value="planned" ${plant.status === 'planned' ? 'selected' : ''}>Planned</option>
+                                        <option value="seeded" ${plant.status === 'seeded' ? 'selected' : ''}>Seeded</option>
+                                        <option value="transplanted" ${plant.status === 'transplanted' ? 'selected' : ''}>Transplanted</option>
+                                        <option value="growing" ${plant.status === 'growing' ? 'selected' : ''}>Growing</option>
+                                        <option value="harvested" ${plant.status === 'harvested' ? 'selected' : ''}>Harvested</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2 text-end">
+                                    <button class="btn btn-sm btn-danger" onclick="removePlant(${plant.id})">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        $('#plantsList').html(html);
+    });
+}
+
+function addPlantToBed(plantId) {
+    const data = {
+        plantId: plantId,
+        gardenBedId: currentBedId,
+        quantity: 1,
+        status: 'planned'
+    };
+
+    $.ajax({
+        url: '/api/planted-items',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function() {
+            $('#addPlantModal').modal('hide');
+            viewBed(currentBedId);
+        }
+    });
+}
+
+function updatePlantStatus(itemId, status) {
+    $.ajax({
+        url: '/api/planted-items/' + itemId,
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify({status: status}),
+        success: function() {
+            console.log('Status updated');
+        }
+    });
+}
+
+function removePlant(itemId) {
+    if (confirm('Remove this plant?')) {
+        $.ajax({
+            url: '/api/planted-items/' + itemId,
+            method: 'DELETE',
+            success: function() {
+                viewBed(currentBedId);
+            }
+        });
+    }
+}
+</script>
+{% endblock %}
