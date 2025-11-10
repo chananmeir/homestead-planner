@@ -283,7 +283,7 @@ def planting_calendar():
     last_frost = Settings.get_setting('last_frost_date', '2024-04-15')
     first_frost = Settings.get_setting('first_frost_date', '2024-10-15')
     return render_template('planting_calendar.html',
-                         events=events,
+                         events=[event.to_dict() for event in events],
                          plants=PLANT_DATABASE,
                          last_frost_date=last_frost,
                          first_frost_date=first_frost)
