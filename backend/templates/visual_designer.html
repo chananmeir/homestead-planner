@@ -47,6 +47,22 @@
     user-select: none;
 }
 
+.plant-count-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    background-color: #28a745;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    z-index: 10;
+}
+
 .plant-palette {
     display: flex;
     flex-wrap: wrap;
@@ -735,13 +751,44 @@ function placePlant(x, y, plant) {
     }
 
     const icon = getPlantIcon(plant.name);
-    cell.addClass('occupied').html(`<span class="plant-icon" title="${plant.name}">${icon}</span>`);
 
-    existing.plant = plant;
-    updatePlantCount();
+    // Calculate how many plants fit in this square based on planning method
+    $.ajax({
+        url: '/api/spacing-calculator',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            plantId: plant.id,
+            bedWidth: 1,  // 1 square foot
+            bedLength: 1,
+            method: currentBed.planningMethod || 'square-foot'
+        }),
+        success: function(result) {
+            const plantCount = result.perSquare || result.totalPlants || 1;
 
-    // Update companion indicators for adjacent cells
-    updateCompanionIndicators();
+            // Display plant icon with count badge
+            let displayHtml = `<span class="plant-icon" title="${plant.name}">${icon}</span>`;
+            if (plantCount > 1) {
+                displayHtml += `<span class="plant-count-badge">${plantCount}</span>`;
+            }
+
+            cell.addClass('occupied').html(displayHtml);
+            existing.plant = plant;
+            existing.plantCount = plantCount;
+            updatePlantCount();
+
+            // Update companion indicators for adjacent cells
+            updateCompanionIndicators();
+        },
+        error: function() {
+            // Fallback to showing just 1 plant if API fails
+            cell.addClass('occupied').html(`<span class="plant-icon" title="${plant.name}">${icon}</span>`);
+            existing.plant = plant;
+            existing.plantCount = 1;
+            updatePlantCount();
+            updateCompanionIndicators();
+        }
+    });
 }
 
 // Remove plant from grid
@@ -766,6 +813,9 @@ function showPlantDetails(gridItem, cellElement) {
 
     let msg = `🌱 Plant: ${plant.name}\n`;
     msg += `📍 Position: (${gridItem.x}, ${gridItem.y})\n`;
+    if (gridItem.plantCount && gridItem.plantCount > 1) {
+        msg += `🌿 Plants in this square: ${gridItem.plantCount}\n`;
+    }
     msg += `⏱️ Days to Maturity: ${plant.daysToMaturity}\n`;
     msg += `📏 Spacing: ${plant.spacing}"\n`;
 
