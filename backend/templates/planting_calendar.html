@@ -83,6 +83,9 @@
                             <div class="flex-grow-1">
                                 <h6 class="mb-2">
                                     <span class="badge bg-success">{{ event.plant_id }}</span>
+                                    {% if event.variety %}
+                                    <span class="badge bg-info">{{ event.variety }}</span>
+                                    {% endif %}
                                 </h6>
                                 <div class="small">
                                     {% if event.seed_start_date %}
@@ -144,6 +147,11 @@
                     </select>
                 </div>
                 <div class="mb-3">
+                    <label class="form-label">Variety (Optional)</label>
+                    <input type="text" class="form-control" id="varietyInput" placeholder="e.g., Brandywine, Roma, Red Leaf...">
+                    <small class="form-text text-muted">Specify the exact variety you're planting</small>
+                </div>
+                <div class="mb-3">
                     <label class="form-label">Planting Method</label>
                     <select class="form-select" id="plantingMethod">
                         <option value="transplant">Start Indoors & Transplant</option>
@@ -180,6 +188,7 @@ $('#lastFrostDate, #firstFrostDate').on('change', function() {
 
 function addEvent() {
     const plantId = $('#plantSelect').val();
+    const variety = $('#varietyInput').val();
     const method = $('#plantingMethod').val();
     const lastFrost = new Date($('#lastFrostDate').val());
 
@@ -195,6 +204,7 @@ function addEvent() {
 
     const data = {
         plantId: plantId,
+        variety: variety,
         seedStartDate: method === 'transplant' ? seedStart.toISOString() : null,
         transplantDate: method === 'transplant' ? transplant.toISOString() : null,
         directSeedDate: method === 'direct' ? transplant.toISOString() : null,

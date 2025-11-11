@@ -34,6 +34,7 @@ class GardenBed(db.Model):
 class PlantedItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     plant_id = db.Column(db.String(50), nullable=False)  # Reference to plant in database
+    variety = db.Column(db.String(100))  # Specific variety (e.g., "Brandywine", "Roma", "Cherry")
     garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'), nullable=False)
     planted_date = db.Column(db.DateTime, default=datetime.utcnow)
     transplant_date = db.Column(db.DateTime)
@@ -48,6 +49,7 @@ class PlantedItem(db.Model):
         return {
             'id': self.id,
             'plantId': self.plant_id,
+            'variety': self.variety,
             'plantedDate': self.planted_date.isoformat() if self.planted_date else None,
             'transplantDate': self.transplant_date.isoformat() if self.transplant_date else None,
             'harvestDate': self.harvest_date.isoformat() if self.harvest_date else None,
@@ -60,6 +62,7 @@ class PlantedItem(db.Model):
 class PlantingEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     plant_id = db.Column(db.String(50), nullable=False)
+    variety = db.Column(db.String(100))  # Specific variety (e.g., "Brandywine", "Roma", "Red Leaf")
     garden_bed_id = db.Column(db.Integer)
     seed_start_date = db.Column(db.DateTime)
     transplant_date = db.Column(db.DateTime)
@@ -75,6 +78,7 @@ class PlantingEvent(db.Model):
         return {
             'id': self.id,
             'plantId': self.plant_id,
+            'variety': self.variety,
             'gardenBedId': self.garden_bed_id,
             'seedStartDate': self.seed_start_date.isoformat() if self.seed_start_date else None,
             'transplantDate': self.transplant_date.isoformat() if self.transplant_date else None,

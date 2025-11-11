@@ -306,6 +306,7 @@ def planting_events():
         data = request.json
         event = PlantingEvent(
             plant_id=data['plantId'],
+            variety=data.get('variety', ''),
             garden_bed_id=data.get('gardenBedId'),
             seed_start_date=datetime.fromisoformat(data['seedStartDate']) if data.get('seedStartDate') else None,
             transplant_date=datetime.fromisoformat(data['transplantDate']) if data.get('transplantDate') else None,
