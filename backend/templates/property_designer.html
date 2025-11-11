@@ -315,6 +315,24 @@ let currentProperty = null;
 let placedStructures = [];
 let structures = {{ structures|tojson }};
 let categories = {{ categories|tojson }};
+
+// Add garden beds from database to structures
+let gardenBeds = {{ garden_beds|tojson }};
+gardenBeds.forEach(bed => {
+    structures.push({
+        id: 'garden-bed-' + bed.id,
+        name: bed.name,
+        category: 'garden',
+        width: bed.width,
+        length: bed.length,
+        icon: '🌱',
+        cost: 0,
+        description: `${bed.planningMethod} garden bed (${bed.sunExposure} sun)`,
+        isGardenBed: true,
+        gardenBedId: bed.id
+    });
+});
+
 let selectedStructureType = null;
 let selectedStructure = null;
 let isDragging = false;

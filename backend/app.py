@@ -717,10 +717,12 @@ def export_garden_plan(bed_id):
 def property_designer():
     """Property designer page - master homestead layout"""
     properties = Property.query.all()
+    garden_beds = GardenBed.query.all()
     return render_template('property_designer.html',
                          properties=properties,
                          structures=STRUCTURES_DATABASE,
-                         categories=STRUCTURE_CATEGORIES)
+                         categories=STRUCTURE_CATEGORIES,
+                         garden_beds=garden_beds)
 
 @app.route('/api/properties', methods=['GET', 'POST'])
 def properties():
