@@ -295,6 +295,7 @@ def planting_calendar():
     return render_template('planting_calendar.html',
                          events=events,
                          plants=PLANT_DATABASE,
+                         plant_varieties=PLANT_VARIETIES,
                          last_frost_date=last_frost,
                          first_frost_date=first_frost)
 
@@ -305,6 +306,7 @@ def planting_events():
         data = request.json
         event = PlantingEvent(
             plant_id=data['plantId'],
+            variety=data.get('variety', ''),
             garden_bed_id=data.get('gardenBedId'),
             seed_start_date=parse_iso_date(data.get('seedStartDate')),
             transplant_date=parse_iso_date(data.get('transplantDate')),
