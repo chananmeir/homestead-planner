@@ -15,6 +15,16 @@ from reportlab.lib.units import inch
 import os
 import io
 
+# Helper function to parse ISO date strings with 'Z' suffix
+def parse_iso_date(date_string):
+    """Parse ISO date string, handling the 'Z' UTC suffix that JavaScript uses"""
+    if not date_string:
+        return None
+    # Replace 'Z' with '+00:00' for Python's fromisoformat
+    if date_string.endswith('Z'):
+        date_string = date_string[:-1] + '+00:00'
+    return datetime.fromisoformat(date_string)
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///homestead.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -245,7 +255,7 @@ def add_planted_item():
     item = PlantedItem(
         plant_id=data['plantId'],
         garden_bed_id=data['gardenBedId'],
-        planted_date=datetime.fromisoformat(data.get('plantedDate', datetime.now().isoformat())),
+        planted_date=parse_iso_date(data.get('plantedDate')) or datetime.now(),
         quantity=data.get('quantity', 1),
         status=data.get('status', 'planned'),
         notes=data.get('notes', ''),
@@ -270,7 +280,7 @@ def planted_item(item_id):
     item.status = data.get('status', item.status)
     item.notes = data.get('notes', item.notes)
     if 'harvestDate' in data and data['harvestDate']:
-        item.harvest_date = datetime.fromisoformat(data['harvestDate'])
+        item.harvest_date = parse_iso_date(data['harvestDate'])
     db.session.commit()
     return jsonify(item.to_dict())
 
@@ -296,10 +306,10 @@ def planting_events():
         event = PlantingEvent(
             plant_id=data['plantId'],
             garden_bed_id=data.get('gardenBedId'),
-            seed_start_date=datetime.fromisoformat(data['seedStartDate']) if data.get('seedStartDate') else None,
-            transplant_date=datetime.fromisoformat(data['transplantDate']) if data.get('transplantDate') else None,
-            direct_seed_date=datetime.fromisoformat(data['directSeedDate']) if data.get('directSeedDate') else None,
-            expected_harvest_date=datetime.fromisoformat(data['expectedHarvestDate']),
+            seed_start_date=parse_iso_date(data.get('seedStartDate')),
+            transplant_date=parse_iso_date(data.get('transplantDate')),
+            direct_seed_date=parse_iso_date(data.get('directSeedDate')),
+            expected_harvest_date=parse_iso_date(data['expectedHarvestDate']),
             succession_planting=data.get('successionPlanting', False),
             succession_interval=data.get('successionInterval'),
             notes=data.get('notes', '')
