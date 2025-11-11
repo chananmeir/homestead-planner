@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from models import db, GardenBed, PlantedItem, PlantingEvent, WinterPlan, CompostPile, CompostIngredient, Settings, Photo, HarvestRecord, SeedInventory, Property, PlacedStructure, Chicken, EggProduction, Duck, DuckEggProduction, Beehive, HiveInspection, HoneyHarvest, Livestock, HealthRecord
 from plant_database import PLANT_DATABASE, COMPOST_MATERIALS, get_plant_by_id, get_winter_hardy_plants
+from plant_varieties import PLANT_VARIETIES, get_varieties_for_plant, get_all_plant_varieties
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES, get_structure_by_id
 from garden_methods import GARDEN_METHODS, BED_TEMPLATES, PLANT_GUILDS, get_sfg_quantity, get_row_spacing, get_intensive_spacing, calculate_plants_per_bed, get_methods_list, get_template_by_id, get_guild_by_id
 from datetime import datetime, timedelta
@@ -296,6 +297,7 @@ def planting_calendar():
     return render_template('planting_calendar.html',
                          events=events,
                          plants=PLANT_DATABASE,
+                         plant_varieties=PLANT_VARIETIES,
                          last_frost_date=last_frost,
                          first_frost_date=first_frost)
 

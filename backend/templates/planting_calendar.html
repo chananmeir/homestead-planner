@@ -148,8 +148,11 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Variety (Optional)</label>
-                    <input type="text" class="form-control" id="varietyInput" placeholder="e.g., Brandywine, Roma, Red Leaf...">
-                    <small class="form-text text-muted">Specify the exact variety you're planting</small>
+                    <input type="text" class="form-control" id="varietyInput" list="varietySuggestions" placeholder="Select or type a variety...">
+                    <datalist id="varietySuggestions">
+                        <!-- Varieties will be populated based on selected plant -->
+                    </datalist>
+                    <small class="form-text text-muted">Choose from suggestions or type your own</small>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Planting Method</label>
@@ -171,6 +174,26 @@
 
 {% block extra_js %}
 <script>
+// Plant varieties database
+const plantVarieties = {{ plant_varieties|tojson }};
+
+// Update variety suggestions when plant is selected
+$('#plantSelect').on('change', function() {
+    const plantId = $(this).val();
+    const varieties = plantVarieties[plantId] || [];
+
+    // Update datalist with varieties for this plant
+    const datalist = $('#varietySuggestions');
+    datalist.empty();
+
+    varieties.forEach(variety => {
+        datalist.append(`<option value="${variety}">`);
+    });
+
+    // Clear the variety input
+    $('#varietyInput').val('');
+});
+
 $('#lastFrostDate, #firstFrostDate').on('change', function() {
     $.ajax({
         url: '/api/frost-dates',
