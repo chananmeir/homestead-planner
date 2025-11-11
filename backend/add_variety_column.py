@@ -8,12 +8,32 @@ import sqlite3
 import os
 
 def add_variety_column():
-    # Get the database path
-    db_path = os.path.join(os.path.dirname(__file__), 'homestead.db')
+    # Check multiple possible database locations
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), 'homestead.db'),
+        os.path.join(os.path.dirname(__file__), 'instance', 'homestead.db'),
+        'homestead.db',
+        'instance/homestead.db'
+    ]
 
-    if not os.path.exists(db_path):
-        print(f"❌ Database not found at: {db_path}")
-        print("   Make sure you're running this from the backend directory")
+    db_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            db_path = path
+            break
+
+    if not db_path:
+        print(f"❌ Database not found in any of these locations:")
+        for path in possible_paths:
+            print(f"   - {os.path.abspath(path)}")
+        print()
+        print("ℹ️  This might be the first time running the app.")
+        print("   The database will be created automatically when you start Flask.")
+        print()
+        print("To create the database:")
+        print("   1. Start the Flask app: python app.py")
+        print("   2. Stop it (Ctrl+C)")
+        print("   3. Run this migration script again")
         return False
 
     print(f"📂 Found database at: {db_path}")
