@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
+from flask.json.provider import DefaultJSONProvider
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from models import db, GardenBed, PlantedItem, PlantingEvent, WinterPlan, CompostPile, CompostIngredient, Settings, Photo, HarvestRecord, SeedInventory, Property, PlacedStructure, Chicken, EggProduction, Duck, DuckEggProduction, Beehive, HiveInspection, HoneyHarvest, Livestock, HealthRecord
@@ -15,7 +16,16 @@ from reportlab.lib.units import inch
 import os
 import io
 
+# Custom JSON provider to handle SQLAlchemy models
+class CustomJSONProvider(DefaultJSONProvider):
+    def default(self, obj):
+        # If the object has a to_dict method, use it
+        if hasattr(obj, 'to_dict'):
+            return obj.to_dict()
+        return super().default(obj)
+
 app = Flask(__name__)
+app.json = CustomJSONProvider(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///homestead.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
@@ -282,10 +292,9 @@ def planting_calendar():
     events = PlantingEvent.query.order_by(PlantingEvent.seed_start_date).all()
     last_frost = Settings.get_setting('last_frost_date', '2024-04-15')
     first_frost = Settings.get_setting('first_frost_date', '2024-10-15')
-    # Pass raw objects for template (strftime works), and serialized for JSON
+    # Pass raw objects - custom JSON encoder handles serialization automatically
     return render_template('planting_calendar.html',
                          events=events,
-                         events_json=[event.to_dict() for event in events],
                          plants=PLANT_DATABASE,
                          last_frost_date=last_frost,
                          first_frost_date=first_frost)
