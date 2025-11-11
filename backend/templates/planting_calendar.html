@@ -43,36 +43,75 @@
     </div>
 </div>
 
-<!-- Events List -->
+<!-- Events List by Month -->
 <div class="row">
     <div class="col-12">
+        {% if events|length == 0 %}
         <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">Scheduled Plantings</h5>
+            <div class="card-body">
+                <p class="text-muted">No events scheduled yet. Add your first planting!</p>
+            </div>
+        </div>
+        {% else %}
+        {% set months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+        {% set events_by_month = {} %}
+
+        {# Group events by month based on their primary action date #}
+        {% for event in events %}
+            {% set primary_date = event.seed_start_date or event.direct_seed_date or event.transplant_date %}
+            {% if primary_date %}
+                {% set month_key = primary_date.strftime('%Y-%m') %}
+                {% set month_name = primary_date.strftime('%B %Y') %}
+                {% if month_key not in events_by_month %}
+                    {% set _ = events_by_month.update({month_key: {'name': month_name, 'events': []}}) %}
+                {% endif %}
+                {% set _ = events_by_month[month_key]['events'].append(event) %}
+            {% endif %}
+        {% endfor %}
+
+        {# Display events grouped by month #}
+        {% for month_key in events_by_month.keys()|sort %}
+        <div class="card mb-3">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-calendar3"></i> {{ events_by_month[month_key]['name'] }}</h5>
             </div>
             <div class="card-body">
-                {% if events|length == 0 %}
-                <p class="text-muted">No events scheduled yet. Add your first planting!</p>
-                {% else %}
-                <div class="list-group">
-                    {% for event in events %}
+                <div class="list-group list-group-flush">
+                    {% for event in events_by_month[month_key]['events'] %}
                     <div class="list-group-item">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h6>{{ event.plant_id }}</h6>
-                                {% if event.seed_start_date %}
-                                <small>🌱 Start Seeds: {{ event.seed_start_date.strftime('%b %d, %Y') }}</small><br>
-                                {% endif %}
-                                {% if event.transplant_date %}
-                                <small>🌿 Transplant: {{ event.transplant_date.strftime('%b %d, %Y') }}</small><br>
-                                {% endif %}
-                                {% if event.direct_seed_date %}
-                                <small>🌱 Direct Seed: {{ event.direct_seed_date.strftime('%b %d, %Y') }}</small><br>
-                                {% endif %}
-                                <small>🎉 Harvest: {{ event.expected_harvest_date.strftime('%b %d, %Y') }}</small>
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h6 class="mb-2">
+                                    <span class="badge bg-success">{{ event.plant_id }}</span>
+                                </h6>
+                                <div class="small">
+                                    {% if event.seed_start_date %}
+                                    <div class="mb-1">
+                                        <i class="bi bi-seed"></i> <strong>Start Seeds:</strong> {{ event.seed_start_date.strftime('%b %d') }}
+                                    </div>
+                                    {% endif %}
+                                    {% if event.transplant_date %}
+                                    <div class="mb-1">
+                                        <i class="bi bi-arrow-left-right"></i> <strong>Transplant:</strong> {{ event.transplant_date.strftime('%b %d') }}
+                                    </div>
+                                    {% endif %}
+                                    {% if event.direct_seed_date %}
+                                    <div class="mb-1">
+                                        <i class="bi bi-droplet"></i> <strong>Direct Seed:</strong> {{ event.direct_seed_date.strftime('%b %d') }}
+                                    </div>
+                                    {% endif %}
+                                    <div class="mb-1">
+                                        <i class="bi bi-basket"></i> <strong>Harvest:</strong> {{ event.expected_harvest_date.strftime('%b %d') }}
+                                    </div>
+                                    {% if event.notes %}
+                                    <div class="text-muted mt-2">
+                                        <i class="bi bi-journal-text"></i> {{ event.notes }}
+                                    </div>
+                                    {% endif %}
+                                </div>
                             </div>
-                            <div>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteEvent({{ event.id }})">
+                            <div class="ms-3">
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteEvent({{ event.id }})" title="Delete event">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>
@@ -80,9 +119,10 @@
                     </div>
                     {% endfor %}
                 </div>
-                {% endif %}
             </div>
         </div>
+        {% endfor %}
+        {% endif %}
     </div>
 </div>
 
