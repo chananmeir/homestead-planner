@@ -5,18 +5,30 @@ import PlantingCalendar from './components/PlantingCalendar';
 import WinterGarden from './components/WinterGarden';
 import WeatherAlerts from './components/WeatherAlerts';
 import CompostTracker from './components/CompostTracker';
+import GardenDesigner from './components/GardenDesigner';
+import PropertyDesigner from './components/PropertyDesigner';
+import Livestock from './components/Livestock';
+import HarvestTracker from './components/HarvestTracker';
+import SeedInventory from './components/SeedInventory';
+import PhotoGallery from './components/PhotoGallery';
 
-type Tab = 'garden' | 'calendar' | 'winter' | 'weather' | 'compost';
+type Tab = 'garden' | 'designer' | 'property' | 'livestock' | 'calendar' | 'winter' | 'weather' | 'compost' | 'harvests' | 'seeds' | 'photos';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('garden');
 
   const tabs = [
     { id: 'garden' as Tab, name: 'Garden Planner', icon: '🌱' },
+    { id: 'designer' as Tab, name: 'Garden Designer', icon: '🎨' },
+    { id: 'property' as Tab, name: 'Property Designer', icon: '🗺️' },
+    { id: 'livestock' as Tab, name: 'Livestock', icon: '🐔' },
     { id: 'calendar' as Tab, name: 'Planting Calendar', icon: '📅' },
     { id: 'winter' as Tab, name: 'Winter Garden', icon: '❄️' },
     { id: 'weather' as Tab, name: 'Weather', icon: '🌤️' },
     { id: 'compost' as Tab, name: 'Compost', icon: '♻️' },
+    { id: 'harvests' as Tab, name: 'Harvests', icon: '🧺' },
+    { id: 'seeds' as Tab, name: 'Seeds', icon: '🌾' },
+    { id: 'photos' as Tab, name: 'Photos', icon: '📷' },
   ];
 
   return (
@@ -26,7 +38,7 @@ function App() {
         <div className="container mx-auto px-4 py-6">
           <h1 className="text-3xl font-bold">Homestead Tracker</h1>
           <p className="text-green-100 mt-1">
-            Garden Planning • Winter Growing • Weather Alerts • Compost Management
+            Complete Homestead Planning • Garden Design • Livestock • Year-Round Growing
           </p>
         </div>
       </header>
@@ -56,10 +68,16 @@ function App() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         {activeTab === 'garden' && <GardenPlanner />}
+        {activeTab === 'designer' && <GardenDesigner />}
+        {activeTab === 'property' && <PropertyDesigner />}
+        {activeTab === 'livestock' && <Livestock />}
         {activeTab === 'calendar' && <PlantingCalendar />}
         {activeTab === 'winter' && <WinterGarden />}
         {activeTab === 'weather' && <WeatherAlerts />}
         {activeTab === 'compost' && <CompostTracker />}
+        {activeTab === 'harvests' && <HarvestTracker />}
+        {activeTab === 'seeds' && <SeedInventory />}
+        {activeTab === 'photos' && <PhotoGallery />}
       </main>
 
       {/* Footer */}
