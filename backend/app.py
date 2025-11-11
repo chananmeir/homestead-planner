@@ -282,8 +282,10 @@ def planting_calendar():
     events = PlantingEvent.query.order_by(PlantingEvent.seed_start_date).all()
     last_frost = Settings.get_setting('last_frost_date', '2024-04-15')
     first_frost = Settings.get_setting('first_frost_date', '2024-10-15')
+    # Pass raw objects for template (strftime works), and serialized for JSON
     return render_template('planting_calendar.html',
-                         events=[event.to_dict() for event in events],
+                         events=events,
+                         events_json=[event.to_dict() for event in events],
                          plants=PLANT_DATABASE,
                          last_frost_date=last_frost,
                          first_frost_date=first_frost)
