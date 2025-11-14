@@ -1,19 +1,34 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_cors import CORS
+from dotenv import load_dotenv
 from models import db, GardenBed, PlantedItem, PlantingEvent, WinterPlan, CompostPile, CompostIngredient, Settings, Photo, HarvestRecord, SeedInventory, Property, PlacedStructure, Chicken, EggProduction, Duck, DuckEggProduction, Beehive, HiveInspection, HoneyHarvest, Livestock, HealthRecord
 from plant_database import PLANT_DATABASE, COMPOST_MATERIALS, get_plant_by_id, get_winter_hardy_plants
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES, get_structure_by_id
 from garden_methods import GARDEN_METHODS, BED_TEMPLATES, PLANT_GUILDS, get_sfg_quantity, get_row_spacing, get_intensive_spacing, calculate_plants_per_bed, get_methods_list, get_template_by_id, get_guild_by_id
+from collision_validator import validate_structure_placement
+from services.geocoding_service import geocoding_service
+from services.csv_import_service import parse_variety_csv, import_varieties_to_database, validate_csv_format
+from soil_temperature import calculate_soil_temp, get_mock_air_temp, calculate_crop_readiness, get_soil_temperature_with_adjustments
+from weather_service import get_current_temperature
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from werkzeug.utils import secure_filename
+import logging
 from PIL import Image
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 import os
 import io
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Default coordinates for soil temperature (New York City)
+DEFAULT_LATITUDE = 40.7128
+DEFAULT_LONGITUDE = -74.0060
 
 # Helper function to parse ISO date strings with 'Z' suffix
 def parse_iso_date(date_string):
@@ -38,6 +53,15 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db.init_app(app)
 migrate = Migrate(app, db)
+
+# Configure CORS to allow requests from the React frontend
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000", "http://localhost:3001"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # Create database tables
 with app.app_context():
@@ -295,7 +319,6 @@ def planting_calendar():
     return render_template('planting_calendar.html',
                          events=events,
                          plants=PLANT_DATABASE,
-                         plant_varieties=PLANT_VARIETIES,
                          last_frost_date=last_frost,
                          first_frost_date=first_frost)
 
@@ -555,17 +578,41 @@ def api_photos():
     photos = Photo.query.all()
     return jsonify([photo.to_dict() for photo in photos])
 
-@app.route('/api/photos/<int:photo_id>', methods=['DELETE'])
-def delete_photo(photo_id):
-    """Delete a photo"""
+@app.route('/api/photos/<int:photo_id>', methods=['PUT', 'DELETE'])
+def manage_photo(photo_id):
+    """Update or delete a photo"""
     photo = Photo.query.get_or_404(photo_id)
-    # Delete file from filesystem
-    filepath = os.path.join('static/uploads', photo.filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
-    db.session.delete(photo)
+
+    if request.method == 'DELETE':
+        # Delete file from filesystem
+        filepath = os.path.join('static/uploads', photo.filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        db.session.delete(photo)
+        db.session.commit()
+        return '', 204
+
+    # PUT method - update photo metadata
+    data = request.json
+
+    if 'caption' in data:
+        photo.caption = data['caption']
+    if 'category' in data:
+        photo.category = data['category']
+    if 'gardenBedId' in data:
+        photo.garden_bed_id = data['gardenBedId'] if data['gardenBedId'] else None
+
     db.session.commit()
-    return '', 204
+
+    return jsonify({
+        'id': photo.id,
+        'filename': photo.filename,
+        'filepath': photo.filepath,
+        'caption': photo.caption,
+        'category': photo.category,
+        'gardenBedId': photo.garden_bed_id,
+        'uploadedAt': photo.uploaded_at.isoformat() if photo.uploaded_at else None
+    })
 
 # ==================== HARVEST TRACKER ROUTES ====================
 
@@ -596,13 +643,40 @@ def api_harvests():
     records = HarvestRecord.query.all()
     return jsonify([record.to_dict() for record in records])
 
-@app.route('/api/harvests/<int:record_id>', methods=['DELETE'])
-def delete_harvest(record_id):
-    """Delete a harvest record"""
+@app.route('/api/harvests/<int:record_id>', methods=['PUT', 'DELETE'])
+def harvest_record(record_id):
+    """Update or delete a harvest record"""
     record = HarvestRecord.query.get_or_404(record_id)
-    db.session.delete(record)
+
+    if request.method == 'DELETE':
+        db.session.delete(record)
+        db.session.commit()
+        return '', 204
+
+    # PUT method - update harvest
+    data = request.json
+
+    # Update fields if present in request
+    if 'plantId' in data:
+        record.plant_id = data['plantId']
+
+    if 'harvestDate' in data:
+        record.harvest_date = datetime.fromisoformat(data['harvestDate'])
+
+    if 'quantity' in data:
+        record.quantity = data['quantity']
+
+    if 'unit' in data:
+        record.unit = data['unit']
+
+    if 'quality' in data:
+        record.quality = data['quality']
+
+    if 'notes' in data:
+        record.notes = data['notes']
+
     db.session.commit()
-    return '', 204
+    return jsonify({'message': 'Harvest updated successfully', 'id': record.id})
 
 @app.route('/api/harvests/stats')
 def harvest_stats():
@@ -639,14 +713,50 @@ def api_seeds():
             germination_rate=data.get('germinationRate'),
             location=data.get('location', ''),
             price=data.get('price'),
-            notes=data.get('notes', '')
+            notes=data.get('notes', ''),
+            # Agronomic overrides
+            days_to_maturity=data.get('daysToMaturity'),
+            germination_days=data.get('germinationDays'),
+            plant_spacing=data.get('plantSpacing'),
+            row_spacing=data.get('rowSpacing'),
+            planting_depth=data.get('plantingDepth'),
+            germination_temp_min=data.get('germinationTempMin'),
+            germination_temp_max=data.get('germinationTempMax'),
+            soil_temp_min=data.get('soilTempMin'),
+            heat_tolerance=data.get('heatTolerance'),
+            cold_tolerance=data.get('coldTolerance'),
+            bolt_resistance=data.get('boltResistance'),
+            ideal_seasons=data.get('idealSeasons'),
+            flavor_profile=data.get('flavorProfile'),
+            storage_rating=data.get('storageRating')
         )
-        db.session.add(seed)
-        db.session.commit()
-        return jsonify(seed.to_dict()), 201
+        try:
+            db.session.add(seed)
+            db.session.commit()
+            return jsonify(seed.to_dict()), 201
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': 'Failed to create seed'}), 500
 
     seeds = SeedInventory.query.all()
     return jsonify([seed.to_dict() for seed in seeds])
+
+@app.route('/api/seeds/varieties/<plant_id>', methods=['GET'])
+def get_varieties_by_plant(plant_id):
+    """Get all varieties for a specific plant from seed inventory
+
+    Returns:
+        200: List of variety names (may be empty if no varieties exist)
+        500: Database error
+    """
+    try:
+        seeds = SeedInventory.query.filter_by(plant_id=plant_id).all()
+        # Return just variety names (unique, sorted, non-empty)
+        varieties = list(set([seed.variety for seed in seeds if seed.variety]))
+        return jsonify(sorted(varieties))
+    except Exception as e:
+        logging.error(f"Failed to fetch varieties for {plant_id}: {str(e)}")
+        return jsonify({'error': 'Failed to fetch varieties'}), 500
 
 @app.route('/api/seeds/<int:seed_id>', methods=['PUT', 'DELETE'])
 def seed_item(seed_id):
@@ -654,16 +764,123 @@ def seed_item(seed_id):
     seed = SeedInventory.query.get_or_404(seed_id)
 
     if request.method == 'DELETE':
+        # Protect global varieties from deletion
+        if seed.is_global:
+            return jsonify({'error': 'Cannot delete global catalog varieties'}), 403
         db.session.delete(seed)
         db.session.commit()
         return '', 204
+
+    # PUT request - update seed
+    # Protect global varieties from editing
+    if seed.is_global:
+        return jsonify({'error': 'Cannot edit global catalog varieties'}), 403
 
     data = request.json
     seed.quantity = data.get('quantity', seed.quantity)
     seed.germination_rate = data.get('germinationRate', seed.germination_rate)
     seed.notes = data.get('notes', seed.notes)
-    db.session.commit()
-    return jsonify(seed.to_dict())
+
+    # Update agronomic overrides using field mapping
+    field_mapping = {
+        'daysToMaturity': 'days_to_maturity',
+        'germinationDays': 'germination_days',
+        'plantSpacing': 'plant_spacing',
+        'rowSpacing': 'row_spacing',
+        'plantingDepth': 'planting_depth',
+        'germinationTempMin': 'germination_temp_min',
+        'germinationTempMax': 'germination_temp_max',
+        'soilTempMin': 'soil_temp_min',
+        'heatTolerance': 'heat_tolerance',
+        'coldTolerance': 'cold_tolerance',
+        'boltResistance': 'bolt_resistance',
+        'idealSeasons': 'ideal_seasons',
+        'flavorProfile': 'flavor_profile',
+        'storageRating': 'storage_rating'
+    }
+
+    for frontend_field, backend_field in field_mapping.items():
+        if frontend_field in data:
+            setattr(seed, backend_field, data.get(frontend_field))
+
+    try:
+        db.session.commit()
+        return jsonify(seed.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to update seed'}), 500
+
+@app.route('/api/varieties/import', methods=['POST'])
+def import_varieties():
+    """Import plant varieties from CSV file"""
+    try:
+        # Validate request has file
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Get crop type parameter
+        crop_type = request.form.get('cropType', 'lettuce').lower()
+
+        # Get is_global parameter (defaults to False for backward compatibility)
+        is_global = request.form.get('isGlobal', 'false').lower() == 'true'
+
+        # Read file content
+        file_content = file.read().decode('utf-8')
+
+        # Validate CSV format first
+        is_valid, validation_errors = validate_csv_format(file_content)
+        if not is_valid:
+            return jsonify({
+                'error': 'Invalid CSV format',
+                'details': validation_errors
+            }), 400
+
+        # Parse CSV
+        varieties, parse_errors = parse_variety_csv(file_content, crop_type)
+
+        if parse_errors and not varieties:
+            # If there are only errors and no successful parses
+            return jsonify({
+                'error': 'CSV parsing failed',
+                'details': parse_errors
+            }), 400
+
+        # Import varieties to database
+        imported_count, import_errors = import_varieties_to_database(db, varieties, is_global)
+
+        # Build response
+        response = {
+            'success': True,
+            'imported': imported_count,
+            'total_rows': len(varieties),
+            'crop_type': crop_type,
+            'preview': [
+                {
+                    'variety': v['variety'],
+                    'plant_id': v['plant_id'],
+                    'days_to_maturity': v['days_to_maturity']
+                }
+                for v in varieties[:5]  # Show first 5 as preview
+            ]
+        }
+
+        # Add any errors or warnings to response
+        all_errors = parse_errors + import_errors
+        if all_errors:
+            response['warnings'] = all_errors
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        return jsonify({
+            'error': 'Import failed',
+            'details': str(e)
+        }), 500
 
 # ==================== PDF EXPORT ROUTE ====================
 
@@ -733,6 +950,8 @@ def properties():
             width=data['width'],
             length=data['length'],
             address=data.get('address', ''),
+            latitude=data.get('latitude'),
+            longitude=data.get('longitude'),
             zone=data.get('zone', ''),
             soil_type=data.get('soilType', ''),
             slope=data.get('slope', 'flat'),
@@ -761,6 +980,8 @@ def property_detail(property_id):
         prop.width = data.get('width', prop.width)
         prop.length = data.get('length', prop.length)
         prop.address = data.get('address', prop.address)
+        prop.latitude = data.get('latitude', prop.latitude)
+        prop.longitude = data.get('longitude', prop.longitude)
         prop.zone = data.get('zone', prop.zone)
         prop.soil_type = data.get('soilType', prop.soil_type)
         prop.slope = data.get('slope', prop.slope)
@@ -769,25 +990,122 @@ def property_detail(property_id):
 
     return jsonify(prop.to_dict())
 
+@app.route('/api/properties/validate-address', methods=['POST'])
+def validate_property_address():
+    """Validate an address and return geocoded data + hardiness zone"""
+    try:
+        data = request.json
+        address = data.get('address')
+
+        if not address:
+            return jsonify({'error': 'Address is required'}), 400
+
+        # Validate address via geocoding API
+        result = geocoding_service.validate_address(address)
+
+        if not result:
+            return jsonify({
+                'valid': False,
+                'error': 'Address not found or geocoding service unavailable. Please check the address and try again.'
+            }), 404
+
+        # Get hardiness zone from coordinates
+        zone = geocoding_service.get_hardiness_zone(
+            result['latitude'],
+            result['longitude']
+        )
+
+        return jsonify({
+            'valid': True,
+            'latitude': result['latitude'],
+            'longitude': result['longitude'],
+            'formatted_address': result['formatted_address'],
+            'zone': zone,
+            'accuracy': result.get('accuracy'),
+            'accuracy_type': result.get('accuracy_type'),
+            'confidence': result.get('confidence')
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/placed-structures', methods=['POST'])
 def add_placed_structure():
     """Place a structure on the property"""
-    data = request.json
-    position = data.get('position', {})
+    try:
+        data = request.json
+        position = data.get('position', {})
 
-    structure = PlacedStructure(
-        property_id=data['propertyId'],
-        structure_id=data['structureId'],
-        name=data.get('name', ''),
-        position_x=position.get('x', 0),
-        position_y=position.get('y', 0),
-        rotation=data.get('rotation', 0),
-        notes=data.get('notes', ''),
-        cost=data.get('cost')
-    )
-    db.session.add(structure)
-    db.session.commit()
-    return jsonify(structure.to_dict()), 201
+        # Prepare structure data for validation
+        new_structure = {
+            'structure_id': data['structureId'],
+            'position_x': position.get('x', 0),
+            'position_y': position.get('y', 0),
+        }
+
+        # Get existing structures on this property
+        property_id = data['propertyId']
+        property_obj = Property.query.get_or_404(property_id)
+        existing_structures = PlacedStructure.query.filter_by(property_id=property_id).all()
+        existing_structures_data = [
+            {
+                'id': s.id,
+                'structure_id': s.structure_id,
+                'name': s.name,
+                'position_x': s.position_x,
+                'position_y': s.position_y
+            }
+            for s in existing_structures
+        ]
+
+        # Create structures database lookup dict
+        structures_db = {s['id']: s for s in STRUCTURES_DATABASE}
+
+        # Validate placement (including property boundaries)
+        validation_result = validate_structure_placement(
+            new_structure,
+            existing_structures_data,
+            structures_db,
+            property_obj.width,
+            property_obj.length
+        )
+
+        if not validation_result['valid']:
+            # Return conflicts as error
+            conflicts = validation_result['conflicts']
+            error_messages = [c['message'] for c in conflicts]
+            return jsonify({
+                'error': 'Cannot place structure: ' + '; '.join(error_messages),
+                'conflicts': conflicts
+            }), 400
+
+        # Create and save structure
+        structure = PlacedStructure(
+            property_id=property_id,
+            structure_id=data['structureId'],
+            name=data.get('name', ''),
+            position_x=position.get('x', 0),
+            position_y=position.get('y', 0),
+            rotation=data.get('rotation', 0),
+            notes=data.get('notes', ''),
+            built_date=parse_iso_date(data.get('builtDate')),
+            cost=data.get('cost')
+        )
+        db.session.add(structure)
+        db.session.commit()
+
+        # Return with warnings if any
+        response_data = structure.to_dict()
+        if validation_result['warnings']:
+            response_data['warnings'] = validation_result['warnings']
+
+        return jsonify(response_data), 201
+    except KeyError as e:
+        db.session.rollback()
+        return jsonify({'error': f'Missing required field: {str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/placed-structures/<int:structure_id>', methods=['PUT', 'DELETE'])
 def placed_structure(structure_id):
@@ -801,10 +1119,59 @@ def placed_structure(structure_id):
 
     if request.method == 'PUT':
         data = request.json
-        structure.name = data.get('name', structure.name)
         position = data.get('position', {})
-        structure.position_x = position.get('x', structure.position_x)
-        structure.position_y = position.get('y', structure.position_y)
+        new_x = position.get('x', structure.position_x)
+        new_y = position.get('y', structure.position_y)
+
+        # If position is changing, validate new position
+        if new_x != structure.position_x or new_y != structure.position_y:
+            # Prepare structure data for validation (including its own ID)
+            updated_structure = {
+                'id': structure.id,
+                'structure_id': structure.structure_id,
+                'position_x': new_x,
+                'position_y': new_y,
+            }
+
+            # Get all structures on this property
+            property_obj = Property.query.get_or_404(structure.property_id)
+            existing_structures = PlacedStructure.query.filter_by(property_id=structure.property_id).all()
+            existing_structures_data = [
+                {
+                    'id': s.id,
+                    'structure_id': s.structure_id,
+                    'name': s.name,
+                    'position_x': s.position_x,
+                    'position_y': s.position_y
+                }
+                for s in existing_structures
+            ]
+
+            # Create structures database lookup dict
+            structures_db = {s['id']: s for s in STRUCTURES_DATABASE}
+
+            # Validate placement (including property boundaries)
+            validation_result = validate_structure_placement(
+                updated_structure,
+                existing_structures_data,
+                structures_db,
+                property_obj.width,
+                property_obj.length
+            )
+
+            if not validation_result['valid']:
+                # Return conflicts as error
+                conflicts = validation_result['conflicts']
+                error_messages = [c['message'] for c in conflicts]
+                return jsonify({
+                    'error': 'Cannot move structure: ' + '; '.join(error_messages),
+                    'conflicts': conflicts
+                }), 400
+
+        # Update structure
+        structure.name = data.get('name', structure.name)
+        structure.position_x = new_x
+        structure.position_y = new_y
         structure.rotation = data.get('rotation', structure.rotation)
         structure.notes = data.get('notes', structure.notes)
         structure.cost = data.get('cost', structure.cost)
@@ -1163,6 +1530,92 @@ def health_records():
 
     records = HealthRecord.query.order_by(HealthRecord.date.desc()).limit(50).all()
     return jsonify([r.to_dict() for r in records])
+
+# ==================== SOIL TEMPERATURE ROUTES ====================
+
+@app.route('/api/soil-temperature', methods=['GET'])
+def get_soil_temperature():
+    """
+    Get soil temperature using measured data + local adjustments.
+
+    This endpoint uses a multi-tier approach:
+    1. PRIMARY: Open-Meteo measured soil temperature at 6cm depth
+    2. FALLBACK: WeatherAPI air temperature estimation
+    3. LAST RESORT: Mock data
+
+    Then applies user's local adjustments (soil type, sun exposure, mulch)
+    to account for their specific garden bed conditions.
+
+    Query Parameters:
+        - soil_type (required): 'sandy', 'loamy', or 'clay'
+        - sun_exposure (required): 'full-sun', 'partial-shade', or 'full-shade'
+        - has_mulch (required): 'true' or 'false'
+        - latitude (optional): Location latitude (defaults to NYC: 40.7128)
+        - longitude (optional): Location longitude (defaults to NYC: -74.0060)
+
+    Returns:
+        JSON with soil temperature and crop readiness data:
+        {
+            'final_soil_temp': Final temperature after adjustments (F),
+            'base_temp': Initial measured/estimated temperature (F),
+            'adjustments': Applied adjustments object,
+            'method': 'measured' | 'estimated' | 'mock',
+            'source': Data source description,
+            'using_mock_data': Boolean,
+            'crop_readiness': Crop readiness data
+        }
+    """
+    try:
+        # Get query parameters
+        soil_type = request.args.get('soil_type')
+        sun_exposure = request.args.get('sun_exposure')
+        has_mulch_str = request.args.get('has_mulch', 'false')
+
+        # Validate required parameters
+        if not soil_type:
+            return jsonify({'error': 'soil_type parameter is required'}), 400
+        if not sun_exposure:
+            return jsonify({'error': 'sun_exposure parameter is required'}), 400
+
+        # Convert has_mulch to boolean
+        has_mulch = has_mulch_str.lower() == 'true'
+
+        # Get location parameters (default to NYC if not provided)
+        latitude = request.args.get('latitude', DEFAULT_LATITUDE)
+        longitude = request.args.get('longitude', DEFAULT_LONGITUDE)
+
+        # Convert to floats
+        lat = float(latitude)
+        lon = float(longitude)
+
+        # Get soil temperature using intelligent multi-tier approach
+        # This tries Open-Meteo first, then falls back to WeatherAPI, then mock
+        result = get_soil_temperature_with_adjustments(lat, lon, soil_type, sun_exposure, has_mulch)
+
+        # Calculate crop readiness for all plants
+        final_soil_temp = result['final_soil_temp']
+        crop_readiness = calculate_crop_readiness(final_soil_temp, PLANT_DATABASE)
+
+        # Build comprehensive response
+        response = {
+            'final_soil_temp': final_soil_temp,
+            'base_temp': result['base_temp'],
+            'adjustments': result['adjustments'],
+            'method': result['method'],
+            'source': result['source'],
+            'using_mock_data': result['using_mock_data'],
+            'crop_readiness': crop_readiness,
+            # For backward compatibility (deprecated fields)
+            'estimated_soil_temp': final_soil_temp,  # Alias for final_soil_temp
+            'soil_adjustments': result['adjustments']  # Alias for adjustments
+        }
+
+        return jsonify(response), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
 if __name__ == '__main__':

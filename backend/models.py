@@ -253,10 +253,34 @@ class SeedInventory(db.Model):
     location = db.Column(db.String(100))  # Storage location
     price = db.Column(db.Float)
     notes = db.Column(db.Text)
+    is_global = db.Column(db.Boolean, default=False, index=True)  # Shared catalog for all users
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Variety-specific agronomic overrides (nullable - NULL means "use plant_id defaults")
+    # Core agronomic fields
+    days_to_maturity = db.Column(db.Integer)  # Override DTM for this variety
+    germination_days = db.Column(db.Integer)  # Days from planting to emergence
+    plant_spacing = db.Column(db.Integer)  # Inches between plants
+    row_spacing = db.Column(db.Integer)  # Inches between rows
+    planting_depth = db.Column(db.Float)  # Inches
+
+    # Temperature overrides
+    germination_temp_min = db.Column(db.Integer)  # Min germination temp (F)
+    germination_temp_max = db.Column(db.Integer)  # Max germination temp (F)
+    soil_temp_min = db.Column(db.Integer)  # Min soil temp for planting (F)
+
+    # Qualitative overrides
+    heat_tolerance = db.Column(db.String(20))  # low/medium/high/excellent
+    cold_tolerance = db.Column(db.String(20))  # tender/hardy/very-hardy
+    bolt_resistance = db.Column(db.String(20))  # low/medium/high
+    ideal_seasons = db.Column(db.String(100))  # Comma-separated: spring,summer,fall,winter
+
+    # Additional variety-specific data
+    flavor_profile = db.Column(db.Text)  # e.g., "Sweet, crisp, nutty"
+    storage_rating = db.Column(db.String(20))  # poor/fair/good/excellent
+
     def to_dict(self):
-        return {
+        result = {
             'id': self.id,
             'plantId': self.plant_id,
             'variety': self.variety,
@@ -267,8 +291,41 @@ class SeedInventory(db.Model):
             'germinationRate': self.germination_rate,
             'location': self.location,
             'price': self.price,
-            'notes': self.notes
+            'notes': self.notes,
+            'isGlobal': self.is_global
         }
+
+        # Only include variety-specific agronomic overrides if they have values
+        if self.days_to_maturity is not None:
+            result['daysToMaturity'] = self.days_to_maturity
+        if self.germination_days is not None:
+            result['germinationDays'] = self.germination_days
+        if self.plant_spacing is not None:
+            result['plantSpacing'] = self.plant_spacing
+        if self.row_spacing is not None:
+            result['rowSpacing'] = self.row_spacing
+        if self.planting_depth is not None:
+            result['plantingDepth'] = self.planting_depth
+        if self.germination_temp_min is not None:
+            result['germinationTempMin'] = self.germination_temp_min
+        if self.germination_temp_max is not None:
+            result['germinationTempMax'] = self.germination_temp_max
+        if self.soil_temp_min is not None:
+            result['soilTempMin'] = self.soil_temp_min
+        if self.heat_tolerance is not None:
+            result['heatTolerance'] = self.heat_tolerance
+        if self.cold_tolerance is not None:
+            result['coldTolerance'] = self.cold_tolerance
+        if self.bolt_resistance is not None:
+            result['boltResistance'] = self.bolt_resistance
+        if self.ideal_seasons is not None:
+            result['idealSeasons'] = self.ideal_seasons
+        if self.flavor_profile is not None:
+            result['flavorProfile'] = self.flavor_profile
+        if self.storage_rating is not None:
+            result['storageRating'] = self.storage_rating
+
+        return result
 
 class Property(db.Model):
     """Represents the entire homestead property/lot"""
@@ -277,6 +334,8 @@ class Property(db.Model):
     width = db.Column(db.Float, nullable=False)  # Width in feet
     length = db.Column(db.Float, nullable=False)  # Length in feet
     address = db.Column(db.String(200))
+    latitude = db.Column(db.Float)  # Geographic latitude
+    longitude = db.Column(db.Float)  # Geographic longitude
     zone = db.Column(db.String(10))  # USDA hardiness zone
     soil_type = db.Column(db.String(50))  # clay, loam, sandy, etc.
     slope = db.Column(db.String(20))  # flat, gentle, steep
@@ -293,12 +352,14 @@ class Property(db.Model):
             'width': self.width,
             'length': self.length,
             'address': self.address,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
             'zone': self.zone,
             'soilType': self.soil_type,
             'slope': self.slope,
             'notes': self.notes,
             'acreage': round((self.width * self.length) / 43560, 2),  # Convert sq ft to acres
-            'structures': [s.to_dict() for s in self.structures]
+            'placedStructures': [s.to_dict() for s in self.structures]
         }
 
 class PlacedStructure(db.Model):
@@ -321,7 +382,8 @@ class PlacedStructure(db.Model):
             'propertyId': self.property_id,
             'structureId': self.structure_id,
             'name': self.name,
-            'position': {'x': self.position_x, 'y': self.position_y},
+            'positionX': self.position_x,
+            'positionY': self.position_y,
             'rotation': self.rotation,
             'notes': self.notes,
             'builtDate': self.built_date.isoformat() if self.built_date else None,
