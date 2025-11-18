@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 from models import db, GardenBed, PlantedItem, PlantingEvent, WinterPlan, CompostPile, CompostIngredient, Settings, Photo, HarvestRecord, SeedInventory, Property, PlacedStructure, Chicken, EggProduction, Duck, DuckEggProduction, Beehive, HiveInspection, HoneyHarvest, Livestock, HealthRecord
 from plant_database import PLANT_DATABASE, COMPOST_MATERIALS, get_plant_by_id, get_winter_hardy_plants
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES, get_structure_by_id
-from garden_methods import GARDEN_METHODS, BED_TEMPLATES, PLANT_GUILDS, get_sfg_quantity, get_row_spacing, get_intensive_spacing, calculate_plants_per_bed, get_methods_list, get_template_by_id, get_guild_by_id
+from garden_methods import GARDEN_METHODS, BED_TEMPLATES, PLANT_GUILDS, get_sfg_quantity, get_row_spacing, get_intensive_spacing, get_migardener_spacing, calculate_plants_per_bed, get_methods_list, get_template_by_id, get_guild_by_id
 from collision_validator import validate_structure_placement
+from conflict_checker import has_conflict
 from services.geocoding_service import geocoding_service
 from services.csv_import_service import parse_variety_csv, import_varieties_to_database, validate_csv_format
 from soil_temperature import calculate_soil_temp, get_mock_air_temp, calculate_crop_readiness, get_soil_temperature_with_adjustments
@@ -18,6 +19,9 @@ from werkzeug.utils import secure_filename
 import logging
 from PIL import Image
 from reportlab.lib.pagesizes import letter
+
+# Validation constants
+VALID_SUN_EXPOSURES = ['full', 'partial', 'shade']
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 import os
@@ -96,23 +100,72 @@ def garden_beds():
     """Get all garden beds or create new one"""
     if request.method == 'POST':
         data = request.json
+
+        # Validation
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        width = data.get('width')
+        length = data.get('length')
+
+        # Validate dimensions
+        if width is None or length is None:
+            return jsonify({'error': 'Width and length are required'}), 400
+
+        try:
+            width = float(width)
+            length = float(length)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Width and length must be valid numbers'}), 400
+
+        if width <= 0:
+            return jsonify({'error': 'Width must be greater than 0'}), 400
+
+        if length <= 0:
+            return jsonify({'error': 'Length must be greater than 0'}), 400
+
+        if width > 100:
+            return jsonify({'error': 'Width seems unreasonably large (max 100 feet)'}), 400
+
+        if length > 100:
+            return jsonify({'error': 'Length seems unreasonably large (max 100 feet)'}), 400
+
+        # Validate planning method
         planning_method = data.get('planningMethod', 'square-foot')
+        if planning_method not in GARDEN_METHODS:
+            return jsonify({
+                'error': f'Invalid planning method. Must be one of: {", ".join(GARDEN_METHODS.keys())}'
+            }), 400
+
+        # Validate sun exposure
+        sun_exposure = data.get('sunExposure', 'full')
+        if sun_exposure not in VALID_SUN_EXPOSURES:
+            return jsonify({
+                'error': f'Invalid sun exposure. Must be one of: {", ".join(VALID_SUN_EXPOSURES)}'
+            }), 400
 
         # Get grid size based on method
         grid_size = GARDEN_METHODS.get(planning_method, {}).get('gridSize', 12)
 
-        bed = GardenBed(
-            name=data['name'],
-            width=data['width'],
-            length=data['length'],
-            location=data.get('location', ''),
-            sun_exposure=data.get('sunExposure', 'full'),
-            planning_method=planning_method,
-            grid_size=grid_size
-        )
-        db.session.add(bed)
-        db.session.commit()
-        return jsonify(bed.to_dict()), 201
+        # Auto-generate name if not provided
+        name = data.get('name') or f"{width}' x {length}' Bed"
+
+        try:
+            bed = GardenBed(
+                name=name,
+                width=width,
+                length=length,
+                location=data.get('location', ''),
+                sun_exposure=sun_exposure,
+                planning_method=planning_method,
+                grid_size=grid_size
+            )
+            db.session.add(bed)
+            db.session.commit()
+            return jsonify(bed.to_dict()), 201
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Database error: {str(e)}'}), 500
 
     beds = GardenBed.query.all()
     return jsonify([bed.to_dict() for bed in beds])
@@ -231,6 +284,24 @@ def calculate_spacing():
             'pattern': 'hexagonal'
         })
 
+    elif method == 'migardener':
+        spacing = get_migardener_spacing(plant_id)
+        bed_width_inches = bed_width * 12
+        bed_length_inches = bed_length * 12
+        num_rows = int(bed_width_inches / spacing['rowSpacing'])
+        plants_per_row = int(bed_length_inches / spacing['plantSpacing'])
+        total = num_rows * plants_per_row
+        plants_per_sqft = total / (bed_width * bed_length)
+        return jsonify({
+            'method': 'migardener',
+            'rowSpacing': spacing['rowSpacing'],
+            'plantSpacing': spacing['plantSpacing'],
+            'numRows': num_rows,
+            'plantsPerRow': plants_per_row,
+            'totalPlants': total,
+            'plantsPerSqFt': round(plants_per_sqft, 1)
+        })
+
     return jsonify({'error': 'Invalid method'}), 400
 
 @app.route('/api/apply-template', methods=['POST'])
@@ -274,21 +345,57 @@ def apply_template():
 @app.route('/api/planted-items', methods=['POST'])
 def add_planted_item():
     """Add a plant to a garden bed"""
-    data = request.json
-    position = data.get('position', {})
-    item = PlantedItem(
-        plant_id=data['plantId'],
-        garden_bed_id=data['gardenBedId'],
-        planted_date=parse_iso_date(data.get('plantedDate')) or datetime.now(),
-        quantity=data.get('quantity', 1),
-        status=data.get('status', 'planned'),
-        notes=data.get('notes', ''),
-        position_x=position.get('x', 0),
-        position_y=position.get('y', 0)
-    )
-    db.session.add(item)
+    try:
+        data = request.json
+
+        # Validation
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        if 'plantId' not in data:
+            return jsonify({'error': 'plantId is required'}), 400
+
+        if 'gardenBedId' not in data:
+            return jsonify({'error': 'gardenBedId is required'}), 400
+
+        # Verify garden bed exists
+        bed = GardenBed.query.get(data['gardenBedId'])
+        if not bed:
+            return jsonify({'error': f'Garden bed with ID {data["gardenBedId"]} not found'}), 404
+
+        position = data.get('position', {})
+        item = PlantedItem(
+            plant_id=data['plantId'],
+            variety=data.get('variety'),  # Optional variety field
+            garden_bed_id=data['gardenBedId'],
+            planted_date=parse_iso_date(data.get('plantedDate')) or datetime.now(),
+            quantity=data.get('quantity', 1),
+            status=data.get('status', 'planned'),
+            notes=data.get('notes', ''),
+            position_x=position.get('x', 0),
+            position_y=position.get('y', 0)
+        )
+        db.session.add(item)
+        db.session.commit()
+        return jsonify(item.to_dict()), 201
+    except KeyError as e:
+        db.session.rollback()
+        return jsonify({'error': f'Missing required field: {str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
+
+@app.route('/api/garden-beds/<int:bed_id>/planted-items', methods=['DELETE'])
+def clear_bed(bed_id):
+    """Remove all planted items from a garden bed"""
+    bed = GardenBed.query.get_or_404(bed_id)
+    count = len(bed.planted_items)
+
+    # Delete all planted items for this bed
+    PlantedItem.query.filter_by(garden_bed_id=bed_id).delete()
     db.session.commit()
-    return jsonify(item.to_dict()), 201
+
+    return jsonify({'message': f'Cleared {count} plants from bed', 'count': count}), 200
 
 @app.route('/api/planted-items/<int:item_id>', methods=['PUT', 'DELETE'])
 def planted_item(item_id):
@@ -303,6 +410,8 @@ def planted_item(item_id):
     data = request.json
     item.status = data.get('status', item.status)
     item.notes = data.get('notes', item.notes)
+    if 'variety' in data:
+        item.variety = data.get('variety')  # Allow updating variety
     if 'harvestDate' in data and data['harvestDate']:
         item.harvest_date = parse_iso_date(data['harvestDate'])
     db.session.commit()
@@ -326,24 +435,67 @@ def planting_calendar():
 def planting_events():
     """Get all planting events or create new one"""
     if request.method == 'POST':
-        data = request.json
-        event = PlantingEvent(
-            plant_id=data['plantId'],
-            variety=data.get('variety', ''),
-            garden_bed_id=data.get('gardenBedId'),
-            seed_start_date=parse_iso_date(data.get('seedStartDate')),
-            transplant_date=parse_iso_date(data.get('transplantDate')),
-            direct_seed_date=parse_iso_date(data.get('directSeedDate')),
-            expected_harvest_date=parse_iso_date(data['expectedHarvestDate']),
-            succession_planting=data.get('successionPlanting', False),
-            succession_interval=data.get('successionInterval'),
-            notes=data.get('notes', '')
-        )
-        db.session.add(event)
-        db.session.commit()
-        return jsonify(event.to_dict()), 201
+        try:
+            data = request.json
+            event = PlantingEvent(
+                plant_id=data['plantId'],
+                variety=data.get('variety', ''),
+                garden_bed_id=data.get('gardenBedId'),
+                seed_start_date=parse_iso_date(data.get('seedStartDate')),
+                transplant_date=parse_iso_date(data.get('transplantDate')),
+                direct_seed_date=parse_iso_date(data.get('directSeedDate')),
+                expected_harvest_date=parse_iso_date(data['expectedHarvestDate']),
+                succession_planting=data.get('successionPlanting', False),
+                succession_interval=data.get('successionInterval'),
+                succession_group_id=data.get('successionGroupId'),
+                position_x=data.get('positionX'),
+                position_y=data.get('positionY'),
+                space_required=data.get('spaceRequired'),
+                conflict_override=data.get('conflictOverride', False),
+                notes=data.get('notes', '')
+            )
+            db.session.add(event)
+            db.session.commit()
+            return jsonify(event.to_dict()), 201
+        except KeyError as e:
+            db.session.rollback()
+            return jsonify({'error': f'Missing required field: {str(e)}'}), 400
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Failed to create planting event: {str(e)}'}), 500
 
-    events = PlantingEvent.query.all()
+    # GET with optional date-range filtering for timeline view
+    query = PlantingEvent.query
+
+    # Filter by date range if provided
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    if start_date:
+        start_dt = parse_iso_date(start_date)
+        # Include events where ANY non-null date falls after start
+        query = query.filter(
+            db.or_(
+                db.and_(PlantingEvent.seed_start_date.isnot(None), PlantingEvent.seed_start_date >= start_dt),
+                db.and_(PlantingEvent.transplant_date.isnot(None), PlantingEvent.transplant_date >= start_dt),
+                db.and_(PlantingEvent.direct_seed_date.isnot(None), PlantingEvent.direct_seed_date >= start_dt),
+                db.and_(PlantingEvent.expected_harvest_date.isnot(None), PlantingEvent.expected_harvest_date >= start_dt)
+            )
+        )
+
+    if end_date:
+        end_dt = parse_iso_date(end_date)
+        # Include events where ANY non-null date falls before end
+        query = query.filter(
+            db.or_(
+                db.and_(PlantingEvent.seed_start_date.isnot(None), PlantingEvent.seed_start_date <= end_dt),
+                db.and_(PlantingEvent.transplant_date.isnot(None), PlantingEvent.transplant_date <= end_dt),
+                db.and_(PlantingEvent.direct_seed_date.isnot(None), PlantingEvent.direct_seed_date <= end_dt),
+                db.and_(PlantingEvent.expected_harvest_date.isnot(None), PlantingEvent.expected_harvest_date <= end_dt)
+            )
+        )
+
+    events = query.all()
     return jsonify([event.to_dict() for event in events])
 
 @app.route('/api/planting-events/<int:event_id>', methods=['PUT', 'DELETE'])
@@ -361,6 +513,85 @@ def planting_event(event_id):
     event.notes = data.get('notes', event.notes)
     db.session.commit()
     return jsonify(event.to_dict())
+
+@app.route('/api/planting-events/check-conflict', methods=['POST'])
+def check_planting_conflict():
+    """Check if planting position conflicts with existing plantings"""
+    try:
+        data = request.json
+
+        # Validate required fields
+        required_fields = ['gardenBedId', 'positionX', 'positionY', 'startDate', 'endDate', 'plantId']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+
+        # Get garden bed
+        garden_bed = GardenBed.query.get(data['gardenBedId'])
+        if not garden_bed:
+            return jsonify({'error': 'Garden bed not found'}), 404
+
+        # Parse dates
+        start_date = parse_iso_date(data['startDate'])
+        end_date = parse_iso_date(data['endDate'])
+
+        if not start_date or not end_date:
+            return jsonify({'error': 'Invalid date format'}), 400
+
+        # Query potentially conflicting events
+        # Optimize by filtering in SQL first
+        query = PlantingEvent.query.filter(
+            PlantingEvent.garden_bed_id == data['gardenBedId'],
+            PlantingEvent.position_x.isnot(None),
+            PlantingEvent.position_y.isnot(None),
+            PlantingEvent.expected_harvest_date >= start_date
+        ).filter(
+            db.or_(
+                PlantingEvent.transplant_date <= end_date,
+                PlantingEvent.direct_seed_date <= end_date,
+                db.and_(
+                    PlantingEvent.transplant_date.is_(None),
+                    PlantingEvent.direct_seed_date.is_(None),
+                    PlantingEvent.seed_start_date <= end_date
+                )
+            )
+        )
+
+        # Exclude the event being edited if specified
+        if 'excludeEventId' in data:
+            query = query.filter(PlantingEvent.id != data['excludeEventId'])
+
+        candidate_events = query.all()
+
+        # Create temporary event object for conflict checking
+        temp_event = type('TempEvent', (), {
+            'position_x': data['positionX'],
+            'position_y': data['positionY'],
+            'garden_bed_id': data['gardenBedId'],
+            'plant_id': data['plantId'],
+            'transplant_date': parse_iso_date(data.get('transplantDate')) if data.get('transplantDate') else None,
+            'direct_seed_date': parse_iso_date(data.get('directSeedDate')) if data.get('directSeedDate') else None,
+            'seed_start_date': parse_iso_date(data.get('seedStartDate')) if data.get('seedStartDate') else None,
+            'expected_harvest_date': end_date,
+            'id': data.get('excludeEventId')
+        })()
+
+        # Check for conflicts
+        result = has_conflict(temp_event, candidate_events, garden_bed)
+
+        return jsonify({
+            'hasConflict': result['has_conflict'],
+            'conflicts': result['conflicts']
+        }), 200
+
+    except KeyError as e:
+        return jsonify({'error': f'Missing required field: {str(e)}'}), 400
+    except Exception as e:
+        # Log error in production
+        if os.getenv('FLASK_ENV') == 'development':
+            import traceback
+            traceback.print_exc()
+        return jsonify({'error': f'Failed to check conflict: {str(e)}'}), 500
 
 @app.route('/api/frost-dates', methods=['GET', 'POST'])
 def frost_dates():

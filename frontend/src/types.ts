@@ -18,7 +18,11 @@ export interface Plant {
   plantingDepth: number; // inches
   germinationTemp: { min: number; max: number }; // Fahrenheit
   transplantWeeksBefore: number; // weeks before last frost
+  germination_days?: number; // Days from planting to emergence
+  ideal_seasons?: ('spring' | 'summer' | 'fall' | 'winter')[]; // Best planting seasons
+  heat_tolerance?: 'low' | 'medium' | 'high' | 'excellent'; // General heat tolerance
   notes?: string;
+  icon?: string; // Emoji icon for visual representation
 }
 
 export type PlantCategory =
@@ -50,6 +54,7 @@ export interface GardenBed {
 export interface PlantedItem {
   id: string;
   plantId: string;
+  variety?: string; // Specific variety (e.g., "Buttercrunch", "Romaine")
   plantedDate: Date;
   transplantDate?: Date;
   harvestDate?: Date;
@@ -71,6 +76,7 @@ export interface SeasonExtension {
 export interface PlantingCalendar {
   id: string;
   plantId: string;
+  variety?: string; // e.g., "Brandywine", "Roma", "Cherokee Purple"
   gardenBedId: string;
   seedStartDate?: Date;
   transplantDate?: Date;
@@ -78,8 +84,28 @@ export interface PlantingCalendar {
   expectedHarvestDate: Date;
   successionPlanting: boolean;
   successionInterval?: number; // days
+  successionGroupId?: string; // UUID linking events in succession series
+  positionX?: number; // Grid X coordinate (for space tracking)
+  positionY?: number; // Grid Y coordinate (for space tracking)
+  spaceRequired?: number; // Grid cells needed (for space tracking)
+  conflictOverride?: boolean; // User allowed conflict
   completed: boolean;
   notes?: string;
+}
+
+// Conflict detection types (Phase 2B - Timeline Space Awareness)
+export interface ConflictCheck {
+  hasConflict: boolean;
+  conflicts: Conflict[];
+}
+
+export interface Conflict {
+  eventId: string;
+  plantName: string;
+  variety?: string;
+  dates: string; // Formatted date range
+  position: { x: number; y: number };
+  type: 'spatial' | 'temporal' | 'both';
 }
 
 export interface CompostPile {

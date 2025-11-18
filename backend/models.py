@@ -12,7 +12,7 @@ class GardenBed(db.Model):
     location = db.Column(db.String(200))
     sun_exposure = db.Column(db.String(20))  # full, partial, shade
     planning_method = db.Column(db.String(50), default='square-foot')  # square-foot, row, intensive, raised-bed, permaculture, container
-    grid_size = db.Column(db.Integer, default=12)  # inches per grid cell
+    grid_size = db.Column(db.Integer, default=12)  # inches per grid cell (NOT cell count) - e.g., 12 = 1 foot squares
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -28,12 +28,13 @@ class GardenBed(db.Model):
             'sunExposure': self.sun_exposure,
             'planningMethod': self.planning_method,
             'gridSize': self.grid_size,
-            'plants': [item.to_dict() for item in self.planted_items]
+            'plantedItems': [item.to_dict() for item in self.planted_items]
         }
 
 class PlantedItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     plant_id = db.Column(db.String(50), nullable=False)  # Reference to plant in database
+    variety = db.Column(db.String(100))  # Specific variety (e.g., "Buttercrunch", "Romaine", "Red Leaf")
     garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'), nullable=False)
     planted_date = db.Column(db.DateTime, default=datetime.utcnow)
     transplant_date = db.Column(db.DateTime)
@@ -48,6 +49,7 @@ class PlantedItem(db.Model):
         return {
             'id': self.id,
             'plantId': self.plant_id,
+            'variety': self.variety,
             'plantedDate': self.planted_date.isoformat() if self.planted_date else None,
             'transplantDate': self.transplant_date.isoformat() if self.transplant_date else None,
             'harvestDate': self.harvest_date.isoformat() if self.harvest_date else None,
@@ -61,13 +63,18 @@ class PlantingEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     plant_id = db.Column(db.String(50), nullable=False)
     variety = db.Column(db.String(100))  # Specific variety (e.g., "Brandywine", "Roma", "Red Leaf")
-    garden_bed_id = db.Column(db.Integer)
+    garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'))
     seed_start_date = db.Column(db.DateTime)
     transplant_date = db.Column(db.DateTime)
     direct_seed_date = db.Column(db.DateTime)
     expected_harvest_date = db.Column(db.DateTime)
     succession_planting = db.Column(db.Boolean, default=False)
     succession_interval = db.Column(db.Integer)  # days
+    succession_group_id = db.Column(db.String(50))  # UUID linking events in succession series
+    position_x = db.Column(db.Integer)  # Grid X coordinate (nullable)
+    position_y = db.Column(db.Integer)  # Grid Y coordinate (nullable)
+    space_required = db.Column(db.Integer)  # Grid cells needed (nullable)
+    conflict_override = db.Column(db.Boolean, default=False)  # User allowed conflict
     completed = db.Column(db.Boolean, default=False)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -84,6 +91,11 @@ class PlantingEvent(db.Model):
             'expectedHarvestDate': self.expected_harvest_date.isoformat() if self.expected_harvest_date else None,
             'successionPlanting': self.succession_planting,
             'successionInterval': self.succession_interval,
+            'successionGroupId': self.succession_group_id,
+            'positionX': self.position_x,
+            'positionY': self.position_y,
+            'spaceRequired': self.space_required,
+            'conflictOverride': self.conflict_override,
             'completed': self.completed,
             'notes': self.notes
         }
