@@ -161,6 +161,555 @@ KALE_TYPE_MAPPING = {
     'mixed': 'kale-1',
 }
 
+# Herb type mappings (all varieties map to single plant ID)
+BASIL_TYPE_MAPPING = {
+    'sweet': 'basil-1',
+    'genovese': 'basil-1',
+    'thai': 'basil-1',
+    'purple': 'basil-1',
+    'lemon': 'basil-1',
+    'cinnamon': 'basil-1',
+    'holy': 'basil-1',
+    # Fallback
+    'mixed': 'basil-1',
+}
+
+CILANTRO_TYPE_MAPPING = {
+    'standard': 'cilantro-1',
+    'slow-bolt': 'cilantro-1',
+    'santo': 'cilantro-1',
+    'calypso': 'cilantro-1',
+    'leisure': 'cilantro-1',
+    # Fallback
+    'mixed': 'cilantro-1',
+}
+
+PARSLEY_TYPE_MAPPING = {
+    'flat-leaf': 'parsley-1',
+    'italian': 'parsley-1',
+    'curly': 'parsley-1',
+    'hamburg': 'parsley-1',
+    'moss-curled': 'parsley-1',
+    # Fallback
+    'mixed': 'parsley-1',
+}
+
+DILL_TYPE_MAPPING = {
+    'bouquet': 'dill-1',
+    'mammoth': 'dill-1',
+    'fernleaf': 'dill-1',
+    'dukat': 'dill-1',
+    'superdukat': 'dill-1',
+    # Fallback
+    'mixed': 'dill-1',
+}
+
+OREGANO_TYPE_MAPPING = {
+    'greek': 'oregano-1',
+    'italian': 'oregano-1',
+    'common': 'oregano-1',
+    'hot-spicy': 'oregano-1',
+    'golden': 'oregano-1',
+    # Fallback
+    'mixed': 'oregano-1',
+}
+
+THYME_TYPE_MAPPING = {
+    'common': 'thyme-1',
+    'lemon': 'thyme-1',
+    'french': 'thyme-1',
+    'english': 'thyme-1',
+    'creeping': 'thyme-1',
+    'caraway': 'thyme-1',
+    # Fallback
+    'mixed': 'thyme-1',
+}
+
+SAGE_TYPE_MAPPING = {
+    'common': 'sage-1',
+    'purple': 'sage-1',
+    'tricolor': 'sage-1',
+    'pineapple': 'sage-1',
+    'golden': 'sage-1',
+    # Fallback
+    'mixed': 'sage-1',
+}
+
+ROSEMARY_TYPE_MAPPING = {
+    'tuscan-blue': 'rosemary-1',
+    'arp': 'rosemary-1',
+    'prostrate': 'rosemary-1',
+    'spice-islands': 'rosemary-1',
+    'common': 'rosemary-1',
+    # Fallback
+    'mixed': 'rosemary-1',
+}
+
+MINT_TYPE_MAPPING = {
+    'spearmint': 'mint-1',
+    'peppermint': 'mint-1',
+    'chocolate': 'mint-1',
+    'apple': 'mint-1',
+    'orange': 'mint-1',
+    'pineapple': 'mint-1',
+    # Fallback
+    'mixed': 'mint-1',
+}
+
+POTATO_TYPE_MAPPING = {
+    'russet': 'potato-1',
+    'yukon-gold': 'potato-1',
+    'red': 'potato-1',
+    'fingerling': 'potato-1',
+    'purple': 'potato-1',
+    'white': 'potato-1',
+    'yellow': 'potato-1',
+    'kennebec': 'potato-1',
+    'norland': 'potato-1',
+    'katahdin': 'potato-1',
+    'all-blue': 'potato-1',
+    'adirondack-blue': 'potato-1',
+    'german-butterball': 'potato-1',
+    'king-harry': 'potato-1',
+    # Fallback
+    'mixed': 'potato-1',
+}
+
+CORN_TYPE_MAPPING = {
+    'sweet': 'corn-1',
+    'bi-color': 'corn-1',
+    'yellow': 'corn-1',
+    'white': 'corn-1',
+    'super-sweet': 'corn-1',
+    'sugar-enhanced': 'corn-1',
+    'standard': 'corn-1',
+    'heirloom': 'corn-1',
+    'ornamental': 'corn-1',
+    'popcorn': 'corn-1',
+    'dent': 'corn-1',
+    'flint': 'corn-1',
+    # Fallback
+    'mixed': 'corn-1',
+}
+
+ASPARAGUS_TYPE_MAPPING = {
+    'jersey': 'asparagus-1',
+    'purple': 'asparagus-1',
+    'standard': 'asparagus-1',
+    'mary-washington': 'asparagus-1',
+    'jersey-giant': 'asparagus-1',
+    'purple-passion': 'asparagus-1',
+    # Fallback
+    'mixed': 'asparagus-1',
+}
+
+BRUSSELS_SPROUTS_TYPE_MAPPING = {
+    'standard': 'brussels-sprouts-1',
+    'long-island': 'brussels-sprouts-1',
+    'jade-cross': 'brussels-sprouts-1',
+    'diablo': 'brussels-sprouts-1',
+    # Fallback
+    'mixed': 'brussels-sprouts-1',
+}
+
+EGGPLANT_TYPE_MAPPING = {
+    'globe': 'eggplant-1',
+    'italian': 'eggplant-1',
+    'japanese': 'eggplant-1',
+    'black-beauty': 'eggplant-1',
+    'chinese': 'eggplant-1',
+    'white': 'eggplant-1',
+    'graffiti': 'eggplant-1',
+    'fairy-tale': 'eggplant-1',
+    # Fallback
+    'mixed': 'eggplant-1',
+}
+
+CELERY_TYPE_MAPPING = {
+    'standard': 'celery-1',
+    'pascal': 'celery-1',
+    'utah': 'celery-1',
+    'golden': 'celery-1',
+    'self-blanching': 'celery-1',
+    # Fallback
+    'mixed': 'celery-1',
+}
+
+SHALLOT_TYPE_MAPPING = {
+    'french-red': 'shallot-1',
+    'dutch-yellow': 'shallot-1',
+    'red': 'shallot-1',
+    'yellow': 'shallot-1',
+    'ambition': 'shallot-1',
+    'conservor': 'shallot-1',
+    # Fallback
+    'mixed': 'shallot-1',
+}
+
+TURNIP_TYPE_MAPPING = {
+    'purple-top': 'turnip-1',
+    'white': 'turnip-1',
+    'golden': 'turnip-1',
+    'tokyo-cross': 'turnip-1',
+    'hakurei': 'turnip-1',
+    # Fallback
+    'mixed': 'turnip-1',
+}
+
+COLLARD_GREENS_TYPE_MAPPING = {
+    'standard': 'collard-greens-1',
+    'georgia': 'collard-greens-1',
+    'vates': 'collard-greens-1',
+    'champion': 'collard-greens-1',
+    # Fallback
+    'mixed': 'collard-greens-1',
+}
+
+OKRA_TYPE_MAPPING = {
+    'standard': 'okra-1',
+    'clemson-spineless': 'okra-1',
+    'emerald': 'okra-1',
+    'burgundy': 'okra-1',
+    'dwarf': 'okra-1',
+    'spineless': 'okra-1',
+    # Fallback
+    'mixed': 'okra-1',
+}
+
+KOHLRABI_TYPE_MAPPING = {
+    'purple': 'kohlrabi-1',
+    'white': 'kohlrabi-1',
+    'green': 'kohlrabi-1',
+    'early-white-vienna': 'kohlrabi-1',
+    'azur-star': 'kohlrabi-1',
+    # Fallback
+    'mixed': 'kohlrabi-1',
+}
+
+PUMPKIN_TYPE_MAPPING = {
+    'pie': 'pumpkin-1',
+    'carving': 'pumpkin-1',
+    'miniature': 'pumpkin-1',
+    'sugar': 'pumpkin-1',
+    'jack-o-lantern': 'pumpkin-1',
+    'giant': 'pumpkin-1',
+    'white': 'pumpkin-1',
+    # Fallback
+    'mixed': 'pumpkin-1',
+}
+
+# Berry/Fruit type mappings
+BLACKBERRY_TYPE_MAPPING = {
+    'thornless': 'blackberry-1',
+    'thorny': 'blackberry-1',
+    'trailing': 'blackberry-1',
+    'erect': 'blackberry-1',
+    'semi-erect': 'blackberry-1',
+    'triple-crown': 'blackberry-1',
+    'ouachita': 'blackberry-1',
+    'navaho': 'blackberry-1',
+    # Fallback
+    'mixed': 'blackberry-1',
+}
+
+GRAPE_TYPE_MAPPING = {
+    'table': 'grape-1',
+    'wine': 'grape-1',
+    'concord': 'grape-1',
+    'seedless': 'grape-1',
+    'red': 'grape-1',
+    'white': 'grape-1',
+    'green': 'grape-1',
+    'black': 'grape-1',
+    # Fallback
+    'mixed': 'grape-1',
+}
+
+CURRANT_TYPE_MAPPING = {
+    'red': 'currant-1',
+    'black': 'currant-1',
+    'white': 'currant-1',
+    'pink': 'currant-1',
+    # Fallback
+    'mixed': 'currant-1',
+}
+
+GOOSEBERRY_TYPE_MAPPING = {
+    'green': 'gooseberry-1',
+    'red': 'gooseberry-1',
+    'yellow': 'gooseberry-1',
+    'invicta': 'gooseberry-1',
+    'hinnonmaki': 'gooseberry-1',
+    # Fallback
+    'mixed': 'gooseberry-1',
+}
+
+ELDERBERRY_TYPE_MAPPING = {
+    'american': 'elderberry-1',
+    'european': 'elderberry-1',
+    'black': 'elderberry-1',
+    'york': 'elderberry-1',
+    'adams': 'elderberry-1',
+    # Fallback
+    'mixed': 'elderberry-1',
+}
+
+# Additional culinary/medicinal herbs
+FENNEL_TYPE_MAPPING = {
+    'florence': 'fennel-1',
+    'bronze': 'fennel-1',
+    'sweet': 'fennel-1',
+    'common': 'fennel-1',
+    'bulbing': 'fennel-1',
+    'herb': 'fennel-1',
+    # Fallback
+    'mixed': 'fennel-1',
+}
+
+LAVENDER_TYPE_MAPPING = {
+    'english': 'lavender-1',
+    'angustifolia': 'lavender-1',
+    'munstead': 'lavender-1',
+    'hidcote': 'lavender-1',
+    'vera': 'lavender-1',
+    'common': 'lavender-1',
+    # Fallback
+    'mixed': 'lavender-1',
+}
+
+LEMON_BALM_TYPE_MAPPING = {
+    'common': 'lemon-balm-1',
+    'standard': 'lemon-balm-1',
+    'variegated': 'lemon-balm-1',
+    'gold-leaf': 'lemon-balm-1',
+    'lime': 'lemon-balm-1',
+    # Fallback
+    'mixed': 'lemon-balm-1',
+}
+
+MARJORAM_TYPE_MAPPING = {
+    'sweet': 'marjoram-1',
+    'common': 'marjoram-1',
+    'pot': 'marjoram-1',
+    'wild': 'marjoram-1',
+    'italian': 'marjoram-1',
+    # Fallback
+    'mixed': 'marjoram-1',
+}
+
+TARRAGON_TYPE_MAPPING = {
+    'french': 'tarragon-1',
+    'common': 'tarragon-1',
+    'true': 'tarragon-1',
+    'culinary': 'tarragon-1',
+    'russian': 'tarragon-1',  # Inferior but include for completeness
+    # Fallback
+    'mixed': 'tarragon-1',
+}
+
+# Tree type mappings for CSV import
+
+# ========== FRUIT TREES ==========
+APPLE_TYPE_MAPPING = {
+    'honeycrisp': 'apple-1',
+    'gala': 'apple-1',
+    'fuji': 'apple-1',
+    'granny-smith': 'apple-1',
+    'red-delicious': 'apple-1',
+    'golden-delicious': 'apple-1',
+    'mcintosh': 'apple-1',
+    'jonathan': 'apple-1',
+    'rome': 'apple-1',
+    'cortland': 'apple-1',
+    'empire': 'apple-1',
+    'braeburn': 'apple-1',
+    'crabapple': 'apple-1',
+    'liberty': 'apple-1',
+    'enterprise': 'apple-1',
+    # Fallback
+    'mixed': 'apple-1',
+}
+
+PEAR_TYPE_MAPPING = {
+    'bartlett': 'pear-1',
+    'anjou': 'pear-1',
+    'bosc': 'pear-1',
+    'comice': 'pear-1',
+    'seckel': 'pear-1',
+    'asian': 'pear-1',
+    'harrow-sweet': 'pear-1',
+    'moonglow': 'pear-1',
+    'kieffer': 'pear-1',
+    'conference': 'pear-1',
+    # Fallback
+    'mixed': 'pear-1',
+}
+
+CHERRY_SWEET_TYPE_MAPPING = {
+    'bing': 'cherry-sweet-1',
+    'rainier': 'cherry-sweet-1',
+    'lambert': 'cherry-sweet-1',
+    'stella': 'cherry-sweet-1',
+    'lapins': 'cherry-sweet-1',
+    'black-tartarian': 'cherry-sweet-1',
+    'van': 'cherry-sweet-1',
+    'summit': 'cherry-sweet-1',
+    'sweetheart': 'cherry-sweet-1',
+    # Fallback
+    'mixed': 'cherry-sweet-1',
+}
+
+CHERRY_SOUR_TYPE_MAPPING = {
+    'montmorency': 'cherry-sour-1',
+    'morello': 'cherry-sour-1',
+    'english-morello': 'cherry-sour-1',
+    'evans': 'cherry-sour-1',
+    'north-star': 'cherry-sour-1',
+    'meteor': 'cherry-sour-1',
+    'danube': 'cherry-sour-1',
+    # Fallback
+    'mixed': 'cherry-sour-1',
+}
+
+PLUM_TYPE_MAPPING = {
+    'santa-rosa': 'plum-1',
+    'satsuma': 'plum-1',
+    'italian-prune': 'plum-1',
+    'stanley': 'plum-1',
+    'damson': 'plum-1',
+    'methley': 'plum-1',
+    'shiro': 'plum-1',
+    'victoria': 'plum-1',
+    'elephant-heart': 'plum-1',
+    'green-gage': 'plum-1',
+    # Fallback
+    'mixed': 'plum-1',
+}
+
+PEACH_TYPE_MAPPING = {
+    'elberta': 'peach-1',
+    'redhaven': 'peach-1',
+    'hale-haven': 'peach-1',
+    'belle-of-georgia': 'peach-1',
+    'reliance': 'peach-1',
+    'madison': 'peach-1',
+    'contender': 'peach-1',
+    'crest-haven': 'peach-1',
+    'loring': 'peach-1',
+    'white-peach': 'peach-1',
+    'donut': 'peach-1',
+    # Fallback
+    'mixed': 'peach-1',
+}
+
+APRICOT_TYPE_MAPPING = {
+    'moorpark': 'apricot-1',
+    'goldcot': 'apricot-1',
+    'tomcot': 'apricot-1',
+    'blenheim': 'apricot-1',
+    'royal': 'apricot-1',
+    'harcot': 'apricot-1',
+    'chinese': 'apricot-1',
+    'goldrich': 'apricot-1',
+    'sungold': 'apricot-1',
+    # Fallback
+    'mixed': 'apricot-1',
+}
+
+FIG_TYPE_MAPPING = {
+    'brown-turkey': 'fig-1',
+    'chicago-hardy': 'fig-1',
+    'celeste': 'fig-1',
+    'kadota': 'fig-1',
+    'mission': 'fig-1',
+    'adriatic': 'fig-1',
+    'petite-negra': 'fig-1',
+    'desert-king': 'fig-1',
+    'violette-de-bordeaux': 'fig-1',
+    # Fallback
+    'mixed': 'fig-1',
+}
+
+PERSIMMON_TYPE_MAPPING = {
+    'american': 'persimmon-1',
+    'meader': 'persimmon-1',
+    'prok': 'persimmon-1',
+    'szukis': 'persimmon-1',
+    'fuyu': 'persimmon-1',  # Asian variety
+    'hachiya': 'persimmon-1',  # Asian variety
+    'jiro': 'persimmon-1',
+    # Fallback
+    'mixed': 'persimmon-1',
+}
+
+# ========== NUT TREES ==========
+ALMOND_TYPE_MAPPING = {
+    'nonpareil': 'almond-1',
+    'carmel': 'almond-1',
+    'butte': 'almond-1',
+    'monterey': 'almond-1',
+    'fritz': 'almond-1',
+    'mission': 'almond-1',
+    'all-in-one': 'almond-1',
+    'garden-prince': 'almond-1',
+    # Fallback
+    'mixed': 'almond-1',
+}
+
+WALNUT_TYPE_MAPPING = {
+    'chandler': 'walnut-1',
+    'hartley': 'walnut-1',
+    'franquette': 'walnut-1',
+    'carpathian': 'walnut-1',
+    'english': 'walnut-1',
+    'black': 'walnut-1',
+    'thomas': 'walnut-1',
+    'emma-k': 'walnut-1',
+    'howard': 'walnut-1',
+    # Fallback
+    'mixed': 'walnut-1',
+}
+
+PECAN_TYPE_MAPPING = {
+    'desirable': 'pecan-1',
+    'pawnee': 'pecan-1',
+    'kanza': 'pecan-1',
+    'elliot': 'pecan-1',
+    'stuart': 'pecan-1',
+    'cape-fear': 'pecan-1',
+    'caddo': 'pecan-1',
+    'oconee': 'pecan-1',
+    'lakota': 'pecan-1',
+    # Fallback
+    'mixed': 'pecan-1',
+}
+
+HAZELNUT_TYPE_MAPPING = {
+    'barcelona': 'hazelnut-1',
+    'jefferson': 'hazelnut-1',
+    'yamhill': 'hazelnut-1',
+    'theta': 'hazelnut-1',
+    'eta': 'hazelnut-1',
+    'hall-giant': 'hazelnut-1',
+    'american': 'hazelnut-1',
+    'dorris': 'hazelnut-1',
+    # Fallback
+    'mixed': 'hazelnut-1',
+}
+
+CHESTNUT_TYPE_MAPPING = {
+    'dunstan': 'chestnut-1',
+    'colossal': 'chestnut-1',
+    'bouche-de-betizac': 'chestnut-1',
+    'chinese': 'chestnut-1',
+    'qing': 'chestnut-1',
+    'eaton': 'chestnut-1',
+    'labor-day': 'chestnut-1',
+    'carolina': 'chestnut-1',
+    # Fallback
+    'mixed': 'chestnut-1',
+}
+
 
 # Crop type to mapping dictionary
 CROP_TYPE_MAPPINGS = {
@@ -178,6 +727,55 @@ CROP_TYPE_MAPPINGS = {
     'cauliflower': CAULIFLOWER_TYPE_MAPPING,
     'cabbage': CABBAGE_TYPE_MAPPING,
     'kale': KALE_TYPE_MAPPING,
+    'potato': POTATO_TYPE_MAPPING,
+    'corn': CORN_TYPE_MAPPING,
+    'asparagus': ASPARAGUS_TYPE_MAPPING,
+    'brussels-sprouts': BRUSSELS_SPROUTS_TYPE_MAPPING,
+    'eggplant': EGGPLANT_TYPE_MAPPING,
+    'celery': CELERY_TYPE_MAPPING,
+    'shallot': SHALLOT_TYPE_MAPPING,
+    'turnip': TURNIP_TYPE_MAPPING,
+    'collard-greens': COLLARD_GREENS_TYPE_MAPPING,
+    'okra': OKRA_TYPE_MAPPING,
+    'kohlrabi': KOHLRABI_TYPE_MAPPING,
+    'pumpkin': PUMPKIN_TYPE_MAPPING,
+    # Herbs
+    'basil': BASIL_TYPE_MAPPING,
+    'cilantro': CILANTRO_TYPE_MAPPING,
+    'parsley': PARSLEY_TYPE_MAPPING,
+    'dill': DILL_TYPE_MAPPING,
+    'oregano': OREGANO_TYPE_MAPPING,
+    'thyme': THYME_TYPE_MAPPING,
+    'sage': SAGE_TYPE_MAPPING,
+    'rosemary': ROSEMARY_TYPE_MAPPING,
+    'mint': MINT_TYPE_MAPPING,
+    'fennel': FENNEL_TYPE_MAPPING,
+    'lavender': LAVENDER_TYPE_MAPPING,
+    'lemon-balm': LEMON_BALM_TYPE_MAPPING,
+    'marjoram': MARJORAM_TYPE_MAPPING,
+    'tarragon': TARRAGON_TYPE_MAPPING,
+    # Berries/Fruits
+    'blackberry': BLACKBERRY_TYPE_MAPPING,
+    'grape': GRAPE_TYPE_MAPPING,
+    'currant': CURRANT_TYPE_MAPPING,
+    'gooseberry': GOOSEBERRY_TYPE_MAPPING,
+    'elderberry': ELDERBERRY_TYPE_MAPPING,
+    # Trees - Fruit
+    'apple': APPLE_TYPE_MAPPING,
+    'pear': PEAR_TYPE_MAPPING,
+    'cherry-sweet': CHERRY_SWEET_TYPE_MAPPING,
+    'cherry-sour': CHERRY_SOUR_TYPE_MAPPING,
+    'plum': PLUM_TYPE_MAPPING,
+    'peach': PEACH_TYPE_MAPPING,
+    'apricot': APRICOT_TYPE_MAPPING,
+    'fig': FIG_TYPE_MAPPING,
+    'persimmon': PERSIMMON_TYPE_MAPPING,
+    # Trees - Nut
+    'almond': ALMOND_TYPE_MAPPING,
+    'walnut': WALNUT_TYPE_MAPPING,
+    'pecan': PECAN_TYPE_MAPPING,
+    'hazelnut': HAZELNUT_TYPE_MAPPING,
+    'chestnut': CHESTNUT_TYPE_MAPPING,
 }
 
 
