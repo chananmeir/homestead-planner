@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { ConfirmDialog, useToast, SearchBar, SortDropdown, FilterBar, DateRangePicker } from './common';
+import type { SortOption, SortDirection, FilterGroup, DateRange } from './common';
+import { LogHarvestModal } from './HarvestTracker/LogHarvestModal';
+import { EditHarvestModal } from './HarvestTracker/EditHarvestModal';
 
+import { API_BASE_URL } from '../config';
 interface HarvestRecord {
   id: number;
   plantId: string;
@@ -17,10 +22,25 @@ interface Plant {
 }
 
 const HarvestTracker: React.FC = () => {
+  const { showSuccess, showError } = useToast();
   const [harvests, setHarvests] = useState<HarvestRecord[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>({});
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedHarvest, setSelectedHarvest] = useState<HarvestRecord | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; harvestId: number | null }>({
+    isOpen: false,
+    harvestId: null,
+  });
+
+  // Search, Filter, Sort state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
+  const [dateRange, setDateRange] = useState<DateRange>({ startDate: null, endDate: null });
+  const [sortBy, setSortBy] = useState<string>('harvestDate');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   useEffect(() => {
     loadData();
@@ -31,17 +51,17 @@ const HarvestTracker: React.FC = () => {
       setLoading(true);
 
       // Load harvests
-      const harvestResponse = await fetch('http://localhost:5000/api/harvests');
+      const harvestResponse = await fetch(`${API_BASE_URL}/api/harvests`);
       const harvestData = await harvestResponse.json();
       setHarvests(harvestData);
 
       // Load plants
-      const plantResponse = await fetch('http://localhost:5000/api/plants');
+      const plantResponse = await fetch(`${API_BASE_URL}/api/plants`);
       const plantData = await plantResponse.json();
       setPlants(plantData);
 
       // Load stats
-      const statsResponse = await fetch('http://localhost:5000/api/harvests/stats');
+      const statsResponse = await fetch(`${API_BASE_URL}/api/harvests/stats`);
       const statsData = await statsResponse.json();
       setStats(statsData);
     } catch (error) {
@@ -51,10 +71,10 @@ const HarvestTracker: React.FC = () => {
     }
   };
 
-  const getPlantName = (plantId: string): string => {
+  const getPlantName = useCallback((plantId: string): string => {
     const plant = plants.find(p => p.id === plantId);
     return plant?.name || plantId;
-  };
+  }, [plants]);
 
   const getQualityColor = (quality: string): string => {
     switch (quality.toLowerCase()) {
@@ -71,8 +91,168 @@ const HarvestTracker: React.FC = () => {
     }
   };
 
+  const handleEditClick = (harvest: HarvestRecord) => {
+    setSelectedHarvest(harvest);
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteClick = (harvestId: number) => {
+    setDeleteConfirm({ isOpen: true, harvestId });
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm.harvestId) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/harvests/${deleteConfirm.harvestId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        showSuccess('Harvest deleted successfully!');
+        loadData(); // Refresh the list and stats
+      } else {
+        showError('Failed to delete harvest');
+      }
+    } catch (error) {
+      console.error('Error deleting harvest:', error);
+      showError('Network error occurred');
+    } finally {
+      setDeleteConfirm({ isOpen: false, harvestId: null });
+    }
+  };
+
+  // Filter and Sort Configuration
+  const uniquePlants = Array.from(new Set(harvests.map(h => h.plantId)));
+  const uniqueUnits = Array.from(new Set(harvests.map(h => h.unit)));
+
+  const sortOptions: SortOption[] = [
+    { value: 'harvestDate', label: 'Harvest Date' },
+    { value: 'plantId', label: 'Plant Name' },
+    { value: 'quantity', label: 'Quantity' },
+    { value: 'quality', label: 'Quality' },
+  ];
+
+  const filterGroups: FilterGroup[] = [
+    {
+      id: 'quality',
+      label: 'Quality',
+      options: ['Excellent', 'Good', 'Fair', 'Poor'].map(q => ({
+        value: q.toLowerCase(),
+        label: q,
+        count: harvests.filter(h => h.quality.toLowerCase() === q.toLowerCase()).length,
+      })),
+    },
+    {
+      id: 'plant',
+      label: 'Plant',
+      options: uniquePlants.map(pid => ({
+        value: pid,
+        label: getPlantName(pid),
+        count: harvests.filter(h => h.plantId === pid).length,
+      })),
+    },
+    {
+      id: 'unit',
+      label: 'Unit',
+      options: uniqueUnits.map(u => ({
+        value: u,
+        label: u,
+        count: harvests.filter(h => h.unit === u).length,
+      })),
+    },
+  ];
+
+  const handleFilterChange = (groupId: string, values: string[]) => {
+    setActiveFilters(prev => ({ ...prev, [groupId]: values }));
+  };
+
+  const handleClearAllFilters = () => {
+    setActiveFilters({});
+    setDateRange({ startDate: null, endDate: null });
+  };
+
+  const handleSortChange = (field: string, direction: SortDirection) => {
+    setSortBy(field);
+    setSortDirection(direction);
+  };
+
+  // Apply filters, search, date range, and sorting
+  const filteredAndSortedHarvests = useMemo(() => {
+    let result = [...harvests];
+
+    // Search filter (plant name, notes)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(h => {
+        const plantName = getPlantName(h.plantId).toLowerCase();
+        const notes = h.notes?.toLowerCase() || '';
+        return plantName.includes(query) || notes.includes(query);
+      });
+    }
+
+    // Date range filter
+    if (dateRange.startDate || dateRange.endDate) {
+      result = result.filter(h => {
+        const date = new Date(h.harvestDate).toISOString().split('T')[0];
+        if (dateRange.startDate && date < dateRange.startDate) return false;
+        if (dateRange.endDate && date > dateRange.endDate) return false;
+        return true;
+      });
+    }
+
+    // Quality filter
+    const qualityFilters = activeFilters['quality'] || [];
+    if (qualityFilters.length > 0) {
+      result = result.filter(h => qualityFilters.includes(h.quality.toLowerCase()));
+    }
+
+    // Plant filter
+    const plantFilters = activeFilters['plant'] || [];
+    if (plantFilters.length > 0) {
+      result = result.filter(h => plantFilters.includes(h.plantId));
+    }
+
+    // Unit filter
+    const unitFilters = activeFilters['unit'] || [];
+    if (unitFilters.length > 0) {
+      result = result.filter(h => unitFilters.includes(h.unit));
+    }
+
+    // Sorting
+    result.sort((a, b) => {
+      let aValue: string | number, bValue: string | number;
+      switch (sortBy) {
+        case 'harvestDate':
+          aValue = new Date(a.harvestDate).getTime();
+          bValue = new Date(b.harvestDate).getTime();
+          break;
+        case 'plantId':
+          aValue = getPlantName(a.plantId).toLowerCase();
+          bValue = getPlantName(b.plantId).toLowerCase();
+          break;
+        case 'quantity':
+          aValue = a.quantity;
+          bValue = b.quantity;
+          break;
+        case 'quality':
+          const qualityOrder: { [key: string]: number } = { excellent: 4, good: 3, fair: 2, poor: 1 };
+          aValue = qualityOrder[a.quality.toLowerCase()] || 0;
+          bValue = qualityOrder[b.quality.toLowerCase()] || 0;
+          break;
+        default:
+          return 0;
+      }
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [harvests, searchQuery, activeFilters, dateRange, sortBy, sortDirection, getPlantName]);
+
   const totalHarvested = harvests.reduce((sum, h) => sum + h.quantity, 0);
-  const uniquePlants = new Set(harvests.map(h => h.plantId)).size;
+  const uniquePlantCount = new Set(harvests.map(h => h.plantId)).size;
 
   return (
     <div className="space-y-6">
@@ -90,7 +270,7 @@ const HarvestTracker: React.FC = () => {
           </div>
 
           <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border border-blue-200">
-            <div className="text-3xl font-bold text-blue-700 mb-2">{uniquePlants}</div>
+            <div className="text-3xl font-bold text-blue-700 mb-2">{uniquePlantCount}</div>
             <div className="text-sm text-blue-600 font-medium">Different Plants</div>
           </div>
 
@@ -102,29 +282,70 @@ const HarvestTracker: React.FC = () => {
 
         {/* Add New Harvest Button */}
         <div className="mb-6">
-          <button className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors">
+          <button
+            className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
+            onClick={() => setIsLogModalOpen(true)}
+          >
             Log New Harvest
           </button>
-          <p className="text-sm text-gray-500 mt-2">
-            Full CRUD functionality coming soon. Currently displaying data from backend.
-          </p>
+        </div>
+
+        {/* Search Bar */}
+        <SearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search by plant name or notes..."
+          className="mb-4"
+        />
+
+        {/* Filters and Sort */}
+        <div className="flex flex-wrap gap-4 items-start mb-6">
+          <FilterBar
+            filterGroups={filterGroups}
+            activeFilters={activeFilters}
+            onFilterChange={handleFilterChange}
+            onClearAll={handleClearAllFilters}
+          />
+
+          <DateRangePicker
+            value={dateRange}
+            onChange={setDateRange}
+            label="Harvest Date"
+          />
+
+          <SortDropdown
+            options={sortOptions}
+            sortBy={sortBy}
+            sortDirection={sortDirection}
+            onSortChange={handleSortChange}
+          />
         </div>
       </div>
 
       {/* Harvest Records */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-xl font-bold text-gray-800 mb-4">Recent Harvests</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-gray-800">
+            Recent Harvests {filteredAndSortedHarvests.length !== harvests.length && `(${filteredAndSortedHarvests.length} of ${harvests.length})`}
+          </h3>
+        </div>
 
         {loading ? (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
             <p className="mt-4 text-gray-600">Loading harvests...</p>
           </div>
-        ) : harvests.length === 0 ? (
+        ) : filteredAndSortedHarvests.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <div className="text-6xl mb-4">🧺</div>
-            <p className="text-lg">No harvests recorded yet.</p>
-            <p className="text-sm mt-2">Start logging your harvests to track your garden's productivity!</p>
+            <p className="text-lg">
+              {harvests.length === 0 ? 'No harvests recorded yet.' : 'No harvests match your filters.'}
+            </p>
+            <p className="text-sm mt-2">
+              {harvests.length === 0
+                ? 'Start logging your harvests to track your garden\'s productivity!'
+                : 'Try adjusting your search or filters.'}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -146,10 +367,13 @@ const HarvestTracker: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Notes
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {harvests.map((harvest) => (
+                {filteredAndSortedHarvests.map((harvest) => (
                   <tr key={harvest.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(harvest.harvestDate).toLocaleDateString()}
@@ -169,6 +393,28 @@ const HarvestTracker: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {harvest.notes || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEditClick(harvest)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Edit harvest"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(harvest.id)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Delete harvest"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -209,6 +455,32 @@ const HarvestTracker: React.FC = () => {
           <li>✓ Plan better by learning from historical data</li>
         </ul>
       </div>
+
+      {/* Modals */}
+      <LogHarvestModal
+        isOpen={isLogModalOpen}
+        onClose={() => setIsLogModalOpen(false)}
+        onSuccess={loadData}
+      />
+
+      {selectedHarvest && (
+        <EditHarvestModal
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onSuccess={loadData}
+          harvestData={selectedHarvest}
+        />
+      )}
+
+      <ConfirmDialog
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({ isOpen: false, harvestId: null })}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Harvest"
+        message="Are you sure you want to delete this harvest record? This action cannot be undone."
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 };

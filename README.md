@@ -80,6 +80,60 @@ homestead-planner/
 
    The frontend will be available at `http://localhost:3000`
 
+## Environment Configuration
+
+### Frontend API Configuration
+
+The frontend uses environment variables to configure the backend API URL. This allows easy deployment to different environments without code changes.
+
+#### Development (Default)
+
+By default, the frontend connects to `http://localhost:5000`. No configuration needed for local development with both services running on default ports.
+
+#### Custom Configuration
+
+To connect to a different backend URL:
+
+1. Create a `.env.local` file in the `frontend/` directory:
+   ```bash
+   REACT_APP_API_URL=http://localhost:8080
+   ```
+
+2. Restart the development server:
+   ```bash
+   npm start
+   ```
+
+#### Environment Variables
+
+- `REACT_APP_API_URL` - Backend API base URL
+  - **Default**: `http://localhost:5000`
+  - **Staging**: `https://api-staging.yourdomain.com`
+  - **Production**: `https://api.yourdomain.com`
+
+**Important**: Changes to environment variables require restarting the development server.
+
+#### Examples
+
+**Local development with custom port**:
+```bash
+# .env.local
+REACT_APP_API_URL=http://localhost:8080
+```
+
+**Connect to remote staging backend**:
+```bash
+# .env.local
+REACT_APP_API_URL=https://api-staging.example.com
+```
+
+**Production build**:
+```bash
+REACT_APP_API_URL=https://api.example.com npm run build
+```
+
+See `frontend/.env.example` for more configuration options and examples.
+
 ## Documentation
 
 - **Backend Documentation**: See `backend/README.md`

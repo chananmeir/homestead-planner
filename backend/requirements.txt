@@ -2,6 +2,12 @@ Flask==3.0.0
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
 python-dateutil==2.8.2
+python-dotenv==1.2.1
 requests==2.31.0
 Pillow==10.1.0
 reportlab==4.0.7
+Flask-CORS==4.0.0
+openmeteo-requests==1.7.4
+requests-cache==1.2.1
+retry-requests==2.0.0
+numpy==2.0.2

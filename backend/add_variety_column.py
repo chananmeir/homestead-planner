@@ -58,7 +58,7 @@ def add_variety_column():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🔧 Database Migration: Add variety column")
+    print("[MIGRATION] Database Migration: Add variety column")
     print("=" * 60)
     print()
 
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     print()
     if success:
         print("=" * 60)
-        print("✅ Migration completed successfully!")
+        print("[SUCCESS] Migration completed successfully!")
         print("=" * 60)
         print()
         print("Next steps:")

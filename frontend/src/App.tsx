@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import './App.css';
 import GardenPlanner from './components/GardenPlanner';
 import PlantingCalendar from './components/PlantingCalendar';
+import ErrorBoundary from './components/PlantingCalendar/ErrorBoundary';
 import WinterGarden from './components/WinterGarden';
 import WeatherAlerts from './components/WeatherAlerts';
 import CompostTracker from './components/CompostTracker';
@@ -11,6 +12,7 @@ import Livestock from './components/Livestock';
 import HarvestTracker from './components/HarvestTracker';
 import SeedInventory from './components/SeedInventory';
 import PhotoGallery from './components/PhotoGallery';
+import { ToastProvider } from './components/common';
 
 type Tab = 'garden' | 'designer' | 'property' | 'livestock' | 'calendar' | 'winter' | 'weather' | 'compost' | 'harvests' | 'seeds' | 'photos';
 
@@ -32,7 +34,8 @@ function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
+    <ToastProvider>
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
       {/* Header */}
       <header className="bg-green-700 text-white shadow-lg">
         <div className="container mx-auto px-4 py-6">
@@ -71,7 +74,11 @@ function App() {
         {activeTab === 'designer' && <GardenDesigner />}
         {activeTab === 'property' && <PropertyDesigner />}
         {activeTab === 'livestock' && <Livestock />}
-        {activeTab === 'calendar' && <PlantingCalendar />}
+        {activeTab === 'calendar' && (
+          <ErrorBoundary>
+            <PlantingCalendar />
+          </ErrorBoundary>
+        )}
         {activeTab === 'winter' && <WinterGarden />}
         {activeTab === 'weather' && <WeatherAlerts />}
         {activeTab === 'compost' && <CompostTracker />}
@@ -88,7 +95,8 @@ function App() {
           </p>
         </div>
       </footer>
-    </div>
+      </div>
+    </ToastProvider>
   );
 }
 
