@@ -8,6 +8,7 @@ import { calculateSuggestedInterval, formatSuggestion, IntervalSuggestion } from
 import { API_BASE_URL } from '../../../config';
 import PositionSelector from './PositionSelector';
 import ConflictWarning from '../../common/ConflictWarning';
+import SuccessionWizard from './SuccessionWizard';
 
 interface AddCropModalProps {
   isOpen: boolean;
@@ -43,6 +44,9 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
   const [conflicts, setConflicts] = useState<ConflictCheck | null>(null);
   const [showConflictWarning, setShowConflictWarning] = useState(false);
   const [conflictOverride, setConflictOverride] = useState(false);
+
+  // Succession Wizard state (Phase 3B)
+  const [showWizard, setShowWizard] = useState(false);
 
   // Variety options - fetched from seed inventory based on selected plant
   const [availableVarieties, setAvailableVarieties] = useState<string[]>([]);
@@ -516,17 +520,28 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
 
           {/* Succession Planting */}
           <div className="border-t border-gray-200 pt-6">
-            <div className="flex items-center gap-2 mb-4">
-              <input
-                type="checkbox"
-                id="succession"
-                checked={successionPlanting}
-                onChange={(e) => setSuccessionPlanting(e.target.checked)}
-                className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
-              />
-              <label htmlFor="succession" className="text-sm font-medium text-gray-700">
-                Enable succession planting
-              </label>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="succession"
+                  checked={successionPlanting}
+                  onChange={(e) => setSuccessionPlanting(e.target.checked)}
+                  className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+                />
+                <label htmlFor="succession" className="text-sm font-medium text-gray-700">
+                  Enable succession planting
+                </label>
+              </div>
+
+              {/* Wizard Button */}
+              <button
+                type="button"
+                onClick={() => setShowWizard(true)}
+                className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+              >
+                🧙 Use Wizard
+              </button>
             </div>
 
             {successionPlanting && (
@@ -643,6 +658,22 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
           isOpen={showConflictWarning}
         />
       )}
+
+      {/* Succession Wizard Modal */}
+      <SuccessionWizard
+        isOpen={showWizard}
+        onClose={() => setShowWizard(false)}
+        onCreateEvents={(events) => {
+          if (onAddEvents) {
+            onAddEvents(events);
+          }
+          setShowWizard(false);
+          onClose();
+        }}
+        initialDate={initialDate}
+        initialPlant={initialPlant}
+        lastFrostDate={lastFrostDate}
+      />
     </div>
   );
 };
