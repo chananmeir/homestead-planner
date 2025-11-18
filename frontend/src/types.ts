@@ -42,11 +42,12 @@ export type FrostTolerance =
 export interface GardenBed {
   id: string;
   name: string;
-  width: number; // feet
-  length: number; // feet
+  width: number; // inches
+  length: number; // inches
   location: string;
   soilType?: string;
   sunExposure: 'full' | 'partial' | 'shade';
+  gridSize?: number; // inches per grid cell (default: 12 for square foot gardening)
   plants: PlantedItem[];
   seasonExtension?: SeasonExtension;
 }

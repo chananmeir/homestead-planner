@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { addMonths, subMonths, startOfMonth, endOfMonth, format } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, MapPin } from 'lucide-react';
 import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { API_BASE_URL } from '../../../config';
 import { TimelineHeader } from './TimelineHeader';
 import { TimelineBar } from './TimelineBar';
+import AvailableSpacesView from './AvailableSpacesView';
 
 interface TimelineViewProps {
   onAddCrop: (date?: Date, plant?: Plant) => void;
@@ -27,6 +28,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const [bedsError, setBedsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAvailableSpaces, setShowAvailableSpaces] = useState(false);
 
   const loadEvents = async () => {
     try {
@@ -208,13 +210,22 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           )}
         </div>
 
-        <button
-          onClick={() => onAddCrop()}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Planting</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAvailableSpaces(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <MapPin className="w-4 h-4" />
+            <span>Available Spaces</span>
+          </button>
+          <button
+            onClick={() => onAddCrop()}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Planting</span>
+          </button>
+        </div>
       </div>
 
       {/* Timeline Content */}
@@ -290,6 +301,23 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           <span className="text-sm text-gray-600">Succession Planting</span>
         </div>
       </div>
+
+      {/* Available Spaces Modal */}
+      <AvailableSpacesView
+        isOpen={showAvailableSpaces}
+        onClose={() => setShowAvailableSpaces(false)}
+        initialBedId={selectedBedFilter || undefined}
+        initialDateRange={{
+          start: startOfMonth(timelineStart),
+          end: endOfMonth(addMonths(timelineStart, monthCount - 1)),
+        }}
+        onPositionSelect={(bedId, position) => {
+          // Position selected - could open AddCropModal with pre-filled data
+          // For now, just show a success message and close
+          alert(`Position selected: Bed ${bedId}, Position (${position.x}, ${position.y})\n\nClick "Add Planting" to create an event at this position.`);
+          setShowAvailableSpaces(false);
+        }}
+      />
     </div>
   );
 };
