@@ -82,7 +82,6 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
           throw new Error('Failed to load garden beds');
         }
       } catch (err) {
-        console.error('Error loading garden beds:', err);
         setError('Failed to load garden beds');
       } finally {
         setLoading(false);
@@ -108,7 +107,6 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
           throw new Error('Failed to load planting events');
         }
       } catch (err) {
-        console.error('Error loading planting events:', err);
         setError('Failed to load planting events');
       } finally {
         setLoading(false);

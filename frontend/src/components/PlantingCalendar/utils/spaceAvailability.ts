@@ -1,4 +1,5 @@
 import { Plant, PlantingCalendar, GardenBed } from '../../../types';
+import { PLANT_DATABASE } from '../../../data/plantDatabase';
 
 /**
  * Represents an occupied grid cell with metadata
@@ -64,13 +65,17 @@ export function getOccupiedCells(
       const spaceRequired = event.spaceRequired || 1;
       const cellsPerSide = Math.ceil(Math.sqrt(spaceRequired));
 
+      // Look up human-readable plant name
+      const plant = PLANT_DATABASE.find((p) => p.id === event.plantId);
+      const plantName = plant?.name || event.plantId;
+
       for (let dx = 0; dx < cellsPerSide; dx++) {
         for (let dy = 0; dy < cellsPerSide; dy++) {
           occupiedCells.push({
             x: event.positionX + dx,
             y: event.positionY + dy,
             plantingEventId: event.id,
-            plantName: event.plantId, // Plant ID, should be matched with PLANT_DATABASE for name
+            plantName,
             variety: event.variety,
             startDate: eventStart,
             endDate: eventEnd,
