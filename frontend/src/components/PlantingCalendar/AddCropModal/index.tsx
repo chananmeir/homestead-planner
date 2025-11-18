@@ -4,6 +4,7 @@ import { Plant, PlantingCalendar as PlantingCalendarType, ConflictCheck } from '
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { format, addDays } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';
+import { calculateSuggestedInterval, formatSuggestion, IntervalSuggestion } from '../utils/successionCalculations';
 import { API_BASE_URL } from '../../../config';
 import PositionSelector from './PositionSelector';
 import ConflictWarning from '../../common/ConflictWarning';
@@ -35,6 +36,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
   const [successionPlanting, setSuccessionPlanting] = useState(false);
   const [successionInterval, setSuccessionInterval] = useState(14);
   const [successionCount, setSuccessionCount] = useState(3);
+  const [intervalSuggestion, setIntervalSuggestion] = useState<IntervalSuggestion | null>(null);
 
   // Position selector state (Phase 2B)
   const [selectedPosition, setSelectedPosition] = useState<{ x: number; y: number } | null>(null);
@@ -106,6 +108,27 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
 
     fetchVarieties();
   }, [selectedPlant]);
+
+  // Calculate succession interval suggestion when plant changes
+  useEffect(() => {
+    if (!selectedPlant) {
+      setIntervalSuggestion(null);
+      return;
+    }
+
+    const plant = PLANT_DATABASE.find(p => p.id === selectedPlant);
+    if (plant) {
+      const suggestion = calculateSuggestedInterval(plant);
+      setIntervalSuggestion(suggestion);
+
+      // Auto-fill interval with suggested value if succession is enabled
+      if (suggestion.recommended && suggestion.recommended > 0 && successionPlanting) {
+        setSuccessionInterval(suggestion.recommended);
+      }
+    } else {
+      setIntervalSuggestion(null);
+    }
+  }, [selectedPlant, successionPlanting]);
 
   // Clear variety when plant changes
   useEffect(() => {
@@ -511,6 +534,40 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                 <p className="text-sm text-gray-600">
                   Create multiple plantings for continuous harvest
                 </p>
+
+                {/* Auto-suggestion hint */}
+                {intervalSuggestion && intervalSuggestion.recommended !== null && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <span className="text-lg">💡</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-green-900">
+                          {formatSuggestion(intervalSuggestion)}
+                        </p>
+                        <p className="text-xs text-green-700 mt-1">
+                          {intervalSuggestion.reasoning}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {intervalSuggestion && intervalSuggestion.recommended === null && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <span className="text-lg">ℹ️</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-amber-900">
+                          {formatSuggestion(intervalSuggestion)}
+                        </p>
+                        <p className="text-xs text-amber-700 mt-1">
+                          {intervalSuggestion.reasoning}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
