@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PlantingCalendar as PlantingCalendarType, Plant } from '../../../types';
+import { PlantingCalendar as PlantingCalendarType } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { format } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';

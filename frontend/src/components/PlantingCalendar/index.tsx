@@ -28,6 +28,7 @@ const PlantingCalendar: React.FC = () => {
 
   // Frost dates - fetched from API
   const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date('2024-04-15'));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [firstFrostDate, setFirstFrostDate] = useState<Date>(new Date('2024-10-15'));
 
   // Load view preference from localStorage on mount
