@@ -2,25 +2,17 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DndContext, DragEndEvent, DragStartEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { useDroppable } from '@dnd-kit/core';
 
-import { API_BASE_URL } from '../config';
+import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 import PlantPalette from './common/PlantPalette';
-import { Plant, PlantedItem } from '../types';
+import { Plant, PlantedItem, PlantingEvent, GardenBed } from '../types';
 import { ConfirmDialog } from './common/ConfirmDialog';
 import { useToast } from './common/Toast';
 import BedFormModal from './GardenDesigner/BedFormModal';
 import PlantConfigModal, { PlantConfig } from './GardenDesigner/PlantConfigModal';
-
-interface GardenBed {
-  id: number;
-  name: string;
-  width: number;
-  length: number;
-  location?: string;
-  sunExposure?: string;
-  planningMethod: string;
-  gridSize: number;
-  plantedItems?: PlantedItem[];
-}
+import PlacementPreview from './GardenDesigner/PlacementPreview';
+import { DateFilter, DateFilterValue } from './common/DateFilter';
+import { getDateFilterFromUrl, updateDateFilterUrl } from '../utils/urlParams';
+import { extractCropName, findPlantByVariety } from '../utils/plantUtils';
 
 // Badge positioning constants (percentage of cell size)
 const BADGE_POSITION = {
@@ -49,7 +41,10 @@ const BADGE_COLORS = {
 const GardenDesigner: React.FC = () => {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
-  const [selectedBed, setSelectedBed] = useState<GardenBed | null>(null);
+  const [activeBed, setActiveBed] = useState<GardenBed | null>(null);
+  const [visibleBeds, setVisibleBeds] = useState<GardenBed[]>([]);
+  const [bedFilter, setBedFilter] = useState<'all' | number>('all');
+  const [checkedBeds, setCheckedBeds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredPlant, setHoveredPlant] = useState<PlantedItem | null>(null);
@@ -59,11 +54,21 @@ const GardenDesigner: React.FC = () => {
   const [selectedPlant, setSelectedPlant] = useState<PlantedItem | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [showBedModal, setShowBedModal] = useState(false);
+  const [editingBed, setEditingBed] = useState<GardenBed | null>(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
-  const [pendingPlant, setPendingPlant] = useState<{ plant: Plant; position: { x: number; y: number } } | null>(null);
+  const [pendingPlant, setPendingPlant] = useState<{ cropName: string; position: { x: number; y: number }; bedId: number } | null>(null);
+  const [previewPositions, setPreviewPositions] = useState<{ x: number; y: number }[]>([]);
+  const [draggedPlantedItem, setDraggedPlantedItem] = useState<{ plantedItem: PlantedItem; sourceBed: GardenBed; isDuplication: boolean } | null>(null);
+  const [isShiftPressed, setIsShiftPressed] = useState<boolean>(false);
+  const [touchedSquares, setTouchedSquares] = useState<Set<string>>(new Set());
   const lastMousePositionRef = useRef<{x: number, y: number} | null>(null);
   const mouseMoveListenerRef = useRef<((e: MouseEvent) => void) | null>(null);
   const { showSuccess, showError } = useToast();
+
+  // Date filtering state - default to today
+  const today = new Date().toISOString().split('T')[0];
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>({ mode: 'single', date: today });
+  const [plantingEvents, setPlantingEvents] = useState<PlantingEvent[]>([]);
 
   // Drag and drop sensors
   const sensors = useSensors(
@@ -90,6 +95,180 @@ const GardenDesigner: React.FC = () => {
     };
   }, []);
 
+  // Update isShiftPressed based on any mouse movement (more reliable than keyboard events)
+  useEffect(() => {
+    const updateShiftState = (e: MouseEvent) => {
+      const shiftIsPressed = e.shiftKey;
+      setIsShiftPressed(shiftIsPressed);
+
+      // Clear drag if shift is released
+      if (!shiftIsPressed && draggedPlantedItem) {
+        setDraggedPlantedItem(null);
+        setTouchedSquares(new Set());
+      }
+    };
+
+    window.addEventListener('mousemove', updateShiftState);
+
+    return () => {
+      window.removeEventListener('mousemove', updateShiftState);
+    };
+  }, [draggedPlantedItem]);
+
+  // Handle mouseup for duplication - duplicates to ALL touched squares
+  useEffect(() => {
+    const handleMouseUp = async (e: MouseEvent) => {
+      console.log('🖱️ Mouse up detected, draggedPlantedItem:', draggedPlantedItem);
+      console.log('📍 Touched squares:', Array.from(touchedSquares));
+
+      if (!draggedPlantedItem || !draggedPlantedItem.isDuplication) return;
+
+      const { plantedItem } = draggedPlantedItem;
+      const plant = plants.find(p => p.id === plantedItem.plantId);
+
+      if (!plant) {
+        showError('Plant data not found');
+        setDraggedPlantedItem(null);
+        setTouchedSquares(new Set());
+        return;
+      }
+
+      // Duplicate to ALL touched squares
+      const successfulSquares: string[] = [];
+      const failedSquares: { square: string; reason: string }[] = [];
+
+      for (const squareKey of Array.from(touchedSquares)) {
+        // Parse square key: "bedId:gridX,gridY"
+        const [bedIdStr, coords] = squareKey.split(':');
+        const [gridXStr, gridYStr] = coords.split(',');
+        const bedId = parseInt(bedIdStr, 10);
+        const gridX = parseInt(gridXStr, 10);
+        const gridY = parseInt(gridYStr, 10);
+
+        const targetBed = visibleBeds.find(b => b.id === bedId);
+        if (!targetBed) {
+          failedSquares.push({ square: `(${gridX},${gridY})`, reason: 'Invalid bed' });
+          continue;
+        }
+
+        // Check if this is the source square - don't duplicate onto itself
+        if (bedId === draggedPlantedItem.sourceBed.id &&
+            gridX === plantedItem.position.x &&
+            gridY === plantedItem.position.y) {
+          console.log(`⏭️ Skipping source square: (${gridX},${gridY})`);
+          continue;
+        }
+
+        // Validate bounds
+        const gridWidth = Math.floor((targetBed.width * 12) / (targetBed.gridSize || 12));
+        const gridHeight = Math.floor((targetBed.length * 12) / (targetBed.gridSize || 12));
+
+        if (gridX < 0 || gridX >= gridWidth || gridY < 0 || gridY >= gridHeight) {
+          failedSquares.push({ square: `(${gridX},${gridY})`, reason: 'Out of bounds' });
+          continue;
+        }
+
+        // Check spacing conflicts
+        const activePlants = getActivePlantedItems(targetBed);
+        let hasConflict = false;
+
+        for (const existing of activePlants) {
+          const existingPlant = plants.find(p => p.id === existing.plantId);
+          if (!existingPlant) continue;
+
+          const requiredSpacing = Math.max(
+            plant.spacing || 12,
+            existingPlant.spacing || 12
+          ) / (targetBed.gridSize || 12);
+
+          const distance = Math.max(
+            Math.abs(gridX - existing.position.x),
+            Math.abs(gridY - existing.position.y)
+          );
+
+          if (distance < requiredSpacing) {
+            failedSquares.push({
+              square: `(${gridX},${gridY})`,
+              reason: `Too close to ${existingPlant.name}`
+            });
+            hasConflict = true;
+            break;
+          }
+        }
+
+        if (hasConflict) continue;
+
+        // Create duplicate
+        const duplicatePayload = {
+          gardenBedId: bedId,
+          plantId: plantedItem.plantId,
+          variety: plantedItem.variety,
+          position: { x: gridX, y: gridY },
+          quantity: plantedItem.quantity,
+          status: plantedItem.status,
+          notes: plantedItem.notes,
+          plantedDate: plantedItem.plantedDate
+          // plantingMethod removed - let backend auto-detect based on weeksIndoors
+        };
+
+        try {
+          const response = await apiPost('/api/planted-items', duplicatePayload);
+          if (response.ok) {
+            successfulSquares.push(`(${gridX},${gridY})`);
+            console.log(`✅ Duplicated to (${gridX},${gridY})`);
+          } else {
+            const errorData = await response.json();
+            failedSquares.push({
+              square: `(${gridX},${gridY})`,
+              reason: errorData.error || 'Unknown error'
+            });
+          }
+        } catch (error) {
+          failedSquares.push({ square: `(${gridX},${gridY})`, reason: 'Network error' });
+        }
+      }
+
+      // Reload data once after all duplications
+      if (successfulSquares.length > 0) {
+        const freshBeds = await loadData();
+        await fetchPlantingEvents();
+
+        // Update visible beds with fresh data
+        const freshVisibleBeds = visibleBeds.map(vb =>
+          freshBeds.find(fb => fb.id === vb.id) || vb
+        );
+        setVisibleBeds(freshVisibleBeds);
+
+        // Update active bed if applicable
+        if (activeBed) {
+          const updatedActiveBed = freshBeds.find(b => b.id === activeBed.id);
+          if (updatedActiveBed) setActiveBed(updatedActiveBed);
+        }
+
+        showSuccess(`Duplicated ${plant.name} to ${successfulSquares.length} square${successfulSquares.length > 1 ? 's' : ''}`);
+      }
+
+      if (failedSquares.length > 0 && successfulSquares.length === 0) {
+        showError(`Could not duplicate: ${failedSquares[0].reason}`);
+      }
+
+      // Cleanup
+      setDraggedPlantedItem(null);
+      setTouchedSquares(new Set());
+      if (mouseMoveListenerRef.current) {
+        document.removeEventListener('mousemove', mouseMoveListenerRef.current);
+        mouseMoveListenerRef.current = null;
+      }
+    };
+
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggedPlantedItem, touchedSquares, visibleBeds, plants, zoomLevel, activeBed]);
+
   // Stable mouse move handler (useCallback prevents recreation on every drag)
   const handleMouseMove = useCallback((e: MouseEvent) => {
     lastMousePositionRef.current = { x: e.clientX, y: e.clientY };
@@ -100,13 +279,46 @@ const GardenDesigner: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Read date filter from URL on mount
+  useEffect(() => {
+    const filterFromUrl = getDateFilterFromUrl();
+    setDateFilter(filterFromUrl);
+  }, []);
+
+  // Extracted function to fetch planting events (reusable)
+  const fetchPlantingEvents = useCallback(async () => {
+    try {
+      // Build query parameters for date filtering
+      const params = new URLSearchParams();
+      params.append('start_date', dateFilter.date);
+      params.append('end_date', dateFilter.date);
+
+      const response = await apiGet(`/api/planting-events?${params.toString()}`);
+      if (response.ok) {
+        const events = await response.json();
+        setPlantingEvents(events);
+      } else {
+        console.error('Failed to fetch planting events');
+        setPlantingEvents([]);
+      }
+    } catch (error) {
+      console.error('Error fetching planting events:', error);
+      setPlantingEvents([]);
+    }
+  }, [dateFilter]);
+
+  // Fetch planting events when date filter changes
+  useEffect(() => {
+    fetchPlantingEvents();
+  }, [fetchPlantingEvents]);
+
   const loadData = async (): Promise<GardenBed[]> => {
     try {
       setLoading(true);
       setError(null);
 
       // Load beds
-      const bedResponse = await fetch(`${API_BASE_URL}/api/garden-beds`);
+      const bedResponse = await apiGet('/api/garden-beds');
       if (!bedResponse.ok) {
         throw new Error(`Failed to load garden beds: ${bedResponse.statusText}`);
       }
@@ -114,16 +326,19 @@ const GardenDesigner: React.FC = () => {
       setBeds(bedData);
 
       // Load plants
-      const plantResponse = await fetch(`${API_BASE_URL}/api/plants`);
+      const plantResponse = await apiGet('/api/plants');
       if (!plantResponse.ok) {
         throw new Error(`Failed to load plants: ${plantResponse.statusText}`);
       }
       const plantData = await plantResponse.json();
       setPlants(plantData);
 
-      // Select first bed by default (only on initial load)
-      if (bedData.length > 0 && !selectedBed) {
-        setSelectedBed(bedData[0]);
+      // Initialize visible beds and active bed (only on initial load)
+      if (bedData.length > 0 && !activeBed) {
+        setVisibleBeds(bedData);       // Show all beds initially
+        setActiveBed(bedData[0]);      // Activate first bed
+        setBedFilter('all');            // Set filter to "all"
+        setCheckedBeds(new Set(bedData.map((b: GardenBed) => b.id))); // Check all beds initially
       }
 
       return bedData;
@@ -137,24 +352,52 @@ const GardenDesigner: React.FC = () => {
     }
   };
 
+  // Handle date filter changes and update URL
+  const handleDateFilterChange = (newFilter: DateFilterValue) => {
+    setDateFilter(newFilter);
+    updateDateFilterUrl(newFilter);
+  };
+
+  // Filter planted items based on active planting events
+  const getActivePlantedItems = (bed: GardenBed): PlantedItem[] => {
+    // Filter to only items with matching active PlantingEvents
+    return (bed.plantedItems || []).filter(item => {
+      // Find matching PlantingEvent by position
+      const matchingEvent = plantingEvents.find(event =>
+        event.gardenBedId === bed.id &&
+        event.positionX === item.position.x &&
+        event.positionY === item.position.y
+      );
+
+      // If no matching event, hide in date-filtered view
+      // (Backend already filtered events by date, so if event exists, it's active)
+      return matchingEvent !== undefined;
+    });
+  };
+
   const handleClearBed = async () => {
-    if (!selectedBed) return;
+    if (!activeBed) return;
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/garden-beds/${selectedBed.id}/planted-items`,
-        { method: 'DELETE' }
+      const response = await apiDelete(
+        `/api/garden-beds/${activeBed.id}/planted-items`
       );
 
       if (response.ok) {
         const data = await response.json();
-        showSuccess(data.message || `Cleared ${selectedBed.name}`);
+        showSuccess(data.message || `Cleared ${activeBed.name}`);
         const freshBeds = await loadData(); // Refresh to show empty bed
 
-        // Update selectedBed with fresh data
-        const updatedBed = freshBeds.find(b => b.id === selectedBed.id);
+        // Refresh planting events to update date-filtered views
+        await fetchPlantingEvents();
+
+        // Update activeBed and visibleBeds with fresh data
+        const updatedBed = freshBeds.find(b => b.id === activeBed.id);
         if (updatedBed) {
-          setSelectedBed(updatedBed);
+          setActiveBed(updatedBed);
+          setVisibleBeds(prev =>
+            prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
+          );
         }
       } else {
         showError('Failed to clear bed');
@@ -174,21 +417,28 @@ const GardenDesigner: React.FC = () => {
     location: string;
     sunExposure: string;
     planningMethod: string;
+    seasonExtension?: {
+      type: string;
+      innerType?: string;
+      layers: number;
+      material?: string;
+      notes?: string;
+    };
   }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/garden-beds`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: bedData.name || `${bedData.width}' x ${bedData.length}' Bed`,
-          width: bedData.width,
-          length: bedData.length,
-          location: bedData.location || '',
-          sunExposure: bedData.sunExposure,
-          planningMethod: bedData.planningMethod,
-        }),
+      // Prepare season extension data (send null if type is 'none')
+      const seasonExtData = bedData.seasonExtension?.type !== 'none'
+        ? bedData.seasonExtension
+        : null;
+
+      const response = await apiPost('/api/garden-beds', {
+        name: bedData.name || `${bedData.width}' x ${bedData.length}' Bed`,
+        width: bedData.width,
+        length: bedData.length,
+        location: bedData.location || '',
+        sunExposure: bedData.sunExposure,
+        planningMethod: bedData.planningMethod,
+        seasonExtension: seasonExtData,
       });
 
       if (!response.ok) {
@@ -199,14 +449,78 @@ const GardenDesigner: React.FC = () => {
       const newBed = await response.json();
       showSuccess(`Created ${newBed.name} successfully!`);
 
-      // Reload beds and select the new one
+      // Reload beds and activate the new one
       const freshBeds = await loadData();
       const createdBed = freshBeds.find(b => b.id === newBed.id);
       if (createdBed) {
-        setSelectedBed(createdBed);
+        setActiveBed(createdBed);
+        // Add to visible beds if not showing all
+        if (bedFilter !== 'all') {
+          setVisibleBeds([...visibleBeds, createdBed]);
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create bed';
+      showError(errorMessage);
+      throw error; // Re-throw so modal can handle it
+    }
+  };
+
+  const handleEditBed = async (bedData: {
+    name: string;
+    width: number;
+    length: number;
+    location: string;
+    sunExposure: string;
+    planningMethod: string;
+    seasonExtension?: {
+      type: string;
+      innerType?: string;
+      layers: number;
+      material?: string;
+      notes?: string;
+    };
+  }) => {
+    if (!editingBed) return;
+
+    try {
+      // Prepare season extension data (send null if type is 'none' to remove it)
+      const seasonExtData = bedData.seasonExtension?.type !== 'none'
+        ? bedData.seasonExtension
+        : null;
+
+      const response = await apiPut(`/api/garden-beds/${editingBed.id}`, {
+        name: bedData.name || `${bedData.width}' x ${bedData.length}' Bed`,
+        width: bedData.width,
+        length: bedData.length,
+        location: bedData.location || '',
+        sunExposure: bedData.sunExposure,
+        planningMethod: bedData.planningMethod,
+        seasonExtension: seasonExtData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update bed');
+      }
+
+      const updatedBed = await response.json();
+      showSuccess(`Updated ${updatedBed.name} successfully!`);
+
+      // Reload beds and update the active/visible beds
+      const freshBeds = await loadData();
+      const refreshedBed = freshBeds.find(b => b.id === updatedBed.id);
+      if (refreshedBed) {
+        setActiveBed(refreshedBed);
+        setVisibleBeds(prev =>
+          prev.map(bed => bed.id === refreshedBed.id ? refreshedBed : bed)
+        );
+      }
+
+      // Clear editing state
+      setEditingBed(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update bed';
       showError(errorMessage);
       throw error; // Re-throw so modal can handle it
     }
@@ -216,9 +530,8 @@ const GardenDesigner: React.FC = () => {
     if (!selectedPlant) return;
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/planted-items/${selectedPlant.id}`,
-        { method: 'DELETE' }
+      const response = await apiDelete(
+        `/api/planted-items/${selectedPlant.id}`
       );
 
       if (response.ok) {
@@ -226,11 +539,17 @@ const GardenDesigner: React.FC = () => {
         setSelectedPlant(null);
         const freshBeds = await loadData();
 
-        // Update selectedBed with fresh data
-        if (selectedBed) {
-          const updatedBed = freshBeds.find(b => b.id === selectedBed.id);
+        // Refresh planting events to update date-filtered views
+        await fetchPlantingEvents();
+
+        // Update activeBed and visibleBeds with fresh data
+        if (activeBed) {
+          const updatedBed = freshBeds.find(b => b.id === activeBed.id);
           if (updatedBed) {
-            setSelectedBed(updatedBed);
+            setActiveBed(updatedBed);
+            setVisibleBeds(prev =>
+              prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
+            );
           }
         }
       } else {
@@ -259,15 +578,47 @@ const GardenDesigner: React.FC = () => {
   };
 
   const handlePlantConfig = async (config: PlantConfig) => {
-    if (!pendingPlant || !selectedBed) {
+    if (!pendingPlant) {
       return;
     }
 
-    const { plant, position } = pendingPlant;
+    const { cropName, position, bedId } = pendingPlant;
+    const targetBed = beds.find(b => b.id === bedId);
+
+    if (!targetBed) {
+      showError('Unable to place plant - bed not found');
+      return;
+    }
+
+    // If batch POST already created items, just reload data and close modal
+    if (config.skipPost) {
+      const freshBeds = await loadData();
+      await fetchPlantingEvents();
+
+      const updatedBed = freshBeds.find(b => b.id === bedId);
+      if (updatedBed) {
+        setActiveBed(updatedBed);
+        setVisibleBeds(prev =>
+          prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
+        );
+      }
+
+      setShowConfigModal(false);
+      setPendingPlant(null);
+      return; // Exit early - items already created via batch POST
+    }
+
+    // Find the specific plant by variety (or generic if no variety selected)
+    const plant = findPlantByVariety(cropName, config.variety, plants);
+
+    if (!plant) {
+      showError(`Unable to find plant: ${cropName}${config.variety ? ` (${config.variety})` : ''}`);
+      return;
+    }
 
     // Calculate default quantity based on planning method
     let defaultQuantity = config.quantity;
-    if (selectedBed.planningMethod === 'square-foot') {
+    if (targetBed.planningMethod === 'square-foot') {
       const spacing = plant.spacing || 12;
       if (spacing <= 12) {
         defaultQuantity = Math.floor(Math.pow(12 / spacing, 2));
@@ -277,32 +628,41 @@ const GardenDesigner: React.FC = () => {
     }
 
     try {
+      // Use edited position from config if provided, otherwise use original position
+      const finalPosition = config.position || position;
+
       const payload = {
-        gardenBedId: selectedBed.id,
+        gardenBedId: targetBed.id,
         plantId: plant.id,
         variety: config.variety || undefined,  // Include variety if specified
-        position: position,
+        position: finalPosition,
         quantity: config.quantity || defaultQuantity,
         status: 'planned',
         notes: config.notes || undefined,
+        plantedDate: dateFilter.date,  // Use the current date filter date
+        plantingMethod: config.plantingMethod,  // 'direct' or 'transplant'
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/planted-items`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await apiPost('/api/planted-items', payload);
 
       if (response.ok) {
         // Reload bed data to show new plant
         const freshBeds = await loadData();
-        const updatedBed = freshBeds.find(b => b.id === selectedBed.id);
+
+        // Refresh planting events so the new plant appears in date-filtered views
+        await fetchPlantingEvents();
+
+        // Update visible beds and active bed with fresh data
+        const updatedBed = freshBeds.find(b => b.id === targetBed.id);
         if (updatedBed) {
-          setSelectedBed(updatedBed);
+          setActiveBed(updatedBed);
+          // Update visible beds to include the refreshed bed with the new plant
+          setVisibleBeds(prev =>
+            prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
+          );
         }
-        showSuccess(`Placed ${plant.name}${config.variety ? ` (${config.variety})` : ''} in garden`);
+
+        showSuccess(`Placed ${cropName}${config.variety ? ` (${config.variety})` : ''} in garden`);
       } else {
         const errorText = await response.text();
         console.error('Failed to create planted item:', response.status, errorText);
@@ -327,14 +687,82 @@ const GardenDesigner: React.FC = () => {
   const handleConfigCancel = () => {
     setShowConfigModal(false);
     setPendingPlant(null);
+    setPreviewPositions([]); // Clear preview
   };
 
+  // Handle duplication of planted items via Shift+drag
   const handleDragStart = (event: DragStartEvent) => {
     setActivePlant(event.active.data.current as Plant);
     // Track mouse position using native browser events (bypass @dnd-kit's broken delta)
     document.addEventListener('mousemove', handleMouseMove);
     mouseMoveListenerRef.current = handleMouseMove;
   };
+
+  // Handle mouse down on planted items for Shift+drag duplication
+  const handlePlantMouseDown = useCallback((
+    e: React.MouseEvent,
+    plant: PlantedItem,
+    bed: GardenBed
+  ) => {
+    console.log('🖱️ Mouse down on plant:', plant.plantId, 'Shift pressed:', isShiftPressed);
+
+    // Only allow dragging if Shift is held
+    if (!isShiftPressed) return;
+
+    e.stopPropagation(); // Prevent other handlers
+
+    // Set dragged planted item
+    setDraggedPlantedItem({
+      plantedItem: plant,
+      sourceBed: bed,
+      isDuplication: true
+    });
+
+    // Initialize touched squares set
+    setTouchedSquares(new Set());
+
+    console.log('✅ Duplication mode started for:', plant.plantId);
+
+    // Track mouse movement and collect touched grid squares
+    const handleMove = (e: MouseEvent) => {
+      lastMousePositionRef.current = { x: e.clientX, y: e.clientY };
+
+      // Find which bed we're over
+      const elements = document.elementsFromPoint(e.clientX, e.clientY);
+      const svgElement = elements.find(el => el.id && el.id.startsWith('garden-grid-svg-')) as Element;
+
+      if (svgElement) {
+        const bedIdMatch = svgElement.id.match(/garden-grid-svg-(\d+)/);
+        if (bedIdMatch) {
+          const bedId = parseInt(bedIdMatch[1], 10);
+          const targetBed = visibleBeds.find(b => b.id === bedId);
+
+          if (targetBed) {
+            const rect = svgElement.getBoundingClientRect();
+            const dropX = e.clientX - rect.left;
+            const dropY = e.clientY - rect.top;
+            const cellSize = 40 * zoomLevel;
+            const gridX = Math.floor(dropX / cellSize);
+            const gridY = Math.floor(dropY / cellSize);
+
+            // Add this square to touched set
+            const squareKey = `${bedId}:${gridX},${gridY}`;
+            setTouchedSquares(prev => {
+              const newSet = new Set(prev);
+              newSet.add(squareKey);
+              return newSet;
+            });
+          }
+        }
+      }
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    mouseMoveListenerRef.current = handleMove;
+
+    // Visual feedback - clear any palette drag
+    setActivePlant(null);
+  }, [isShiftPressed, visibleBeds, zoomLevel]);
 
   const handleDragEnd = async (event: DragEndEvent) => {
     // Clean up mouse listener
@@ -344,19 +772,35 @@ const GardenDesigner: React.FC = () => {
     }
     const { active, over } = event;
 
-    if (!over || !selectedBed) {
+    // Dragging from palette
+    if (!over) {
       setActivePlant(null);
+      setDraggedPlantedItem(null);
       return;
     }
 
-    // Check if dropped over the grid
-    if (over.id === 'garden-grid') {
+    // Check if dropped over ANY garden grid
+    const gridMatch = over.id.toString().match(/^garden-grid-(\d+)$/);
+    if (gridMatch) {
+      const bedId = parseInt(gridMatch[1]);
+      console.log('🎯 Detected drop on bed ID:', bedId);
+      const targetBed = visibleBeds.find(b => b.id === bedId);
+
+      if (!targetBed) {
+        console.error(`Target bed ${bedId} not found`);
+        showError('Unable to place plant - bed not found');
+        setActivePlant(null);
+        return;
+      }
+
+      console.log('🌱 Target bed:', { name: targetBed.name, width: targetBed.width, length: targetBed.length, gridSize: targetBed.gridSize });
+
       const plant = active.data.current as Plant;
 
-      // Get the SVG element to calculate coordinates
-      const svgElement = document.querySelector('#garden-grid-svg') as SVGSVGElement;
+      // Get the specific SVG element for THIS bed
+      const svgElement = document.querySelector(`#garden-grid-svg-${bedId}`) as SVGSVGElement;
       if (!svgElement) {
-        console.error('Garden grid SVG not found');
+        console.error(`Garden grid SVG for bed ${bedId} not found`);
         showError('Unable to place plant - please try again');
         setActivePlant(null);
         return;
@@ -364,6 +808,7 @@ const GardenDesigner: React.FC = () => {
 
       // Get bounding rectangle
       const rect = svgElement.getBoundingClientRect();
+      console.log('🎯 SVG Bounding Rect:', { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
 
       // Get drop coordinates from native browser MouseEvent (bypasses @dnd-kit delta bug)
       let clientX, clientY;
@@ -371,11 +816,13 @@ const GardenDesigner: React.FC = () => {
         // Use native mouse position (most accurate - directly from browser)
         clientX = lastMousePositionRef.current.x;
         clientY = lastMousePositionRef.current.y;
+        console.log('📍 Using lastMousePosition:', { clientX, clientY });
       } else {
         // Fallback: use activator event (initial click position)
         const activeEvent = event.activatorEvent as PointerEvent;
         clientX = activeEvent.clientX;
         clientY = activeEvent.clientY;
+        console.log('📍 Using activator event position:', { clientX, clientY });
       }
 
       // Clear mouse position tracking
@@ -384,29 +831,44 @@ const GardenDesigner: React.FC = () => {
       // Calculate position relative to SVG element
       const dropX = clientX - rect.left;
       const dropY = clientY - rect.top;
+      console.log('📐 Drop position relative to SVG:', { dropX, dropY, svgWidth: rect.width, svgHeight: rect.height });
+
+      // Check if drop position is actually within the SVG bounds
+      if (dropX < 0 || dropY < 0 || dropX > rect.width || dropY > rect.height) {
+        console.warn('⚠️ Drop position is outside SVG bounds! Using center of SVG as fallback.');
+        showError(`Your cursor was outside the grid when you released. Please drop directly on the grid squares. (Cursor was ${Math.round(dropX)}px from left, SVG is ${Math.round(rect.width)}px wide)`);
+        setActivePlant(null);
+        return;
+      }
 
       // Convert to grid coordinates (must match cellSize in renderGrid)
       const cellSize = 40 * zoomLevel;
       const gridX = Math.floor(dropX / cellSize);
       const gridY = Math.floor(dropY / cellSize);
+      console.log('🔢 Grid coordinates:', { gridX, gridY, cellSize, zoomLevel });
 
       // Calculate grid dimensions (same logic as renderGrid)
-      const gridWidth = Math.floor((selectedBed.width * 12) / selectedBed.gridSize);
-      const gridHeight = Math.floor((selectedBed.length * 12) / selectedBed.gridSize);
+      const gridWidth = Math.floor((targetBed.width * 12) / targetBed.gridSize);
+      const gridHeight = Math.floor((targetBed.length * 12) / targetBed.gridSize);
+      console.log('📏 Grid dimensions:', { gridWidth, gridHeight, bedWidth: targetBed.width, bedLength: targetBed.length, gridSize: targetBed.gridSize });
 
       // Validate within bounds
       if (gridX < 0 || gridY < 0 || gridX >= gridWidth || gridY >= gridHeight) {
-        showError(`Cannot place plant outside the garden bed grid (position: ${gridX}, ${gridY})`);
+        console.error('❌ Position out of bounds!', { gridX, gridY, gridWidth, gridHeight });
+        showError(`Cannot place plant outside the garden bed grid (position: ${gridX}, ${gridY}, max: ${gridWidth-1}, ${gridHeight-1})`);
         setActivePlant(null);
         return;
       }
 
+      console.log('✅ Position valid, proceeding with placement');
+
       // Check for overlapping plants (spacing validation)
-      const hasOverlap = selectedBed.plantedItems?.some(item => {
+      // Use getActivePlantedItems to respect date filter
+      const conflicts = getActivePlantedItems(targetBed).filter(item => {
         const existingPlant = getPlant(item.plantId);
         const spacing = Math.max(plant.spacing || 12, existingPlant?.spacing || 12);
         // Convert spacing (inches) to grid cells using the bed's gridSize (inches per cell)
-        const requiredDistance = Math.ceil(spacing / selectedBed.gridSize);
+        const requiredDistance = Math.ceil(spacing / targetBed.gridSize);
 
         const distance = Math.max(
           Math.abs(item.position.x - gridX),
@@ -414,16 +876,58 @@ const GardenDesigner: React.FC = () => {
         );
 
         return distance < requiredDistance;
-      });
+      }).map(item => {
+        const existingPlant = getPlant(item.plantId);
+        return {
+          plant: existingPlant,
+          item: item,
+          position: item.position
+        };
+      }) || [];
 
-      if (hasOverlap) {
-        showError(`Not enough space! ${plant.name} needs ${plant.spacing}" spacing from other plants.`);
+      if (conflicts.length > 0) {
+        // Build detailed error message with conflicting plants
+        const conflictDetails = conflicts.map(c => {
+          const plantName = c.plant?.name || 'Unknown plant';
+          const variety = c.item.variety ? ` (${c.item.variety})` : '';
+          const position = `Position (${c.position.x}, ${c.position.y})`;
+
+          // Add date information if available
+          let dateInfo = '';
+          if (c.item.plantedDate) {
+            const plantedDate = new Date(c.item.plantedDate).toLocaleDateString();
+            if (c.item.harvestDate) {
+              const harvestDate = new Date(c.item.harvestDate).toLocaleDateString();
+              dateInfo = ` - ${plantedDate} to ${harvestDate}`;
+            } else if (c.plant?.daysToMaturity) {
+              const estimatedHarvest = new Date(c.item.plantedDate);
+              estimatedHarvest.setDate(estimatedHarvest.getDate() + c.plant.daysToMaturity);
+              dateInfo = ` - ${plantedDate} to ${estimatedHarvest.toLocaleDateString()} (est.)`;
+            } else {
+              dateInfo = ` - Planted ${plantedDate}`;
+            }
+          }
+
+          return `• ${plantName}${variety} - ${position}${dateInfo}`;
+        }).join('\n');
+
+        const errorMessage = `Cannot place ${plant.name} at this position.\n\n` +
+          `${plant.name} needs ${plant.spacing}" spacing from other plants.\n\n` +
+          `Conflicting plants:\n${conflictDetails}`;
+
+        showError(errorMessage, null); // null = stays until user clicks to close
         setActivePlant(null);
         return;
       }
 
+      // Set this bed as active after successful drop
+      setActiveBed(targetBed);
+
+      // Extract crop name from dragged plant
+      const cropName = extractCropName(plant.name);
+
       // Show configuration modal to select variety and configure plant
-      setPendingPlant({ plant, position: { x: gridX, y: gridY } });
+      setPendingPlant({ cropName, position: { x: gridX, y: gridY }, bedId: targetBed.id });
       setShowConfigModal(true);
     }
 
@@ -438,8 +942,8 @@ const GardenDesigner: React.FC = () => {
     const gridHeight = Math.floor((bed.length * 12) / bed.gridSize);
 
     return (
-      <DroppableGrid gridId="garden-grid">
-        <svg id="garden-grid-svg" width={gridWidth * cellSize} height={gridHeight * cellSize} className="cursor-crosshair">
+      <DroppableGrid gridId={`garden-grid-${bed.id}`}>
+        <svg id={`garden-grid-svg-${bed.id}`} width={gridWidth * cellSize} height={gridHeight * cellSize} className="cursor-crosshair">
           {/* Grid lines */}
           <defs>
             <pattern id="grid" width={cellSize} height={cellSize} patternUnits="userSpaceOnUse">
@@ -479,8 +983,8 @@ const GardenDesigner: React.FC = () => {
             })
           )}
 
-          {/* Planted items - Rendered as emoji icons */}
-          {bed.plantedItems?.map((item) => {
+          {/* Planted items - Rendered as emoji icons (filtered by date if active) */}
+          {getActivePlantedItems(bed).map((item) => {
             const plant = getPlant(item.plantId);
             const iconSize = plant ? Math.max(cellSize * 0.6, cellSize * (plant.spacing / 12)) : cellSize * 0.6;
 
@@ -490,11 +994,37 @@ const GardenDesigner: React.FC = () => {
                 onMouseEnter={() => setHoveredPlant(item)}
                 onMouseLeave={() => setHoveredPlant(null)}
                 onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedPlant(item);
+                  if (!isShiftPressed) {
+                    e.stopPropagation();
+                    setSelectedPlant(item);
+                  }
                 }}
-                className="cursor-pointer"
+                onMouseDown={(e) => {
+                  const shiftHeld = e.shiftKey;
+                  console.log('🖱️ MOUSEDOWN on <g>, shiftKey:', shiftHeld);
+                  if (shiftHeld) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsShiftPressed(true);
+                    handlePlantMouseDown(e, item, bed);
+                  }
+                }}
+                className={isShiftPressed ? "cursor-copy" : "cursor-pointer"}
+                style={{
+                  opacity: draggedPlantedItem?.plantedItem.id === item.id ? 0.5 : 1,
+                  cursor: isShiftPressed ? 'copy' : 'pointer'
+                }}
               >
+                {/* Invisible drag capture rect - for better hitbox */}
+                <rect
+                  x={item.position.x * cellSize}
+                  y={item.position.y * cellSize}
+                  width={cellSize}
+                  height={cellSize}
+                  fill="transparent"
+                  pointerEvents="all"
+                />
+
                 {/* Selection Ring */}
                 {selectedPlant?.id === item.id && (
                   <circle
@@ -517,9 +1047,54 @@ const GardenDesigner: React.FC = () => {
                   dominantBaseline="middle"
                   fontSize={iconSize}
                   className="select-none"
+                  style={{
+                    opacity: draggedPlantedItem?.plantedItem.id === item.id ? 0.5 : 1,
+                    cursor: isShiftPressed ? 'copy' : 'pointer'
+                  }}
+                  onMouseDown={(e) => {
+                    const shiftHeld = e.shiftKey;
+                    console.log('🖱️ MOUSEDOWN on <text>, shiftKey:', shiftHeld);
+                    if (shiftHeld) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsShiftPressed(true);
+                      handlePlantMouseDown(e, item, bed);
+                    }
+                  }}
+                  onClick={(e) => {
+                    if (!isShiftPressed) {
+                      e.stopPropagation();
+                      setSelectedPlant(item);
+                    }
+                  }}
                 >
                   {getPlantIcon(item.plantId)}
                 </text>
+
+                {/* Shift+Drag Indicator (Plus Icon) */}
+                {isShiftPressed && (
+                  <>
+                    <circle
+                      cx={item.position.x * cellSize + cellSize * 0.85}
+                      cy={item.position.y * cellSize + cellSize * 0.15}
+                      r="8"
+                      fill="#3b82f6"
+                      stroke="white"
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={item.position.x * cellSize + cellSize * 0.85}
+                      y={item.position.y * cellSize + cellSize * 0.15}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fill="white"
+                      fontSize="12"
+                      fontWeight="bold"
+                    >
+                      +
+                    </text>
+                  </>
+                )}
 
                 {/* Quantity Number */}
                 {item.quantity !== 0 && (
@@ -572,6 +1147,16 @@ const GardenDesigner: React.FC = () => {
               </g>
             );
           })}
+
+          {/* Placement Preview - show ghost outlines when previewing multi-plant placement */}
+          {activeBed && bed.id === activeBed.id && (
+            <PlacementPreview
+              positions={previewPositions}
+              plantIcon={pendingPlant ? getPlantIcon(plants.find(p => extractCropName(p.name) === pendingPlant.cropName)?.id || '') : '🌱'}
+              cellSize={cellSize}
+              showPreview={showConfigModal && previewPositions.length > 0}
+            />
+          )}
         </svg>
       </DroppableGrid>
     );
@@ -579,14 +1164,15 @@ const GardenDesigner: React.FC = () => {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex gap-6 h-[calc(100vh-200px)]">
-        {/* Plant Palette Sidebar */}
-        <div className="flex-shrink-0">
-          <PlantPalette plants={plants} />
-        </div>
+      <div className="w-screen relative left-[50%] right-[50%] -mx-[50vw]">
+        <div className="flex gap-6 h-[calc(100vh-200px)]">
+          {/* Plant Palette Sidebar */}
+          <div className="flex-shrink-0">
+            <PlantPalette plants={plants} plantingDate={dateFilter.date} />
+          </div>
 
-        {/* Main Designer Area */}
-        <div className="flex-1 flex flex-col space-y-6 overflow-auto">
+          {/* Main Designer Area */}
+          <div className="flex-1 flex flex-col space-y-6 overflow-auto pr-4">
           {/* Header Card */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-2xl font-bold text-gray-800 mb-4">Garden Designer</h2>
@@ -607,6 +1193,25 @@ const GardenDesigner: React.FC = () => {
                 >
                   Retry
                 </button>
+              </div>
+            )}
+
+            {/* Shift Key Duplication Hint */}
+            {isShiftPressed && (
+              <div className="bg-blue-50 border-2 border-blue-400 rounded-lg p-4 mb-6 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xl font-bold">+</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-blue-900 font-semibold">Duplication Mode Active</div>
+                    <div className="text-blue-700 text-sm">
+                      Drag any placed plant to duplicate it with the same settings
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -632,27 +1237,127 @@ const GardenDesigner: React.FC = () => {
               </div>
             </div>
 
+            {/* Date Filter */}
+            <DateFilter
+              value={dateFilter}
+              onChange={handleDateFilterChange}
+            />
+
+            {/* Date Filter Status Indicator */}
+            <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-sm font-medium text-blue-800">
+                  Showing garden on {dateFilter.date}
+                </span>
+                {activeBed && (
+                  <span className="text-xs text-blue-600 ml-2">
+                    ({getActivePlantedItems(activeBed).length} plants visible)
+                  </span>
+                )}
+              </div>
+            </div>
+
             {/* Bed Selector */}
             {beds.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Garden Bed:
+                  Display Beds:
                 </label>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
                   <select
-                    value={selectedBed?.id || ''}
+                    value={bedFilter === 'all' ? 'all' : bedFilter.toString()}
                     onChange={(e) => {
-                      const bed = beds.find(b => b.id === parseInt(e.target.value));
-                      setSelectedBed(bed || null);
+                      const value = e.target.value;
+                      if (value === 'all') {
+                        setBedFilter('all');
+                        setVisibleBeds(beds);
+                        setCheckedBeds(new Set(beds.map(b => b.id))); // Check all beds
+                        // Keep active bed if it exists, otherwise activate first bed
+                        if (!activeBed || !beds.find(b => b.id === activeBed.id)) {
+                          setActiveBed(beds[0]);
+                        }
+                      } else {
+                        const bedId = parseInt(value);
+                        setBedFilter(bedId);
+                        const bed = beds.find(b => b.id === bedId);
+                        if (bed) {
+                          setVisibleBeds([bed]);
+                          setActiveBed(bed);
+                          setCheckedBeds(new Set([bedId])); // Check only this bed
+                        }
+                      }
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   >
-                    {beds.map(bed => (
-                      <option key={bed.id} value={bed.id}>
-                        {bed.name} ({bed.width}' × {bed.length}')
-                      </option>
-                    ))}
+                    <option value="all">All Beds ({beds.length})</option>
+                    {beds.map(bed => {
+                      const getProtectionIcon = () => {
+                        if (!bed.seasonExtension || bed.seasonExtension.type === 'none') return '';
+                        const icons: Record<string, string> = {
+                          'row-cover': '🛡️',
+                          'low-tunnel': '⛺',
+                          'cold-frame': '📦',
+                          'high-tunnel': '🏠',
+                          'greenhouse': '🏛️'
+                        };
+                        return icons[bed.seasonExtension.type] + ' ' || '';
+                      };
+                      return (
+                        <option key={bed.id} value={bed.id}>
+                          {getProtectionIcon()}{bed.name} ({bed.width}' × {bed.length}')
+                        </option>
+                      );
+                    })}
                   </select>
+
+                  {/* Active Bed Indicator */}
+                  {activeBed && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                      <span className="text-sm font-medium text-green-700">Active:</span>
+                      <span className="text-sm text-green-900">{activeBed.name}</span>
+
+                      {/* Season Extension Indicator */}
+                      {activeBed.seasonExtension && activeBed.seasonExtension.type !== 'none' && (
+                        <span className="ml-2 px-2 py-1 bg-blue-100 border border-blue-300 rounded text-xs font-medium text-blue-800">
+                          {(() => {
+                            const getProtectionInfo = (type: string) => {
+                              const protectionTypes: Record<string, { name: string; boost: string; icon: string }> = {
+                                'row-cover': { name: 'Row Cover', boost: '+4°F', icon: '🛡️' },
+                                'low-tunnel': { name: 'Low Tunnel', boost: '+6°F', icon: '⛺' },
+                                'cold-frame': { name: 'Cold Frame', boost: '+10°F', icon: '📦' },
+                                'high-tunnel': { name: 'High Tunnel', boost: '+8°F', icon: '🏠' },
+                                'greenhouse': { name: 'Greenhouse', boost: '+10°F', icon: '🏛️' }
+                              };
+                              return protectionTypes[type] || { name: type, boost: '', icon: '🛡️' };
+                            };
+
+                            const outer = getProtectionInfo(activeBed.seasonExtension.type);
+                            const hasInner = activeBed.seasonExtension.innerType && activeBed.seasonExtension.innerType !== 'none';
+
+                            if (hasInner) {
+                              const inner = getProtectionInfo(activeBed.seasonExtension.innerType!);
+                              return `${outer.icon} ${outer.name} ${outer.boost} + ${inner.icon} ${inner.name} ${inner.boost}`;
+                            }
+
+                            return `${outer.icon} ${outer.name} ${outer.boost}`;
+                          })()}
+                        </span>
+                      )}
+
+                      <button
+                        onClick={() => setEditingBed(activeBed)}
+                        className="ml-2 text-green-700 hover:text-green-900 transition-colors"
+                        title="Edit this bed"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
 
                   {/* Add Bed Button */}
                   <button
@@ -666,12 +1371,12 @@ const GardenDesigner: React.FC = () => {
                   </button>
 
                   {/* Clear Bed Button */}
-                  {selectedBed && selectedBed.plantedItems && selectedBed.plantedItems.length > 0 && (
+                  {activeBed && activeBed.plantedItems && activeBed.plantedItems.length > 0 && (
                     <button
                       onClick={() => setClearConfirm(true)}
                       className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
                     >
-                      Clear Bed ({selectedBed.plantedItems.length} plants)
+                      Clear Active Bed ({activeBed.plantedItems.length} plants)
                     </button>
                   )}
 
@@ -710,6 +1415,77 @@ const GardenDesigner: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {/* Bed Visibility Checkboxes */}
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Toggle Bed Visibility:
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    {beds.map(bed => (
+                      <label
+                        key={bed.id}
+                        className="flex items-center gap-2 p-2 rounded hover:bg-gray-100 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checkedBeds.has(bed.id)}
+                          onChange={(e) => {
+                            const newCheckedBeds = new Set(checkedBeds);
+                            if (e.target.checked) {
+                              newCheckedBeds.add(bed.id);
+                            } else {
+                              newCheckedBeds.delete(bed.id);
+                              // If unchecking the active bed, activate another visible bed
+                              if (activeBed?.id === bed.id) {
+                                const remainingBeds = beds.filter(b => newCheckedBeds.has(b.id));
+                                if (remainingBeds.length > 0) {
+                                  setActiveBed(remainingBeds[0]);
+                                }
+                              }
+                            }
+                            setCheckedBeds(newCheckedBeds);
+                            // Update visible beds based on checked beds
+                            const visibleBedList = beds.filter(b => newCheckedBeds.has(b.id));
+                            setVisibleBeds(visibleBedList);
+                            // Update filter to 'all' if all beds are checked, otherwise set to 'custom'
+                            if (newCheckedBeds.size === beds.length) {
+                              setBedFilter('all');
+                            } else if (newCheckedBeds.size === 1) {
+                              setBedFilter(Array.from(newCheckedBeds)[0]);
+                            } else {
+                              setBedFilter('all'); // Use 'all' for custom selections too
+                            }
+                          }}
+                          className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 focus:ring-2"
+                        />
+                        <span className="text-sm font-medium text-gray-700">
+                          {bed.name}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          ({bed.width}' × {bed.length}')
+                        </span>
+                        {bed.seasonExtension && bed.seasonExtension.type !== 'none' && (
+                          <span className="text-xs text-blue-600" title={`Protected: ${bed.seasonExtension.type.replace('-', ' ')}`}>
+                            {(() => {
+                              const icons: Record<string, string> = {
+                                'row-cover': '🛡️',
+                                'low-tunnel': '⛺',
+                                'cold-frame': '📦',
+                                'high-tunnel': '🏠',
+                                'greenhouse': '🏛️'
+                              };
+                              return icons[bed.seasonExtension.type] || '🛡️';
+                            })()}
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-3 text-xs text-gray-500">
+                    {checkedBeds.size} of {beds.length} beds visible
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -732,38 +1508,56 @@ const GardenDesigner: React.FC = () => {
                   Create Your First Bed
                 </button>
               </div>
-            ) : selectedBed ? (
+            ) : visibleBeds.length > 0 ? (
               <div>
-                <div className="flex justify-between items-center mb-6">
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-800">{selectedBed.name}</h3>
-                    <p className="text-sm text-gray-600">
-                      {selectedBed.location && `Location: ${selectedBed.location} • `}
-                      Sun: {selectedBed.sunExposure || 'full'} •
-                      Method: {selectedBed.planningMethod}
-                    </p>
-                  </div>
-                </div>
+                {/* Horizontal Multi-Bed Layout */}
+                <div className="overflow-x-auto overflow-y-auto pb-12" onClick={() => setSelectedPlant(null)}>
+                  <div className="flex flex-row gap-8 items-start p-4">
+                    {visibleBeds.map(bed => (
+                      <div
+                        key={bed.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveBed(bed);
+                        }}
+                        className={`relative rounded-lg p-4 flex-shrink-0 cursor-pointer transition-all ${
+                          activeBed?.id === bed.id
+                            ? 'bg-brown-100 border-4 border-green-600 shadow-xl ring-4 ring-green-200'
+                            : 'bg-brown-100 border-4 border-brown-600 hover:border-brown-700 opacity-75 hover:opacity-90'
+                        }`}
+                      >
+                        {/* Bed Name Badge */}
+                        <div className="absolute -top-3 left-4 bg-white px-3 py-1 rounded-full shadow-md border-2 border-gray-300 font-semibold text-sm z-10">
+                          {bed.name}
+                        </div>
 
-                {/* Grid Canvas */}
-                <div className="overflow-auto pb-12" onClick={() => setSelectedPlant(null)}>
-                  <div className="flex justify-center">
-                    <div className="relative bg-brown-100 border-4 border-brown-600 rounded-lg p-4 inline-block">
-                      {renderGrid(selectedBed)}
-                      {/* Dimensions label */}
-                      <div className="absolute -bottom-8 left-0 right-0 text-center text-sm text-gray-600">
-                        {selectedBed.width}' × {selectedBed.length}' ({selectedBed.planningMethod})
+                        {/* Active Indicator */}
+                        {activeBed?.id === bed.id && (
+                          <div className="absolute -top-3 right-4 bg-green-600 text-white px-3 py-1 rounded-full shadow-md text-xs font-bold z-10">
+                            ACTIVE
+                          </div>
+                        )}
+
+                        {/* Grid */}
+                        {renderGrid(bed)}
+
+                        {/* Dimensions Label */}
+                        <div className="absolute -bottom-8 left-0 right-0 text-center text-sm text-gray-600">
+                          {bed.width}' × {bed.length}' ({bed.planningMethod})
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
 
-                {/* Legend */}
-                {selectedBed.plantedItems && selectedBed.plantedItems.length > 0 && (
+                {/* Active Bed Plants Legend (filtered by date) */}
+                {activeBed && getActivePlantedItems(activeBed).length > 0 && (
                   <div className="mt-12 pt-6 border-t border-gray-200">
-                    <h4 className="text-lg font-semibold text-gray-800 mb-3">Plants in this Bed:</h4>
+                    <h4 className="text-lg font-semibold text-gray-800 mb-3">
+                      Plants in {activeBed.name} on {dateFilter.date}:
+                    </h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {selectedBed.plantedItems.map((item) => (
+                      {getActivePlantedItems(activeBed).map((item) => (
                         <div key={item.id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
                           <div className="text-2xl">
                             {getPlantIcon(item.plantId)}
@@ -778,6 +1572,22 @@ const GardenDesigner: React.FC = () => {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty State for Date Filter */}
+                {activeBed && getActivePlantedItems(activeBed).length === 0 && (
+                  <div className="mt-12 pt-6 border-t border-gray-200">
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                      <div className="text-4xl mb-2">🌱</div>
+                      <h4 className="text-lg font-semibold text-gray-800 mb-2">No plantings active on this date</h4>
+                      <p className="text-sm text-gray-600 mb-3">
+                        No plants were growing on {dateFilter.date}.
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Try selecting a different date to see plantings.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -799,12 +1609,53 @@ const GardenDesigner: React.FC = () => {
           </div>
         </div>
       </div>
+      </div>
 
       {/* Drag Overlay - Shows what you're dragging */}
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activePlant ? (
-          <div className="text-5xl" style={{ transform: 'translate(-50%, -50%)' }}>
-            {activePlant.icon || '🌱'}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '60px',
+              height: '60px',
+              position: 'relative',
+              pointerEvents: 'none'
+            }}
+          >
+            {/* Crosshair to show exact drop point */}
+            <div style={{
+              position: 'absolute',
+              width: '2px',
+              height: '20px',
+              backgroundColor: '#ef4444',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 1
+            }} />
+            <div style={{
+              position: 'absolute',
+              width: '20px',
+              height: '2px',
+              backgroundColor: '#ef4444',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 1
+            }} />
+            {/* Plant emoji */}
+            <div className="text-5xl" style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              opacity: 0.8
+            }}>
+              {activePlant.icon || '🌱'}
+            </div>
           </div>
         ) : null}
       </DragOverlay>
@@ -815,7 +1666,7 @@ const GardenDesigner: React.FC = () => {
         onClose={() => setClearConfirm(false)}
         onConfirm={handleClearBed}
         title="Clear Garden Bed"
-        message={`Are you sure you want to remove all ${selectedBed?.plantedItems?.length || 0} plants from "${selectedBed?.name}"? This action cannot be undone.`}
+        message={`Are you sure you want to remove all ${activeBed?.plantedItems?.length || 0} plants from "${activeBed?.name}"? This action cannot be undone.`}
         confirmText="Clear Bed"
         variant="danger"
       />
@@ -833,17 +1684,31 @@ const GardenDesigner: React.FC = () => {
 
       {/* Bed Form Modal */}
       <BedFormModal
-        isOpen={showBedModal}
-        onClose={() => setShowBedModal(false)}
-        onSubmit={handleCreateBed}
+        isOpen={showBedModal || !!editingBed}
+        onClose={() => {
+          setShowBedModal(false);
+          setEditingBed(null);
+        }}
+        onSubmit={editingBed ? handleEditBed : handleCreateBed}
+        bed={editingBed || undefined}
       />
 
       {/* Plant Configuration Modal */}
       <PlantConfigModal
         isOpen={showConfigModal}
-        plant={pendingPlant?.plant || null}
+        cropName={pendingPlant?.cropName || ''}
+        allPlants={plants}
         position={pendingPlant?.position || null}
-        planningMethod={selectedBed?.planningMethod}
+        planningMethod={activeBed?.planningMethod}
+        plantingDate={dateFilter.date}
+        bedId={activeBed?.id}
+        bed={activeBed || undefined}
+        onDateChange={(newDate) => {
+          const updatedFilter = { ...dateFilter, date: newDate };
+          setDateFilter(updatedFilter);
+          updateDateFilterUrl(updatedFilter);
+        }}
+        onPreviewChange={(positions) => setPreviewPositions(positions)}
         onSave={handlePlantConfig}
         onCancel={handleConfigCancel}
       />
