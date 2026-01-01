@@ -3,6 +3,7 @@ import { DndContext, DragEndEvent, DragStartEvent, DragOverlay, MouseSensor, Tou
 import { useDroppable } from '@dnd-kit/core';
 
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
+import { API_BASE_URL } from '../config';
 import PlantPalette from './common/PlantPalette';
 import { Plant, PlantedItem, PlantingEvent, GardenBed } from '../types';
 import { ConfirmDialog } from './common/ConfirmDialog';
@@ -616,64 +617,145 @@ const GardenDesigner: React.FC = () => {
       return;
     }
 
-    // Calculate default quantity based on planning method
-    let defaultQuantity = config.quantity;
-    if (targetBed.planningMethod === 'square-foot') {
-      const spacing = plant.spacing || 12;
-      if (spacing <= 12) {
-        defaultQuantity = Math.floor(Math.pow(12 / spacing, 2));
-      } else {
-        defaultQuantity = -Math.floor(Math.pow(spacing / 12, 2));
-      }
-    }
-
     try {
       // Use edited position from config if provided, otherwise use original position
       const finalPosition = config.position || position;
 
-      const payload = {
-        gardenBedId: targetBed.id,
-        plantId: plant.id,
-        variety: config.variety || undefined,  // Include variety if specified
-        position: finalPosition,
-        quantity: config.quantity || defaultQuantity,
-        status: 'planned',
-        notes: config.notes || undefined,
-        plantedDate: dateFilter.date,  // Use the current date filter date
-        plantingMethod: config.plantingMethod,  // 'direct' or 'transplant'
-      };
+      // Calculate plants per square based on spacing
+      const spacing = plant.spacing || 12;
+      const plantsPerSquare = spacing <= 12 ? Math.floor(Math.pow(12 / spacing, 2)) : 1;
 
-      const response = await apiPost('/api/planted-items', payload);
+      // Calculate how many squares are needed
+      const totalQuantity = config.quantity;
+      const squaresNeeded = Math.ceil(totalQuantity / plantsPerSquare);
 
-      if (response.ok) {
-        // Reload bed data to show new plant
-        const freshBeds = await loadData();
+      console.log('🌱 Multi-square placement logic:', {
+        cropName,
+        spacing,
+        plantsPerSquare,
+        totalQuantity,
+        squaresNeeded,
+        planningMethod: targetBed.planningMethod
+      });
 
-        // Refresh planting events so the new plant appears in date-filtered views
-        await fetchPlantingEvents();
+      // If only 1 square needed OR not using SFG/MIgardener, create single PlantedItem
+      if (squaresNeeded === 1 || (targetBed.planningMethod !== 'square-foot' && targetBed.planningMethod !== 'migardener')) {
+        const payload = {
+          gardenBedId: targetBed.id,
+          plantId: plant.id,
+          variety: config.variety || undefined,
+          position: finalPosition,
+          quantity: totalQuantity,
+          status: 'planned',
+          notes: config.notes || undefined,
+          plantedDate: dateFilter.date,
+          plantingMethod: config.plantingMethod,
+        };
 
-        // Update visible beds and active bed with fresh data
-        const updatedBed = freshBeds.find(b => b.id === targetBed.id);
-        if (updatedBed) {
-          setActiveBed(updatedBed);
-          // Update visible beds to include the refreshed bed with the new plant
-          setVisibleBeds(prev =>
-            prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
-          );
+        const response = await apiPost('/api/planted-items', payload);
+
+        if (response.ok) {
+          const freshBeds = await loadData();
+          await fetchPlantingEvents();
+
+          const updatedBed = freshBeds.find(b => b.id === targetBed.id);
+          if (updatedBed) {
+            setActiveBed(updatedBed);
+            setVisibleBeds(prev =>
+              prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
+            );
+          }
+
+          showSuccess(`Placed ${totalQuantity} ${cropName}${config.variety ? ` (${config.variety})` : ''} in 1 square`);
+        } else {
+          const errorText = await response.text();
+          console.error('Failed to create planted item:', response.status, errorText);
+          let errorMessage = 'Failed to place plant in garden';
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.error || errorMessage;
+          } catch {
+            // If error is not JSON, use default message
+          }
+          showError(errorMessage);
         }
-
-        showSuccess(`Placed ${cropName}${config.variety ? ` (${config.variety})` : ''} in garden`);
       } else {
-        const errorText = await response.text();
-        console.error('Failed to create planted item:', response.status, errorText);
-        let errorMessage = 'Failed to place plant in garden';
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          // If error is not JSON, use default message
+        // Multiple squares needed - create PlantedItems spread across adjacent squares
+        console.log('✨ Creating multiple PlantedItems for multi-square placement');
+
+        // Calculate grid dimensions
+        const gridWidth = Math.floor((targetBed.width * 12) / (targetBed.gridSize || 12));
+        const gridHeight = Math.floor((targetBed.length * 12) / (targetBed.gridSize || 12));
+
+        // Generate positions in a compact grid pattern starting from finalPosition
+        const positions: { x: number; y: number; quantity: number }[] = [];
+        let remainingPlants = totalQuantity;
+        let squareIndex = 0;
+
+        // Calculate grid side length (e.g., 4 squares = 2x2, 9 squares = 3x3)
+        const gridSide = Math.ceil(Math.sqrt(squaresNeeded));
+
+        for (let row = 0; row < gridSide && squareIndex < squaresNeeded; row++) {
+          for (let col = 0; col < gridSide && squareIndex < squaresNeeded; col++) {
+            const x = finalPosition.x + col;
+            const y = finalPosition.y + row;
+
+            // Check bounds
+            if (x >= gridWidth || y >= gridHeight) {
+              console.warn(`⚠️ Position (${x}, ${y}) out of bounds, skipping`);
+              continue;
+            }
+
+            // Calculate quantity for this square (last square may have fewer plants)
+            const quantityForSquare = Math.min(plantsPerSquare, remainingPlants);
+            positions.push({ x, y, quantity: quantityForSquare });
+
+            remainingPlants -= quantityForSquare;
+            squareIndex++;
+          }
         }
-        showError(errorMessage);
+
+        console.log('📍 Generated positions:', positions);
+
+        // Create PlantedItems via batch POST
+        const response = await fetch(`${API_BASE_URL}/api/planted-items/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            gardenBedId: targetBed.id,
+            plantId: plant.id,
+            variety: config.variety || undefined,
+            plantedDate: dateFilter.date,
+            plantingMethod: config.plantingMethod,
+            status: 'planned',
+            notes: config.notes || undefined,
+            positions: positions,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const totalPlantsPlaced = positions.reduce((sum, p) => sum + p.quantity, 0);
+
+          const freshBeds = await loadData();
+          await fetchPlantingEvents();
+
+          const updatedBed = freshBeds.find(b => b.id === targetBed.id);
+          if (updatedBed) {
+            setActiveBed(updatedBed);
+            setVisibleBeds(prev =>
+              prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
+            );
+          }
+
+          showSuccess(
+            `Placed ${totalPlantsPlaced} ${cropName}${config.variety ? ` (${config.variety})` : ''} across ${data.created} squares`
+          );
+        } else {
+          const errorData = await response.json();
+          showError(errorData.error || 'Failed to place plants');
+        }
       }
     } catch (error) {
       console.error('Error creating planted item:', error);
@@ -988,6 +1070,31 @@ const GardenDesigner: React.FC = () => {
             const plant = getPlant(item.plantId);
             const iconSize = plant ? Math.max(cellSize * 0.6, cellSize * (plant.spacing / 12)) : cellSize * 0.6;
 
+            // Determine if this is dense planting (multiple plants in one cell)
+            const isDensePlanting = plant && plant.spacing && plant.spacing <= 12;
+            const quantity = item.quantity > 0 ? item.quantity : 1;
+
+            // Calculate sub-grid positions for dense planting
+            const subPositions: { offsetX: number; offsetY: number }[] = [];
+            if (isDensePlanting && quantity > 1) {
+              // Calculate grid layout: for 4 plants, use 2x2 grid; for 9 plants, use 3x3 grid
+              const gridSide = Math.ceil(Math.sqrt(quantity));
+              const cellFraction = 1 / gridSide;
+
+              for (let i = 0; i < quantity; i++) {
+                const row = Math.floor(i / gridSide);
+                const col = i % gridSide;
+                // Center each plant within its sub-cell
+                subPositions.push({
+                  offsetX: (col + 0.5) * cellFraction,
+                  offsetY: (row + 0.5) * cellFraction
+                });
+              }
+            } else {
+              // Single plant or spread planting - center in cell
+              subPositions.push({ offsetX: 0.5, offsetY: 0.5 });
+            }
+
             return (
               <g
                 key={item.id}
@@ -1039,37 +1146,46 @@ const GardenDesigner: React.FC = () => {
                   />
                 )}
 
-                {/* Emoji Icon */}
-                <text
-                  x={item.position.x * cellSize + cellSize / 2}
-                  y={item.position.y * cellSize + cellSize / 2}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize={iconSize}
-                  className="select-none"
-                  style={{
-                    opacity: draggedPlantedItem?.plantedItem.id === item.id ? 0.5 : 1,
-                    cursor: isShiftPressed ? 'copy' : 'pointer'
-                  }}
-                  onMouseDown={(e) => {
-                    const shiftHeld = e.shiftKey;
-                    console.log('🖱️ MOUSEDOWN on <text>, shiftKey:', shiftHeld);
-                    if (shiftHeld) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsShiftPressed(true);
-                      handlePlantMouseDown(e, item, bed);
-                    }
-                  }}
-                  onClick={(e) => {
-                    if (!isShiftPressed) {
-                      e.stopPropagation();
-                      setSelectedPlant(item);
-                    }
-                  }}
-                >
-                  {getPlantIcon(item.plantId)}
-                </text>
+                {/* Render plant icons at sub-grid positions */}
+                {subPositions.map((subPos, subIdx) => {
+                  const plantX = item.position.x * cellSize + subPos.offsetX * cellSize;
+                  const plantY = item.position.y * cellSize + subPos.offsetY * cellSize;
+                  const subIconSize = isDensePlanting && quantity > 1 ? iconSize * 0.7 : iconSize;
+
+                  return (
+                    <text
+                      key={`${item.id}-${subIdx}`}
+                      x={plantX}
+                      y={plantY}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize={subIconSize}
+                      className="select-none"
+                      style={{
+                        opacity: draggedPlantedItem?.plantedItem.id === item.id ? 0.5 : 1,
+                        cursor: isShiftPressed ? 'copy' : 'pointer'
+                      }}
+                      onMouseDown={(e) => {
+                        const shiftHeld = e.shiftKey;
+                        console.log('🖱️ MOUSEDOWN on <text>, shiftKey:', shiftHeld);
+                        if (shiftHeld) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsShiftPressed(true);
+                          handlePlantMouseDown(e, item, bed);
+                        }
+                      }}
+                      onClick={(e) => {
+                        if (!isShiftPressed) {
+                          e.stopPropagation();
+                          setSelectedPlant(item);
+                        }
+                      }}
+                    >
+                      {getPlantIcon(item.plantId)}
+                    </text>
+                  );
+                })}
 
                 {/* Shift+Drag Indicator (Plus Icon) */}
                 {isShiftPressed && (
@@ -1096,8 +1212,8 @@ const GardenDesigner: React.FC = () => {
                   </>
                 )}
 
-                {/* Quantity Number */}
-                {item.quantity !== 0 && (
+                {/* Quantity Number - Only show for spread planting or negative quantities (large plants) */}
+                {item.quantity !== 0 && !(isDensePlanting && quantity > 1) && (
                   <text
                     x={item.position.x * cellSize + cellSize * BADGE_POSITION.TEXT_X_OFFSET}
                     y={item.position.y * cellSize + cellSize * BADGE_POSITION.TEXT_Y_OFFSET}
