@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Button, FormInput, FormNumber, FormSelect, FormTextarea, useToast } from '../common';
-
-import { API_BASE_URL } from '../../config';
+import { apiPost, apiPut } from '../../utils/api';
 interface Property {
   id?: number;
   name: string;
@@ -108,12 +107,6 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
     setLoading(true);
 
     try {
-      const url = mode === 'edit' && formData.id
-        ? `${API_BASE_URL}/api/properties/${formData.id}`
-        : `${API_BASE_URL}/api/properties`;
-
-      const method = mode === 'edit' ? 'PUT' : 'POST';
-
       // Prepare data for backend (convert camelCase to snake_case)
       const payload = {
         name: formData.name,
@@ -128,13 +121,9 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
         notes: formData.notes || null,
       };
 
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = mode === 'edit' && formData.id
+        ? await apiPut(`/api/properties/${formData.id}`, payload)
+        : await apiPost('/api/properties', payload);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -177,11 +166,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
     setAddressValidation({ validated: false, loading: true, error: null });
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/properties/validate-address`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: formData.address }),
-      });
+      const response = await apiPost('/api/properties/validate-address', { address: formData.address });
 
       const data = await response.json();
 

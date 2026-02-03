@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { addMonths, subMonths, startOfMonth, endOfMonth, format } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
-import { API_BASE_URL } from '../../../config';
+import { apiGet } from '../../../utils/api';
 import { TimelineHeader } from './TimelineHeader';
 import { TimelineBar } from './TimelineBar';
 import AvailableSpacesView from './AvailableSpacesView';
@@ -12,23 +12,30 @@ interface TimelineViewProps {
   onAddCrop: (date?: Date, plant?: Plant) => void;
   onEditEvent: (event: PlantingCalendarType) => void;
   onRefresh: () => void;
+  showAvailableSpaces: boolean;
+  setShowAvailableSpaces: (show: boolean) => void;
 }
 
 export const TimelineView: React.FC<TimelineViewProps> = ({
   onAddCrop,
   onEditEvent,
   onRefresh,
+  showAvailableSpaces,
+  setShowAvailableSpaces,
 }) => {
   const [timelineStart, setTimelineStart] = useState<Date>(startOfMonth(new Date()));
-  const [monthCount] = useState(4); // Show 4 months at a time
+  const [monthCount] = useState(6); // Show 6 months at a time
   const [monthWidth] = useState(200); // 200px per month column
   const [events, setEvents] = useState<PlantingCalendarType[]>([]);
   const [beds, setBeds] = useState<GardenBed[]>([]);
-  const [selectedBedFilter, setSelectedBedFilter] = useState<string | null>(null);
+  const [selectedBedFilter, setSelectedBedFilter] = useState<number | null>(null);
   const [bedsError, setBedsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showAvailableSpaces, setShowAvailableSpaces] = useState(false);
+  const [displayOptions, setDisplayOptions] = useState<{ showIndoor: boolean; showOutdoor: boolean }>(() => {
+    const saved = localStorage.getItem('timeline.displayOptions');
+    return saved ? JSON.parse(saved) : { showIndoor: true, showOutdoor: true };
+  });
 
   const loadEvents = async () => {
     try {
@@ -40,8 +47,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       const endDate = endOfMonth(addMonths(timelineStart, monthCount - 1));
 
       // Fetch events with date range filter
-      const response = await fetch(
-        `${API_BASE_URL}/api/planting-events?start_date=${format(
+      const response = await apiGet(
+        `/api/planting-events?start_date=${format(
           startDate,
           'yyyy-MM-dd'
         )}&end_date=${format(endDate, 'yyyy-MM-dd')}`
@@ -85,7 +92,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     const loadBeds = async () => {
       try {
         setBedsError(null);
-        const response = await fetch(`${API_BASE_URL}/api/garden-beds`);
+        const response = await apiGet('/api/garden-beds');
         if (response.ok) {
           const data = await response.json();
           setBeds(data);
@@ -102,9 +109,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     loadBeds();
   }, []);
 
+  // Persist displayOptions to localStorage
+  useEffect(() => {
+    localStorage.setItem('timeline.displayOptions', JSON.stringify(displayOptions));
+  }, [displayOptions]);
+
   // Create beds lookup map for fast access
   const bedsById = useMemo(() => {
-    const map = new Map<string, GardenBed>();
+    const map = new Map<number, GardenBed>();
     beds.forEach(bed => map.set(bed.id, bed));
     return map;
   }, [beds]);
@@ -179,7 +191,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           {/* Bed Filter Dropdown */}
           <select
             value={selectedBedFilter || ''}
-            onChange={(e) => setSelectedBedFilter(e.target.value || null)}
+            onChange={(e) => setSelectedBedFilter(e.target.value ? Number(e.target.value) : null)}
             className={`ml-4 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${
               bedsError ? 'border-red-300 bg-red-50' : 'border-gray-300'
             }`}
@@ -198,6 +210,29 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </>
             )}
           </select>
+
+          {/* Phase Display Toggles */}
+          <div className="flex items-center gap-4 ml-4 px-4 border-l border-gray-300">
+            <span className="text-sm font-medium text-gray-700">Show:</span>
+            <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+              <input
+                type="checkbox"
+                checked={displayOptions.showIndoor}
+                onChange={() => setDisplayOptions(prev => ({...prev, showIndoor: !prev.showIndoor}))}
+                className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+              />
+              <span className="text-sm text-gray-700">Indoor Starts</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+              <input
+                type="checkbox"
+                checked={displayOptions.showOutdoor}
+                onChange={() => setDisplayOptions(prev => ({...prev, showOutdoor: !prev.showOutdoor}))}
+                className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+              />
+              <span className="text-sm text-gray-700">Outdoor Growing</span>
+            </label>
+          </div>
         </div>
 
         <div className="text-lg font-semibold text-gray-900">
@@ -211,13 +246,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         </div>
 
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowAvailableSpaces(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <MapPin className="w-4 h-4" />
-            <span>Available Spaces</span>
-          </button>
           <button
             onClick={() => onAddCrop()}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -268,6 +296,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     timelineStart={timelineStart}
                     monthWidth={monthWidth}
                     beds={beds}
+                    displayOptions={displayOptions}
                     onClick={handleEventClick}
                   />
                 ))}
@@ -295,6 +324,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-amber-600 rounded"></div>
           <span className="text-sm text-gray-600">Nut</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-green-500 opacity-40 rounded border-2 border-green-600"></div>
+          <span className="text-sm text-gray-600">Indoor Seed Starting</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-green-500 rounded border-2 border-green-600"></div>
+          <span className="text-sm text-gray-600">Outdoor Growing</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-purple-500 rounded-full"></div>

@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { DndContext, DragStartEvent, DragEndEvent, DragMoveEvent, DragOverlay, useSensor, useSensors, PointerSensor, useDraggable, useDroppable } from '@dnd-kit/core';
 import { PropertyFormModal } from './PropertyDesigner/PropertyFormModal';
 import { StructureFormModal } from './PropertyDesigner/StructureFormModal';
+import { TrellisManager } from './PropertyDesigner/TrellisManager';
 import { ConfirmDialog, useToast } from './common';
-
-import { API_BASE_URL } from '../config';
+import PlantIcon, { PlantIconSVG } from './common/PlantIcon';
+import StructureIcon, { StructureIconSVG } from './common/StructureIcon';
+import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
+import { Plant, TrellisStructure } from '../types';
 interface Property {
   id: number;
   name: string;
@@ -29,6 +32,9 @@ interface PlacedStructure {
   rotation: number;
   cost?: number;
   notes?: string;
+  customWidth?: number;  // For trees: canopy diameter in feet
+  customLength?: number; // For trees: canopy diameter in feet
+  shapeType?: string;    // 'circle' for trees, 'rectangle' for structures
 }
 
 interface Structure {
@@ -40,6 +46,28 @@ interface Structure {
   description?: string;
   icon?: string;
   cost?: number;
+  shapeType?: string;  // 'circle' for trees
+}
+
+interface TreeNutrition {
+  totals: {
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+  };
+  by_tree_type: Record<string, {
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+  }>;
+  tree_summary: Array<{
+    tree_type: string;
+    count: number;
+    annual_yield_lbs: number;
+  }>;
+  year: number;
 }
 
 // Constants
@@ -64,8 +92,12 @@ const CoordinateDisplay: React.FC<{
   if (!mapElement) return null;
 
   const rect = mapElement.getBoundingClientRect();
-  const x = Math.round((dragCursorPosition.x - rect.left) / PROPERTY_SCALE);
-  const y = Math.round((dragCursorPosition.y - rect.top) / PROPERTY_SCALE);
+  const rawX = (dragCursorPosition.x - rect.left) / PROPERTY_SCALE;
+  const rawY = (dragCursorPosition.y - rect.top) / PROPERTY_SCALE;
+
+  // Clamp to valid range and round
+  const x = Math.max(0, Math.round(rawX));
+  const y = Math.max(0, Math.round(rawY));
 
   return (
     <div
@@ -84,14 +116,16 @@ const CoordinateDisplay: React.FC<{
 const PropertyDesigner: React.FC = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [structures, setStructures] = useState<Structure[]>([]);
+  const [treePlants, setTreePlants] = useState<Plant[]>([]);  // Fruit and nut trees
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
+  const [isTrellisManagerOpen, setIsTrellisManagerOpen] = useState(false);
+  const [trellises, setTrellises] = useState<TrellisStructure[]>([]);
   const [draggedStructure, setDraggedStructure] = useState<Structure | null>(null);
   const [dragCursorPosition, setDragCursorPosition] = useState<{x: number, y: number} | null>(null);
-  const [prefilledPosition, setPrefilledPosition] = useState<{x: number, y: number, structureId: string, placedStructureId?: number} | null>(null);
   const [editingStructure, setEditingStructure] = useState<PlacedStructure | null>(null);
   const [draggingPlacedStructure, setDraggingPlacedStructure] = useState<{
     structure: PlacedStructure;
@@ -119,6 +153,8 @@ const PropertyDesigner: React.FC = () => {
     propertyId: null,
     propertyName: '',
   });
+  const [treeNutritionData, setTreeNutritionData] = useState<TreeNutrition | null>(null);
+  const [treeNutritionLoading, setTreeNutritionLoading] = useState(false);
   const { showSuccess, showError } = useToast();
 
   // Configure drag sensor
@@ -135,12 +171,49 @@ const PropertyDesigner: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (selectedProperty) {
+      loadTrellises();
+      loadTreeNutrition();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProperty]);
+
+  const loadTrellises = async () => {
+    if (!selectedProperty) return;
+    try {
+      const response = await apiGet(`/api/trellis-structures?propertyId=${selectedProperty.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setTrellises(data);
+      }
+    } catch (error) {
+      console.error('Failed to load trellises:', error);
+    }
+  };
+
+  const loadTreeNutrition = async () => {
+    try {
+      setTreeNutritionLoading(true);
+      const response = await apiGet('/api/nutrition/trees');
+      if (response.ok) {
+        const data = await response.json();
+        setTreeNutritionData(data);
+      }
+    } catch (error) {
+      console.error('Failed to load tree nutrition data:', error);
+      // Silently fail - nutrition is optional enhancement
+    } finally {
+      setTreeNutritionLoading(false);
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
 
       // Load properties
-      const propResponse = await fetch(`${API_BASE_URL}/api/properties`);
+      const propResponse = await apiGet('/api/properties');
       if (!propResponse.ok) {
         throw new Error('Failed to fetch properties');
       }
@@ -148,12 +221,22 @@ const PropertyDesigner: React.FC = () => {
       setProperties(propData);
 
       // Load structures
-      const structResponse = await fetch(`${API_BASE_URL}/api/structures`);
+      const structResponse = await apiGet('/api/structures');
       if (!structResponse.ok) {
         throw new Error('Failed to fetch structures');
       }
       const structData = await structResponse.json();
       setStructures(structData.structures || []);
+
+      // Load trees (fruit and nut category plants)
+      const plantsResponse = await apiGet('/api/plants');
+      if (plantsResponse.ok) {
+        const plantsData = await plantsResponse.json();
+        const trees = plantsData.filter((p: Plant) =>
+          p.category === 'fruit' || p.category === 'nut'
+        );
+        setTreePlants(trees);
+      }
 
       // Select first property by default
       if (propData.length > 0) {
@@ -166,6 +249,30 @@ const PropertyDesigner: React.FC = () => {
     }
   };
 
+  // Helper function to check if a structure is a tree and get yield info
+  const getTreeYieldInfo = (structureId: string): { isTree: boolean; yieldInfo?: { annual_yield_lbs: number } } => {
+    if (!structureId.startsWith('tree-') || !treeNutritionData) {
+      return { isTree: false };
+    }
+
+    // Extract tree type from structure_id (e.g., 'tree-apple' -> 'apple')
+    const treeType = structureId.replace('tree-', '');
+
+    // Find yield info in tree summary
+    const treeSummary = treeNutritionData.tree_summary.find(t => t.tree_type === treeType);
+
+    if (treeSummary && treeSummary.count > 0) {
+      return {
+        isTree: true,
+        yieldInfo: {
+          annual_yield_lbs: treeSummary.annual_yield_lbs / treeSummary.count // Average per tree
+        }
+      };
+    }
+
+    return { isTree: true }; // Is a tree but no yield data yet
+  };
+
   // Collision detection rules - mirrors backend collision_rules.py
   const COLLISION_RULES: Record<string, {
     is_container: boolean;
@@ -173,10 +280,16 @@ const PropertyDesigner: React.FC = () => {
     can_overlap: string[] | '*';
     must_not_overlap: string[];
   }> = {
+    'ground-covering': {
+      // Mulch, gravel, grass, hardscape - renders below all other structures
+      is_container: false,
+      can_overlap: '*',  // Special: can overlap with everything (like infrastructure)
+      must_not_overlap: []
+    },
     structures: {
       is_container: true,
       allowed_children: ['garden', 'compost', 'water'],
-      can_overlap: ['infrastructure'],
+      can_overlap: ['infrastructure', 'ground-covering'],
       must_not_overlap: ['structures', 'livestock', 'storage', 'orchard']
     },
     garden: {
@@ -247,8 +360,11 @@ const PropertyDesigner: React.FC = () => {
   };
 
   const canOverlap = (categoryA: string, categoryB: string): boolean => {
-    // Infrastructure special case - can overlap with anything
+    // Infrastructure and ground-covering special cases - can overlap with anything
     if (categoryA === 'infrastructure' || categoryB === 'infrastructure') {
+      return true;
+    }
+    if (categoryA === 'ground-covering' || categoryB === 'ground-covering') {
       return true;
     }
 
@@ -364,6 +480,71 @@ const PropertyDesigner: React.FC = () => {
     };
   };
 
+  // Tree-specific validation (circle collision detection)
+  const validateTreePlacement = (
+    plant: Plant,
+    x: number,
+    y: number,
+    property: Property
+  ): { isContained: boolean; conflicts: string[] } => {
+    const conflicts: string[] = [];
+    const radius = (plant.spacing / 12) / 2; // Convert inches to feet, then get radius
+
+    // Check boundaries - ensure entire circle is within property
+    const isContained = (
+      x - radius >= 0 &&
+      x + radius <= property.width &&
+      y - radius >= 0 &&
+      y + radius <= property.length
+    );
+
+    if (!isContained) {
+      conflicts.push(`Tree canopy would extend beyond property boundaries`);
+    }
+
+    // Check tree-to-tree and tree-to-structure conflicts
+    property.placedStructures?.forEach(placed => {
+      const existingStructure = structures.find(s => s.id === placed.structureId);
+
+      // Check if existing item is also a tree (circle)
+      if (placed.shapeType === 'circle' && placed.customWidth) {
+        const existingRadius = placed.customWidth / 2;
+        const distance = Math.sqrt(
+          Math.pow(placed.positionX - x, 2) +
+          Math.pow(placed.positionY - y, 2)
+        );
+        const minDistance = radius + existingRadius;
+
+        if (distance < minDistance) {
+          conflicts.push(`Tree would overlap with ${placed.name}`);
+        }
+      } else if (existingStructure) {
+        // Check collision with rectangular structures (simplified AABB vs circle)
+        const structBounds = {
+          x: placed.positionX,
+          y: placed.positionY,
+          width: existingStructure.width,
+          height: existingStructure.length
+        };
+
+        // Find closest point on rectangle to circle center
+        const closestX = Math.max(structBounds.x, Math.min(x, structBounds.x + structBounds.width));
+        const closestY = Math.max(structBounds.y, Math.min(y, structBounds.y + structBounds.height));
+
+        const distance = Math.sqrt(
+          Math.pow(x - closestX, 2) +
+          Math.pow(y - closestY, 2)
+        );
+
+        if (distance < radius) {
+          conflicts.push(`Tree would overlap with ${placed.name || existingStructure.name}`);
+        }
+      }
+    });
+
+    return { isContained, conflicts };
+  };
+
   const handleEdit = (property: Property) => {
     setSelectedProperty(property);
     setModalMode('edit');
@@ -382,10 +563,7 @@ const PropertyDesigner: React.FC = () => {
     if (!deleteConfirm.propertyId) return;
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/properties/${deleteConfirm.propertyId}`,
-        { method: 'DELETE' }
-      );
+      const response = await apiDelete(`/api/properties/${deleteConfirm.propertyId}`);
 
       if (response.ok) {
         showSuccess(`Property "${deleteConfirm.propertyName}" deleted successfully!`);
@@ -410,8 +588,30 @@ const PropertyDesigner: React.FC = () => {
 
   // Drag and Drop handlers
   const handleDragStart = (event: DragStartEvent) => {
-    const structure = event.active.data.current?.structure;
-    setDraggedStructure(structure || null);
+    const { active } = event;
+    const data = active.data.current;
+
+    // Check if dragging a tree or a structure
+    if (data?.type === 'tree') {
+      const plant = data.plant as Plant;
+
+      // Convert plant to structure-like format for rendering
+      const treeStructure: Structure = {
+        id: plant.id,
+        name: plant.name,
+        category: 'orchard',
+        width: plant.spacing / 12,  // inches to feet
+        length: plant.spacing / 12,
+        icon: plant.icon,
+        shapeType: 'circle'
+      };
+
+      setDraggedStructure(treeStructure);
+    } else {
+      // Existing structure drag logic
+      const structure = event.active.data.current?.structure;
+      setDraggedStructure(structure || null);
+    }
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
@@ -442,11 +642,7 @@ const PropertyDesigner: React.FC = () => {
         builtDate: null,
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/placed-structures`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const response = await apiPost('/api/placed-structures', payload);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -457,6 +653,85 @@ const PropertyDesigner: React.FC = () => {
       loadData(); // Refresh to show new structure on map
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Failed to place structure');
+    }
+  };
+
+  // Save tree as PlacedStructure and auto-create PlantingEvent
+  const saveTreeImmediately = async (plant: Plant, x: number, y: number) => {
+    if (!selectedProperty) return;
+
+    try {
+      const spacingFeet = plant.spacing / 12;  // Convert inches to feet
+
+      // Create PlacedStructure for the tree
+      const placedStructurePayload = {
+        property_id: selectedProperty.id,
+        structure_id: plant.id,  // Use plant ID as structure ID
+        name: plant.name,
+        position_x: x,
+        position_y: y,
+        custom_width: spacingFeet,   // Tree canopy diameter
+        custom_length: spacingFeet,  // Tree canopy diameter
+        shape_type: 'circle',
+        rotation: 0,
+        notes: plant.notes?.split('.')[0] || '',  // First sentence of plant notes
+      };
+
+      const structureResponse = await apiPost('/api/placed-structures', placedStructurePayload);
+
+      if (!structureResponse.ok) {
+        const errorData = await structureResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to place tree');
+      }
+
+      const savedStructure = await structureResponse.json();
+
+      // Auto-create PlantingEvent for timeline integration
+      await createPlantingEventForTree(plant, x, y);
+
+      showSuccess(`${plant.name} tree placed! Will mature in ${Math.round(plant.daysToMaturity / 365)} years.`);
+      loadData(); // Refresh to show new tree on map
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to place tree');
+    }
+  };
+
+  // Auto-create PlantingEvent when tree is placed (Task 4)
+  const createPlantingEventForTree = async (plant: Plant, x: number, y: number) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];  // YYYY-MM-DD format
+
+      // Calculate expected harvest date
+      const harvestDate = new Date();
+      harvestDate.setDate(harvestDate.getDate() + plant.daysToMaturity);
+      const expectedHarvestDate = harvestDate.toISOString().split('T')[0];
+
+      // Calculate space required (circular area)
+      const radiusFeet = (plant.spacing / 12) / 2;
+      const spaceRequired = Math.round(Math.PI * radiusFeet * radiusFeet);
+
+      const plantingEventPayload = {
+        plant_id: plant.id,
+        garden_bed_id: null,  // Property-level (not in a bed)
+        position_x: x,
+        position_y: y,
+        direct_seed_date: today,
+        expected_harvest_date: expectedHarvestDate,
+        space_required: spaceRequired,
+        variety: plant.name,  // Use plant name as variety
+        quantity: 1,
+        notes: `Tree placed on property at (${x}, ${y})`
+      };
+
+      const response = await apiPost('/api/planting-events', plantingEventPayload);
+
+      if (!response.ok) {
+        console.error('Failed to create PlantingEvent for tree - tree is still placed');
+        // Don't throw - tree placement succeeded, event creation is secondary
+      }
+    } catch (error) {
+      console.error('Error creating PlantingEvent for tree:', error);
+      // Don't throw - tree placement succeeded, event creation is secondary
     }
   };
 
@@ -565,19 +840,22 @@ const PropertyDesigner: React.FC = () => {
 
     const { structure, startX, startY, isDragging } = draggingPlacedStructure;
 
-    // Clear dragging state and validation
-    setDraggingPlacedStructure(null);
+    // Save validation result but don't clear drag state yet
     const currentValidation = dragValidation;
     setDragValidation(null);
 
-    // If we never passed the drag threshold, this was just a click - do nothing
-    if (!isDragging) return;
+    // If we never passed the drag threshold, this was just a click
+    if (!isDragging) {
+      setDraggingPlacedStructure(null);
+      return;
+    }
 
     // Check if validation failed
     if (currentValidation && !currentValidation.isValid) {
       showError(`Cannot move structure: ${currentValidation.conflicts.join('; ')}`);
-      loadData(); // Reload to reset position
-      return;
+      // Clear drag state - automatically resets visual to original position
+      setDraggingPlacedStructure(null);
+      return; // No loadData() needed - never hit backend
     }
 
     const newX = structure.positionX;
@@ -586,18 +864,14 @@ const PropertyDesigner: React.FC = () => {
     // Only update if position changed
     if (newX !== startX || newY !== startY) {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/placed-structures/${structure.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            property_id: selectedProperty?.id,
-            structure_id: structure.structureId,
-            name: structure.name,
-            position: { x: newX, y: newY },
-            rotation: structure.rotation,
-            notes: structure.notes,
-            cost: structure.cost,
-          }),
+        const response = await apiPut(`/api/placed-structures/${structure.id}`, {
+          property_id: selectedProperty?.id,
+          structure_id: structure.structureId,
+          name: structure.name,
+          position: { x: newX, y: newY },
+          rotation: structure.rotation,
+          notes: structure.notes,
+          cost: structure.cost,
         });
 
         if (!response.ok) {
@@ -606,19 +880,24 @@ const PropertyDesigner: React.FC = () => {
         }
 
         showSuccess('Structure moved successfully!');
-        loadData();
+        setDraggingPlacedStructure(null);
+        loadData(); // Sync with backend after successful update
       } catch (error) {
         showError(error instanceof Error ? error.message : 'Failed to move structure');
-        loadData(); // Reload to reset position
+        setDraggingPlacedStructure(null);
+        loadData(); // Sync with backend (state may be inconsistent after error)
       }
+    } else {
+      // No position change - just clear drag state
+      setDraggingPlacedStructure(null);
     }
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const dragData = event.active.data.current;
     setDraggedStructure(null);
 
     if (event.over?.id === 'property-map' && selectedProperty) {
-      const structure = event.active.data.current?.structure as Structure;
       const mapElement = document.getElementById('property-map-svg');
 
       if (!mapElement) {
@@ -626,45 +905,63 @@ const PropertyDesigner: React.FC = () => {
         return;
       }
 
+      // Get bounding rect at drop time (accounts for current scroll position)
       const rect = mapElement.getBoundingClientRect();
       const scale = 10; // pixels per foot
 
-      // Get the final drop position from tracked cursor or calculate from delta
-      let clientX, clientY;
-      if (dragCursorPosition) {
-        clientX = dragCursorPosition.x;
-        clientY = dragCursorPosition.y;
-      } else {
-        // Fallback: use activator + delta
-        const activeEvent = event.activatorEvent as PointerEvent;
-        clientX = activeEvent.clientX + (event.delta?.x || 0);
-        clientY = activeEvent.clientY + (event.delta?.y || 0);
-      }
+      // Calculate drop position using activator event + delta (more reliable than tracked cursor)
+      const activeEvent = event.activatorEvent as PointerEvent;
+      const clientX = activeEvent.clientX + (event.delta?.x || 0);
+      const clientY = activeEvent.clientY + (event.delta?.y || 0);
 
       // Convert mouse position to property coordinates with snap-to-grid
       const gridSpacing = 1; // Snap to 1ft grid for precision
       const rawX = (clientX - rect.left) / scale;
       const rawY = (clientY - rect.top) / scale;
-      const x = Math.round(rawX / gridSpacing) * gridSpacing;
-      const y = Math.round(rawY / gridSpacing) * gridSpacing;
+
+      // Clamp to valid range before rounding
+      const clampedX = Math.max(0, Math.min(selectedProperty.width, rawX));
+      const clampedY = Math.max(0, Math.min(selectedProperty.length, rawY));
+
+      const x = Math.round(clampedX / gridSpacing) * gridSpacing;
+      const y = Math.round(clampedY / gridSpacing) * gridSpacing;
 
       // Clear cursor position
       setDragCursorPosition(null);
 
-      // Get structure dimensions for boundary validation
-      const structureWidth = structure?.width || 0;
-      const structureLength = structure?.length || 0;
+      // Check if we're dropping a tree or a structure
+      if (dragData?.type === 'tree') {
+        // Handle tree placement
+        const plant = dragData.plant as Plant;
 
-      // Validate that ENTIRE structure (including dimensions) fits within property bounds
-      if (x < 0 || y < 0 ||
-          (x + structureWidth) > selectedProperty.width ||
-          (y + structureLength) > selectedProperty.length) {
-        showError(`Structure (${structureWidth}' x ${structureLength}') cannot be placed at (${x}', ${y}') - would extend beyond property boundaries (${selectedProperty.width}' x ${selectedProperty.length}')`);
-        return;
+        // Validate tree placement
+        const validation = validateTreePlacement(plant, x, y, selectedProperty);
+        if (!validation.isContained || validation.conflicts.length > 0) {
+          showError(`Cannot place tree: ${validation.conflicts.join('; ')}`);
+          return;
+        }
+
+        // Save tree as PlacedStructure
+        await saveTreeImmediately(plant, x, y);
+      } else {
+        // Handle structure placement (existing logic)
+        const structure = event.active.data.current?.structure as Structure;
+
+        // Get structure dimensions for boundary validation
+        const structureWidth = structure?.width || 0;
+        const structureLength = structure?.length || 0;
+
+        // Validate that ENTIRE structure (including dimensions) fits within property bounds
+        if (x < 0 || y < 0 ||
+            (x + structureWidth) > selectedProperty.width ||
+            (y + structureLength) > selectedProperty.length) {
+          showError(`Structure (${structureWidth}' x ${structureLength}') cannot be placed at (${x}', ${y}') - would extend beyond property boundaries (${selectedProperty.width}' x ${selectedProperty.length}')`);
+          return;
+        }
+
+        // Place structure immediately
+        saveStructureImmediately(structure, x, y);
       }
-
-      // Place structure immediately
-      saveStructureImmediately(structure, x, y);
     }
   };
 
@@ -781,8 +1078,21 @@ const PropertyDesigner: React.FC = () => {
             </g>
           )}
 
-          {/* Placed structures */}
-          {property.placedStructures?.map((placed) => {
+          {/* Placed structures - sorted by category for proper z-index layering */}
+          {[...property.placedStructures || []]
+            .sort((a, b) => {
+              // Render order: ground-covering first (below), then everything else
+              const structA = structures.find(s => s.id === a.structureId);
+              const structB = structures.find(s => s.id === b.structureId);
+
+              const getCategoryOrder = (category: string | undefined) => {
+                if (category === 'ground-covering') return 0;  // Render first (below)
+                return 1;  // All others render after
+              };
+
+              return getCategoryOrder(structA?.category) - getCategoryOrder(structB?.category);
+            })
+            .map((placed) => {
             // Use dragged position if this structure is being dragged
             const isDragging = draggingPlacedStructure?.structure.id === placed.id;
             const displayPlaced = isDragging ? draggingPlacedStructure.structure : placed;
@@ -797,11 +1107,11 @@ const PropertyDesigner: React.FC = () => {
             let strokeColor = "#1e40af"; // Default blue
             let strokeWidth = "2";
             let fillColor = "#3b82f6"; // Default blue
-            let opacity = "0.6";
+            let opacity = "0.3"; // More transparent to show icon better
 
             if (isDragging) {
               strokeWidth = "3";
-              opacity = "0.8";
+              opacity = "0.5"; // More transparent while dragging
 
               if (dragValidation) {
                 if (!dragValidation.isValid) {
@@ -824,34 +1134,141 @@ const PropertyDesigner: React.FC = () => {
               }
             }
 
+            // Render trees as circles, structures as rectangles
+            if (displayPlaced.shapeType === 'circle') {
+              // Tree rendering (circle)
+              const radius = ((displayPlaced.customWidth || 10) / 2) * scale;
+              const centerX = displayPlaced.positionX * scale;
+              const centerY = displayPlaced.positionY * scale;
+
+              // Get tree plant data for icon
+              const treePlant = treePlants.find(p => p.id === displayPlaced.structureId);
+              const treeIcon = treePlant?.icon || '🌳';
+
+              return (
+                <g key={placed.id}>
+                  {/* Tree canopy circle */}
+                  <circle
+                    cx={centerX}
+                    cy={centerY}
+                    r={radius}
+                    fill="#86efac"
+                    fillOpacity={0.3}
+                    stroke="#22c55e"
+                    strokeWidth={2}
+                    onClick={() => handleStructureClick(placed)}
+                    onMouseDown={(e) => handlePlacedStructureMouseDown(e, placed)}
+                    style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+                    className={isDragging ? "" : "hover:fill-opacity-50 transition-opacity cursor-pointer"}
+                  />
+
+                  {/* Tree icon */}
+                  <StructureIconSVG
+                    structureId={displayPlaced.structureId}
+                    structureIcon={treeIcon}
+                    x={centerX - (radius > 50 ? 16 : 12)}
+                    y={centerY - (radius > 50 ? 16 : 12)}
+                    width={radius > 50 ? 32 : 24}
+                    height={radius > 50 ? 32 : 24}
+                  />
+
+                  {/* Tree name label */}
+                  <text
+                    x={centerX}
+                    y={centerY + radius + 15}
+                    textAnchor="middle"
+                    fontSize={12}
+                    fill="#374151"
+                    fontWeight="600"
+                    style={{ pointerEvents: 'none' }}
+                  >
+                    {displayPlaced.name}
+                  </text>
+                </g>
+              );
+            } else {
+              // Structure rendering (rectangle)
+              // Calculate icon size based on structure dimensions (scale with size but cap min/max)
+              const iconSize = Math.min(Math.max(Math.min(width, height) * 0.6, 24), 80);
+
+              return (
+                <g key={placed.id}>
+                  <rect
+                    x={x}
+                    y={y}
+                    width={width}
+                    height={height}
+                    fill={fillColor}
+                    opacity={opacity}
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    rx="4"
+                    onClick={() => handleStructureClick(placed)}
+                    onMouseDown={(e) => handlePlacedStructureMouseDown(e, placed)}
+                    style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+                    className={isDragging ? "" : "hover:opacity-80 transition-opacity"}
+                  />
+                  <StructureIconSVG
+                    structureId={displayPlaced.structureId}
+                    structureIcon={getStructureIcon(displayPlaced.structureId)}
+                    x={x + width / 2 - iconSize / 2}
+                    y={y + height / 2 - iconSize / 2}
+                    width={iconSize}
+                    height={iconSize}
+                  />
+                </g>
+              );
+            }
+          })}
+
+          {/* Trellis structures - rendered as brown dashed lines */}
+          {trellises.map((trellis) => {
+            const startX = trellis.startX * scale;
+            const startY = trellis.startY * scale;
+            const endX = trellis.endX * scale;
+            const endY = trellis.endY * scale;
+
             return (
-              <g key={placed.id}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={width}
-                  height={height}
-                  fill={fillColor}
-                  opacity={opacity}
-                  stroke={strokeColor}
-                  strokeWidth={strokeWidth}
-                  rx="4"
-                  onClick={() => handleStructureClick(placed)}
-                  onMouseDown={(e) => handlePlacedStructureMouseDown(e, placed)}
-                  style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-                  className={isDragging ? "" : "hover:opacity-80 transition-opacity"}
+              <g key={`trellis-${trellis.id}`}>
+                {/* Trellis line */}
+                <line
+                  x1={startX}
+                  y1={startY}
+                  x2={endX}
+                  y2={endY}
+                  stroke="#8B4513"
+                  strokeWidth="3"
+                  strokeDasharray="8,4"
                 />
+                {/* Start point marker */}
+                <circle
+                  cx={startX}
+                  cy={startY}
+                  r="5"
+                  fill="#8B4513"
+                  stroke="#ffffff"
+                  strokeWidth="2"
+                />
+                {/* End point marker */}
+                <circle
+                  cx={endX}
+                  cy={endY}
+                  r="5"
+                  fill="#8B4513"
+                  stroke="#ffffff"
+                  strokeWidth="2"
+                />
+                {/* Label at midpoint */}
                 <text
-                  x={x + width / 2}
-                  y={y + height / 2}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill="white"
-                  fontSize="14"
+                  x={(startX + endX) / 2}
+                  y={(startY + endY) / 2 - 8}
+                  fill="#8B4513"
+                  fontSize="12"
                   fontWeight="bold"
+                  textAnchor="middle"
                   style={{ pointerEvents: 'none' }}
                 >
-                  {getStructureIcon(displayPlaced.structureId)}
+                  {trellis.name} ({trellis.totalLengthFeet}ft)
                 </text>
               </g>
             );
@@ -948,9 +1365,51 @@ const PropertyDesigner: React.FC = () => {
           isDragging ? 'opacity-50 cursor-grabbing' : ''
         }`}
       >
-        <div className="text-2xl mb-1">{icon}</div>
+        <StructureIcon
+          structureId={structure.id}
+          structureIcon={icon}
+          size={40}
+          className="mb-1"
+        />
         <div className="text-xs font-medium text-gray-800">{structure.name}</div>
         <div className="text-xs text-gray-500">{structure.width}' × {structure.length}'</div>
+      </div>
+    );
+  };
+
+  // Component for draggable tree card
+  const DraggableTreeCard: React.FC<{ tree: Plant }> = ({ tree }) => {
+    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+      id: `tree-${tree.id}`,  // Unique ID for trees
+      data: {
+        type: 'tree',
+        plant: tree
+      },
+    });
+
+    const spacingFeet = Math.round(tree.spacing / 12);  // Convert inches to feet
+    const yearsToMaturity = tree.daysToMaturity ? Math.round(tree.daysToMaturity / 365) : 0;
+
+    return (
+      <div
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        className={`bg-green-50 hover:bg-green-100 rounded-lg p-3 text-center cursor-grab transition-all border border-green-200 ${
+          isDragging ? 'opacity-50 cursor-grabbing' : ''
+        }`}
+      >
+        <StructureIcon
+          structureId={tree.id}
+          structureIcon={tree.icon || '🌳'}
+          size={40}
+          className="mb-1"
+        />
+        <div className="text-xs font-medium text-gray-800">{tree.name}</div>
+        <div className="text-xs text-gray-500">{spacingFeet}' spacing</div>
+        {yearsToMaturity > 0 && (
+          <div className="text-xs text-green-600 mt-1">{yearsToMaturity}yr harvest</div>
+        )}
       </div>
     );
   };
@@ -1046,28 +1505,56 @@ const PropertyDesigner: React.FC = () => {
 
       {/* Main Layout: Structures Sidebar (Left) + Designer Canvas (Right) */}
       <div className="flex flex-col md:flex-row gap-6">
-        {/* Left Sidebar: Available Structures */}
-        {structures.length > 0 && (
+        {/* Left Sidebar: Available Structures & Trees */}
+        {(structures.length > 0 || treePlants.length > 0) && (
           <div className="w-full md:w-80 bg-white rounded-lg shadow-md p-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 300px)' }}>
-            <h3 className="text-xl font-bold text-gray-800 mb-4 sticky top-0 bg-white pb-2">Available Structures ({structures.length})</h3>
-            <div className="space-y-4">
-              {structureCategories.map(category => {
-                const categoryStructures = structures.filter(s => s.category === category);
-                return (
-                  <div key={category}>
-                    <h4 className="font-semibold text-gray-700 mb-2 capitalize">{category}</h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      {categoryStructures.map(structure => (
-                        <DraggableStructureCard
-                          key={structure.id}
-                          structure={structure}
-                          icon={getStructureIcon(structure.id)}
-                        />
-                      ))}
-                    </div>
+            <h3 className="text-xl font-bold text-gray-800 mb-4 sticky top-0 bg-white pb-2">Available Items</h3>
+            <div className="space-y-6">
+              {/* Trees & Shrubs Section */}
+              {treePlants.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <span className="text-2xl">🌳</span>
+                    Trees & Shrubs
+                    <span className="text-sm font-normal text-gray-500">({treePlants.length})</span>
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {treePlants.map(tree => (
+                      <DraggableTreeCard key={tree.id} tree={tree} />
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+              )}
+
+              {/* Structures by Category */}
+              {structures.length > 0 && (
+                <>
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <span className="text-2xl">🏗️</span>
+                      Structures
+                      <span className="text-sm font-normal text-gray-500">({structures.length})</span>
+                    </h4>
+                  </div>
+                  {structureCategories.map(category => {
+                    const categoryStructures = structures.filter(s => s.category === category);
+                    return (
+                      <div key={category}>
+                        <h5 className="font-medium text-gray-600 mb-2 capitalize text-sm">{category}</h5>
+                        <div className="grid grid-cols-2 gap-2">
+                          {categoryStructures.map(structure => (
+                            <DraggableStructureCard
+                              key={structure.id}
+                              structure={structure}
+                              icon={getStructureIcon(structure.id)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1126,12 +1613,20 @@ const PropertyDesigner: React.FC = () => {
                     {selectedProperty.slope && <div>⛰️ Slope: {selectedProperty.slope}</div>}
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsStructureModalOpen(true)}
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  Add Structure
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setIsStructureModalOpen(true)}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Add Structure
+                  </button>
+                  <button
+                    onClick={() => setIsTrellisManagerOpen(true)}
+                    className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors"
+                  >
+                    Manage Trellises
+                  </button>
+                </div>
               </div>
 
               {/* Grid Controls */}
@@ -1176,28 +1671,135 @@ const PropertyDesigner: React.FC = () => {
                 />
               </div>
 
+              {/* Tree Nutrition Summary Card */}
+              {treeNutritionData && treeNutritionData.tree_summary.length > 0 && (
+                <div className="mt-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6 border border-green-200">
+                  <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <span>🌳</span>
+                    Tree Yield & Nutrition Estimates
+                  </h4>
+
+                  {treeNutritionLoading ? (
+                    <div className="text-center py-4">
+                      <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Tree Summary */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {treeNutritionData.tree_summary.map((tree) => (
+                          <div key={tree.tree_type} className="bg-white rounded-lg p-4 shadow-sm">
+                            <div className="font-semibold text-gray-800 capitalize">
+                              {tree.tree_type.replace('-', ' ')}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              {tree.count} {tree.count === 1 ? 'tree' : 'trees'}
+                            </div>
+                            <div className="text-sm text-green-700 font-medium mt-2">
+                              → {Math.round(tree.annual_yield_lbs)} lbs/year
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Nutritional Totals */}
+                      <div className="bg-white rounded-lg p-4 shadow-sm">
+                        <div className="font-semibold text-gray-800 mb-3">Total Annual Nutrition:</div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div>
+                            <div className="text-2xl font-bold text-green-600">
+                              {treeNutritionData.totals.calories.toLocaleString()}
+                            </div>
+                            <div className="text-xs text-gray-600">Calories</div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              ≈ {Math.round(treeNutritionData.totals.calories / 2000)} person-days
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-2xl font-bold text-blue-600">
+                              {Math.round(treeNutritionData.totals.protein_g).toLocaleString()}g
+                            </div>
+                            <div className="text-xs text-gray-600">Protein</div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              ≈ {Math.round(treeNutritionData.totals.protein_g / 50)} person-days
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-2xl font-bold text-purple-600">
+                              {Math.round(treeNutritionData.totals.carbs_g).toLocaleString()}g
+                            </div>
+                            <div className="text-xs text-gray-600">Carbs</div>
+                          </div>
+                          <div>
+                            <div className="text-2xl font-bold text-amber-600">
+                              {Math.round(treeNutritionData.totals.fat_g).toLocaleString()}g
+                            </div>
+                            <div className="text-xs text-gray-600">Fat</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Breakdown by Tree Type */}
+                      {Object.keys(treeNutritionData.by_tree_type).length > 0 && (
+                        <details className="bg-white rounded-lg p-4 shadow-sm">
+                          <summary className="font-semibold text-gray-800 cursor-pointer hover:text-green-600">
+                            View Breakdown by Tree Type →
+                          </summary>
+                          <div className="mt-4 space-y-3">
+                            {Object.entries(treeNutritionData.by_tree_type).map(([treeType, nutrition]) => (
+                              <div key={treeType} className="border-l-4 border-green-500 pl-4">
+                                <div className="font-medium text-gray-800 capitalize">{treeType.replace('-', ' ')}</div>
+                                <div className="text-sm text-gray-600 mt-1">
+                                  {nutrition.calories.toLocaleString()} cal • {Math.round(nutrition.protein_g)}g protein • {Math.round(nutrition.carbs_g)}g carbs • {Math.round(nutrition.fat_g)}g fat
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+
+                      <div className="text-xs text-gray-500 italic mt-2">
+                        * Estimates based on mature trees under average conditions. Actual yields vary by variety, age, climate, soil, and management practices.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Structures List */}
               {selectedProperty.placedStructures && selectedProperty.placedStructures.length > 0 && (
                 <div className="mt-8 pt-6 border-t border-gray-200">
                   <h4 className="text-lg font-semibold text-gray-800 mb-3">Structures on Property:</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {selectedProperty.placedStructures.map((placed) => (
-                      <div key={placed.id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-4">
-                        <div className="text-3xl">{getStructureIcon(placed.structureId)}</div>
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-800">
-                            {placed.name || getStructureName(placed.structureId)}
+                    {selectedProperty.placedStructures.map((placed) => {
+                      const treeYield = getTreeYieldInfo(placed.structureId);
+                      return (
+                        <div key={placed.id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-4">
+                          <StructureIcon
+                            structureId={placed.structureId}
+                            structureIcon={getStructureIcon(placed.structureId)}
+                            size={48}
+                          />
+                          <div className="flex-1">
+                            <div className="font-medium text-gray-800">
+                              {placed.name || getStructureName(placed.structureId)}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Position: ({placed.positionX}', {placed.positionY}')
+                              {placed.cost && ` • Cost: $${placed.cost.toLocaleString()}`}
+                            </div>
+                            {treeYield.isTree && treeYield.yieldInfo && (
+                              <div className="text-xs text-green-700 font-medium mt-1">
+                                🍎 ~{Math.round(treeYield.yieldInfo.annual_yield_lbs)} lbs/year
+                              </div>
+                            )}
+                            {placed.notes && (
+                              <div className="text-xs text-gray-500 mt-1">{placed.notes}</div>
+                            )}
                           </div>
-                          <div className="text-xs text-gray-600">
-                            Position: ({placed.positionX}', {placed.positionY}')
-                            {placed.cost && ` • Cost: $${placed.cost.toLocaleString()}`}
-                          </div>
-                          {placed.notes && (
-                            <div className="text-xs text-gray-500 mt-1">{placed.notes}</div>
-                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1218,9 +1820,10 @@ const PropertyDesigner: React.FC = () => {
         <h3 className="text-lg font-semibold text-yellow-900 mb-2">Property Design Features</h3>
         <ul className="space-y-2 text-sm text-yellow-800">
           <li>✓ 35+ homestead structures including coops, greenhouses, sheds, orchards, and more</li>
+          <li>✓ 33 fruit and nut trees with automatic timeline integration</li>
           <li>✓ Master layout view of your entire property at scale</li>
-          <li>✓ Track structure costs and build out your homestead incrementally</li>
-          <li>✓ Consider sun exposure, water access, and slopes in your design</li>
+          <li>✓ Drag-and-drop trees to visualize canopy coverage and spacing</li>
+          <li>✓ Track multi-year tree maturity and harvest dates</li>
           <li>✓ Plan zones (annual garden, perennial orchard, livestock, storage, etc.)</li>
           <li>✓ Export property maps for contractors and planning permits</li>
         </ul>
@@ -1244,13 +1847,11 @@ const PropertyDesigner: React.FC = () => {
           isOpen={isStructureModalOpen}
           onClose={() => {
             setIsStructureModalOpen(false);
-            setPrefilledPosition(null);
             setEditingStructure(null);
           }}
           onSuccess={() => {
             loadData(); // Refresh property data including structures
             setIsStructureModalOpen(false);
-            setPrefilledPosition(null);
             setEditingStructure(null);
           }}
           onDelete={(id: number) => {
@@ -1272,7 +1873,19 @@ const PropertyDesigner: React.FC = () => {
             cost: editingStructure.cost
           } : null}
           availableStructures={structures}
-          prefilledPosition={prefilledPosition}
+        />
+      )}
+
+      {/* Trellis Manager Modal */}
+      {selectedProperty && (
+        <TrellisManager
+          isOpen={isTrellisManagerOpen}
+          onClose={() => setIsTrellisManagerOpen(false)}
+          onSuccess={() => {
+            loadTrellises(); // Refresh trellis structures
+            setIsTrellisManagerOpen(false);
+          }}
+          propertyId={selectedProperty.id}
         />
       )}
 
@@ -1291,11 +1904,30 @@ const PropertyDesigner: React.FC = () => {
     {/* Drag Overlay for visual feedback */}
     <DragOverlay>
       {draggedStructure && (
-        <div className="bg-blue-500 opacity-80 rounded-lg p-4 text-white text-center shadow-lg">
-          <div className="text-3xl mb-1">{getStructureIcon(draggedStructure.id)}</div>
-          <div className="text-sm font-medium">{draggedStructure.name}</div>
-          <div className="text-xs">{draggedStructure.width}' × {draggedStructure.length}'</div>
-        </div>
+        draggedStructure.shapeType === 'circle' ? (
+          // Tree overlay (circle)
+          <div className="bg-green-500 opacity-80 rounded-full p-8 text-white text-center shadow-lg flex flex-col items-center justify-center" style={{ width: '100px', height: '100px' }}>
+            <StructureIcon
+              structureId={draggedStructure.id}
+              structureIcon={draggedStructure.icon || '🌳'}
+              size={48}
+            />
+            <div className="text-xs font-medium mt-1">{draggedStructure.name}</div>
+            <div className="text-xs">{Math.round(draggedStructure.width)}'</div>
+          </div>
+        ) : (
+          // Structure overlay (rectangle)
+          <div className="bg-blue-500 opacity-80 rounded-lg p-4 text-white text-center shadow-lg">
+            <StructureIcon
+              structureId={draggedStructure.id}
+              structureIcon={getStructureIcon(draggedStructure.id)}
+              size={48}
+              className="mb-1"
+            />
+            <div className="text-sm font-medium">{draggedStructure.name}</div>
+            <div className="text-xs">{draggedStructure.width}' × {draggedStructure.length}'</div>
+          </div>
+        )
       )}
     </DragOverlay>
   </DndContext>

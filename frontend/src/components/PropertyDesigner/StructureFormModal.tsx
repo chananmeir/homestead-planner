@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Button, FormInput, FormNumber, FormSelect, FormTextarea, useToast, ConfirmDialog } from '../common';
-import { API_BASE_URL } from '../../config';
+import { apiPost, apiPut, apiDelete } from '../../utils/api';
 
 interface Structure {
   id: string;
@@ -66,10 +66,14 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedStructure, setSelectedStructure] = useState<Structure | null>(null);
+  const prefilledApplied = useRef(false);
 
   // Handle modal open/close and mode changes
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      prefilledApplied.current = false; // Reset when modal closes
+      return;
+    }
 
     setErrors({});
 
@@ -96,7 +100,7 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
 
   // Handle pre-filled position from drag-drop (separate effect to avoid re-renders)
   useEffect(() => {
-    if (isOpen && mode !== 'edit' && prefilledPosition) {
+    if (isOpen && mode !== 'edit' && prefilledPosition && !prefilledApplied.current) {
       const structure = availableStructures.find(s => s.id === prefilledPosition.structureId);
 
       setFormData(prev => ({
@@ -104,10 +108,11 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
         structureId: prefilledPosition.structureId,
         position: { x: prefilledPosition.x, y: prefilledPosition.y },
         name: structure?.name || '',
-        cost: structure?.cost,
+        cost: structure?.cost ?? prev.cost,
       }));
 
       setSelectedStructure(structure || null);
+      prefilledApplied.current = true; // Mark as applied
     }
   }, [isOpen, mode, prefilledPosition, availableStructures]);
 
@@ -140,32 +145,38 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
     setLoading(true);
 
     try {
-      const url = mode === 'edit' && formData.id
-        ? `${API_BASE_URL}/api/placed-structures/${formData.id}`
-        : `${API_BASE_URL}/api/placed-structures`;
+      // Prepare data for backend (POST uses camelCase, PUT uses snake_case)
+      const payload = mode === 'edit' && formData.id
+        ? {
+            // PUT endpoint expects snake_case
+            property_id: formData.propertyId,
+            structure_id: formData.structureId,
+            name: formData.name || null,
+            position_x: formData.position.x,
+            position_y: formData.position.y,
+            rotation: formData.rotation || 0,
+            notes: formData.notes || null,
+            built_date: formData.builtDate || null,
+            cost: formData.cost ?? null,
+          }
+        : {
+            // POST endpoint expects camelCase
+            propertyId: formData.propertyId,
+            structureId: formData.structureId,
+            name: formData.name || null,
+            position: {
+              x: formData.position.x,
+              y: formData.position.y
+            },
+            rotation: formData.rotation || 0,
+            notes: formData.notes || null,
+            builtDate: formData.builtDate || null,
+            cost: formData.cost ?? null,
+          };
 
-      const method = mode === 'edit' ? 'PUT' : 'POST';
-
-      // Prepare data for backend (convert camelCase to snake_case)
-      const payload = {
-        property_id: formData.propertyId,
-        structure_id: formData.structureId,
-        name: formData.name || null,
-        position_x: formData.position.x,
-        position_y: formData.position.y,
-        rotation: formData.rotation || 0,
-        notes: formData.notes || null,
-        built_date: formData.builtDate || null,
-        cost: formData.cost || null,
-      };
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = mode === 'edit' && formData.id
+        ? await apiPut(`/api/placed-structures/${formData.id}`, payload)
+        : await apiPost('/api/placed-structures', payload);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -189,9 +200,7 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/placed-structures/${formData.id}`, {
-        method: 'DELETE',
-      });
+      const response = await apiDelete(`/api/placed-structures/${formData.id}`);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -239,7 +248,7 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
         ...prev,
         structureId,
         name: structure.name,
-        cost: structure.cost || prev.cost,
+        cost: structure.cost ?? prev.cost,
       }));
     } else {
       setFormData(prev => ({ ...prev, structureId }));
@@ -300,7 +309,7 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
                 <p className="text-sm text-gray-600 mt-1">{selectedStructure.description}</p>
                 <div className="mt-2 flex gap-4 text-xs text-gray-500">
                   <span>Size: {selectedStructure.width}' × {selectedStructure.length}'</span>
-                  {selectedStructure.cost && <span>Est. Cost: ${selectedStructure.cost}</span>}
+                  {selectedStructure.cost !== undefined && <span>Est. Cost: ${selectedStructure.cost}</span>}
                 </div>
               </div>
             </div>
@@ -357,7 +366,7 @@ export const StructureFormModal: React.FC<StructureFormModalProps> = ({
         {/* Cost */}
         <FormNumber
           label="Actual Cost (Optional)"
-          value={formData.cost || ''}
+          value={formData.cost ?? ''}
           onChange={(e) => {
             const value = parseFloat(e.target.value);
             handleChange('cost', isNaN(value) ? 0 : value);

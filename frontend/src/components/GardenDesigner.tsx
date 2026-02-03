@@ -997,7 +997,7 @@ const GardenDesigner: React.FC = () => {
           `${plant.name} needs ${plant.spacing}" spacing from other plants.\n\n` +
           `Conflicting plants:\n${conflictDetails}`;
 
-        showError(errorMessage, null); // null = stays until user clicks to close
+        showError(errorMessage);
         setActivePlant(null);
         return;
       }
@@ -1284,7 +1284,7 @@ const GardenDesigner: React.FC = () => {
         <div className="flex gap-6 h-[calc(100vh-200px)]">
           {/* Plant Palette Sidebar */}
           <div className="flex-shrink-0">
-            <PlantPalette plants={plants} plantingDate={dateFilter.date} />
+            <PlantPalette plants={plants} />
           </div>
 
           {/* Main Designer Area */}

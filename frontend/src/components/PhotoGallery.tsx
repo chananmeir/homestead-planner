@@ -40,7 +40,7 @@ const PhotoGallery: React.FC = () => {
   const loadPhotos = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/photos`);
+      const response = await fetch(`${API_BASE_URL}/api/photos`, { credentials: 'include' });
       const data = await response.json();
       setPhotos(data);
     } catch (error) {

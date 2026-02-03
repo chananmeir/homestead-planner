@@ -5,7 +5,8 @@ import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { format, addDays } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';
 import { calculateSuggestedInterval, formatSuggestion, getSuggestedCount } from '../utils/successionCalculations';
-import { API_BASE_URL } from '../../../config';
+import { apiGet } from '../../../utils/api';
+import PlantIcon from '../../common/PlantIcon';
 
 interface SuccessionWizardProps {
   isOpen: boolean;
@@ -42,35 +43,30 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
   const [interval, setInterval] = useState(14);
   const [count, setCount] = useState(5);
   const [startDate, setStartDate] = useState<Date>(initialDate || new Date());
-  const [selectedBedId, setSelectedBedId] = useState<string>('');
+  const [selectedBedId, setSelectedBedId] = useState<number | ''>('');
   const [variety, setVariety] = useState('');
 
   // Step 3: Space Check
   const [previewEvents, setPreviewEvents] = useState<SuccessionEvent[]>([]);
-  const [checkingConflicts, setCheckingConflicts] = useState(false);
   const [selectedPositions, setSelectedPositions] = useState<Array<{ x: number; y: number } | null>>([]);
 
   // Step 4: Review (uses previewEvents)
 
   // Data loading
   const [gardenBeds, setGardenBeds] = useState<GardenBed[]>([]);
-  const [loadingBeds, setLoadingBeds] = useState(true);
   const [availableVarieties, setAvailableVarieties] = useState<string[]>([]);
 
   // Load garden beds
   useEffect(() => {
     const fetchBeds = async () => {
       try {
-        setLoadingBeds(true);
-        const response = await fetch(`${API_BASE_URL}/api/garden-beds`);
+        const response = await apiGet('/api/garden-beds');
         if (response.ok) {
           const data = await response.json();
           setGardenBeds(data);
         }
       } catch (err) {
         console.error('Failed to load garden beds:', err);
-      } finally {
-        setLoadingBeds(false);
       }
     };
     fetchBeds();
@@ -85,7 +81,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/api/seeds/varieties/${selectedPlant.id}`);
+        const response = await apiGet(`/api/seeds/varieties/${selectedPlant.id}`);
         if (response.ok) {
           const varieties = await response.json();
           setAvailableVarieties(varieties);
@@ -130,7 +126,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
         tempId: `temp-${i}`,
         plantId: selectedPlant.id,
         variety: variety || undefined,
-        gardenBedId: selectedBedId || '', // Empty string if no bed selected
+        gardenBedId: selectedBedId || undefined, // undefined if no bed selected
         seedStartDate: dates.seedStartDate,
         transplantDate: dates.transplantDate,
         directSeedDate: undefined, // Not returned by calculatePlantingDates
@@ -145,65 +141,6 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
 
     setPreviewEvents(events);
     setSelectedPositions(new Array(count).fill(null));
-  };
-
-  // Check conflicts for all events
-  const checkConflictsForAllEvents = async () => {
-    if (!selectedBedId || previewEvents.length === 0) return;
-
-    setCheckingConflicts(true);
-
-    const bed = gardenBeds.find(b => b.id === selectedBedId);
-    if (!bed) {
-      setCheckingConflicts(false);
-      return;
-    }
-
-    // Check conflicts for each event
-    const updatedEvents = await Promise.all(
-      previewEvents.map(async (event, index) => {
-        const position = selectedPositions[index];
-        if (!position) {
-          return event; // No position, no conflict check
-        }
-
-        try {
-          const response = await fetch(`${API_BASE_URL}/api/planting-events/check-conflict`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              gardenBedId: selectedBedId,
-              positionX: position.x,
-              positionY: position.y,
-              startDate: event.directSeedDate || event.transplantDate,
-              endDate: event.expectedHarvestDate,
-              plantId: event.plantId,
-              transplantDate: event.transplantDate?.toISOString(),
-              directSeedDate: event.directSeedDate?.toISOString(),
-              seedStartDate: event.seedStartDate?.toISOString(),
-            }),
-          });
-
-          if (response.ok) {
-            const conflictCheck: ConflictCheck = await response.json();
-            return {
-              ...event,
-              conflictCheck,
-              positionX: position.x,
-              positionY: position.y,
-              hasPosition: true,
-            };
-          }
-        } catch (err) {
-          console.error('Conflict check failed:', err);
-        }
-
-        return event;
-      })
-    );
-
-    setPreviewEvents(updatedEvents);
-    setCheckingConflicts(false);
   };
 
   // Step navigation
@@ -233,7 +170,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
       const { tempId, conflictCheck, hasPosition, ...rest } = event;
       return {
         ...rest,
-        id: '', // Will be assigned by backend
+        id: 0, // Will be assigned by backend
       } as PlantingCalendarType;
     });
 
@@ -256,8 +193,6 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
   };
 
   if (!isOpen) return null;
-
-  const selectedBed = gardenBeds.find(b => b.id === selectedBedId);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -356,7 +291,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                 {selectedPlant && (
                   <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
                     <div className="flex items-start gap-4">
-                      <div className="text-4xl">{selectedPlant.icon}</div>
+                      <PlantIcon plantId={selectedPlant.id} plantIcon={selectedPlant.icon || '🌱'} size={56} />
                       <div className="flex-1">
                         <h4 className="text-lg font-medium text-gray-900">{selectedPlant.name}</h4>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
@@ -494,7 +429,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                   </label>
                   <select
                     value={selectedBedId}
-                    onChange={(e) => setSelectedBedId(e.target.value)}
+                    onChange={(e) => setSelectedBedId(e.target.value ? Number(e.target.value) : '')}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   >
                     <option value="">No bed selected (timeline only)</option>
@@ -583,15 +518,6 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                       Assign grid positions for each planting in your succession series. This enables conflict detection and space planning.
                     </p>
 
-                    {checkingConflicts && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-                        <div className="flex items-center gap-2">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600"></div>
-                          <p className="text-sm text-yellow-800">Checking for conflicts...</p>
-                        </div>
-                      </div>
-                    )}
-
                     <div className="space-y-4">
                       {previewEvents.map((event, idx) => {
                         const bed = gardenBeds.find(b => b.id === selectedBedId);
@@ -608,7 +534,10 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                                   Planting #{idx + 1}
                                 </h5>
                                 <p className="text-sm text-gray-600">
-                                  {format(event.seedStartDate || event.transplantDate || event.expectedHarvestDate, 'MMM d, yyyy')}
+                                  {(event.seedStartDate || event.transplantDate || event.expectedHarvestDate)
+                                    ? format(event.seedStartDate || event.transplantDate || event.expectedHarvestDate!, 'MMM d, yyyy')
+                                    : 'No date'
+                                  }
                                 </p>
                               </div>
                               {position ? (
@@ -800,7 +729,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="text-lg">{selectedPlant.icon}</span>
+                                <PlantIcon plantId={selectedPlant.id} plantIcon={selectedPlant.icon || '🌱'} size={24} />
                                 <h5 className="font-medium text-gray-900">
                                   Planting #{idx + 1}: {selectedPlant.name}
                                   {variety && <span className="text-gray-600"> ({variety})</span>}
@@ -819,10 +748,12 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                                     {format(event.transplantDate, 'MMM d, yyyy')}
                                   </p>
                                 )}
-                                <p>
-                                  <span className="font-medium">Expected Harvest:</span>{' '}
-                                  {format(event.expectedHarvestDate, 'MMM d, yyyy')}
-                                </p>
+                                {event.expectedHarvestDate && (
+                                  <p>
+                                    <span className="font-medium">Expected Harvest:</span>{' '}
+                                    {format(event.expectedHarvestDate, 'MMM d, yyyy')}
+                                  </p>
+                                )}
                                 {position && (
                                   <p>
                                     <span className="font-medium">Position:</span>{' '}

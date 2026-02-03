@@ -58,7 +58,7 @@ export const EditHarvestModal: React.FC<EditHarvestModalProps> = ({
 
   const fetchPlants = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/plants`);
+      const response = await fetch(`${API_BASE_URL}/api/plants`, { credentials: 'include' });
       const data = await response.json();
       setPlants(data);
     } catch (error) {
@@ -111,6 +111,7 @@ export const EditHarvestModal: React.FC<EditHarvestModalProps> = ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -175,7 +176,7 @@ export const EditHarvestModal: React.FC<EditHarvestModalProps> = ({
             onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
             error={errors.quantity}
             required
-            min={0}
+            min={0.1}
             step={0.1}
           />
 

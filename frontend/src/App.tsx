@@ -3,18 +3,16 @@ import './App.css';
 import GardenPlanner from './components/GardenPlanner';
 import PlantingCalendar from './components/PlantingCalendar';
 import ErrorBoundary from './components/PlantingCalendar/ErrorBoundary';
-import WinterGarden from './components/WinterGarden';
 import WeatherAlerts from './components/WeatherAlerts';
 import CompostTracker from './components/CompostTracker';
 import GardenDesigner from './components/GardenDesigner';
 import PropertyDesigner from './components/PropertyDesigner';
 import Livestock from './components/Livestock';
 import HarvestTracker from './components/HarvestTracker';
-import SeedInventory from './components/SeedInventory';
 import PhotoGallery from './components/PhotoGallery';
 import { ToastProvider } from './components/common';
 
-type Tab = 'garden' | 'designer' | 'property' | 'livestock' | 'calendar' | 'winter' | 'weather' | 'compost' | 'harvests' | 'seeds' | 'photos';
+type Tab = 'garden' | 'designer' | 'property' | 'livestock' | 'calendar' | 'weather' | 'compost' | 'harvests' | 'photos';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('garden');
@@ -25,11 +23,9 @@ function App() {
     { id: 'property' as Tab, name: 'Property Designer', icon: '🗺️' },
     { id: 'livestock' as Tab, name: 'Livestock', icon: '🐔' },
     { id: 'calendar' as Tab, name: 'Planting Calendar', icon: '📅' },
-    { id: 'winter' as Tab, name: 'Winter Garden', icon: '❄️' },
     { id: 'weather' as Tab, name: 'Weather', icon: '🌤️' },
     { id: 'compost' as Tab, name: 'Compost', icon: '♻️' },
     { id: 'harvests' as Tab, name: 'Harvests', icon: '🧺' },
-    { id: 'seeds' as Tab, name: 'Seeds', icon: '🌾' },
     { id: 'photos' as Tab, name: 'Photos', icon: '📷' },
   ];
 
@@ -79,11 +75,9 @@ function App() {
             <PlantingCalendar />
           </ErrorBoundary>
         )}
-        {activeTab === 'winter' && <WinterGarden />}
         {activeTab === 'weather' && <WeatherAlerts />}
         {activeTab === 'compost' && <CompostTracker />}
         {activeTab === 'harvests' && <HarvestTracker />}
-        {activeTab === 'seeds' && <SeedInventory />}
         {activeTab === 'photos' && <PhotoGallery />}
       </main>
 

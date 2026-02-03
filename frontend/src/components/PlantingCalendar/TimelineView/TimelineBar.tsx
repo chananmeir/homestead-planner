@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
+import { format, addWeeks } from 'date-fns';
 import { AlertTriangle } from 'lucide-react';
 import { PlantingCalendar, Plant, GardenBed } from '../../../types';
 import {
   calculateBarPosition,
   calculateBarWidth,
   getCategoryColor,
-  getPrimaryPlantingDate,
   calculateDuration,
-  formatDateRange,
 } from './utils';
 import { ConflictDetailsModal } from './ConflictDetailsModal';
 
@@ -17,6 +16,7 @@ interface TimelineBarProps {
   timelineStart: Date;
   monthWidth: number;
   beds: GardenBed[];
+  displayOptions: { showIndoor: boolean; showOutdoor: boolean };
   onClick: (event: PlantingCalendar) => void;
 }
 
@@ -26,23 +26,64 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
   timelineStart,
   monthWidth,
   beds,
+  displayOptions,
   onClick,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const [showConflictModal, setShowConflictModal] = useState(false);
 
-  const plantDate = getPrimaryPlantingDate(event);
-  if (!plantDate || !event.expectedHarvestDate) {
-    return null; // Can't render without dates
+  // Calculate seed start date with fallback
+  let seedStartDate = event.seedStartDate;
+  if (!seedStartDate && event.transplantDate && plant?.transplantWeeksBefore) {
+    seedStartDate = addWeeks(event.transplantDate, -plant.transplantWeeksBefore);
   }
 
-  const duration = calculateDuration(plantDate, event.expectedHarvestDate);
-  const barLeft = calculateBarPosition(plantDate, timelineStart, monthWidth);
-  const barWidth = calculateBarWidth(duration, monthWidth);
+  // Determine if event has indoor or outdoor phases
+  const hasIndoorPhase = !!(seedStartDate && event.transplantDate);
+  const hasOutdoorPhase = !!(event.transplantDate || event.directSeedDate);
+  // const isDirectSeed = !!(event.directSeedDate && !event.transplantDate);
+
+  // Early return if event should be hidden based on toggles
+  if (!displayOptions.showIndoor && !displayOptions.showOutdoor) {
+    return null; // Hide if both phases are off
+  }
+
+  // Hide if only indoor is on but event has no indoor phase (direct seed)
+  if (displayOptions.showIndoor && !displayOptions.showOutdoor && !hasIndoorPhase) {
+    return null;
+  }
+
+  // Ensure we have required data
+  if (!event.expectedHarvestDate) {
+    return null; // Can't render without harvest date
+  }
+
   const colors = getCategoryColor(plant?.category || 'vegetable');
 
-  // Minimum width for visibility
-  const displayWidth = Math.max(barWidth, 20);
+  // Determine which segments to show
+  // If outdoor is on, show full lifecycle (indoor + outdoor)
+  // If only indoor is on, show just indoor segment
+  const showIndoorSegment = (displayOptions.showOutdoor || displayOptions.showIndoor) && hasIndoorPhase;
+  const showOutdoorSegment = displayOptions.showOutdoor && hasOutdoorPhase;
+
+  // Calculate indoor segment (seedStartDate → transplantDate)
+  let indoorLeft = 0, indoorWidth = 0;
+  if (showIndoorSegment && seedStartDate && event.transplantDate) {
+    const indoorDuration = calculateDuration(seedStartDate, event.transplantDate);
+    indoorLeft = calculateBarPosition(seedStartDate, timelineStart, monthWidth);
+    indoorWidth = calculateBarWidth(indoorDuration, monthWidth);
+  }
+
+  // Calculate outdoor segment (transplantDate/directSeedDate → expectedHarvestDate)
+  let outdoorLeft = 0, outdoorWidth = 0;
+  if (showOutdoorSegment) {
+    const outdoorStartDate = event.transplantDate || event.directSeedDate;
+    if (outdoorStartDate && event.expectedHarvestDate) {
+      const outdoorDuration = calculateDuration(outdoorStartDate, event.expectedHarvestDate);
+      outdoorLeft = calculateBarPosition(outdoorStartDate, timelineStart, monthWidth);
+      outdoorWidth = calculateBarWidth(outdoorDuration, monthWidth);
+    }
+  }
 
   // Look up bed name and bed object
   const gardenBed = beds.find(b => b.id === event.gardenBedId);
@@ -78,33 +119,53 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
 
       {/* Timeline area */}
       <div className="relative flex-1 h-12">
-        {/* The bar */}
-        <div
-          className={`absolute top-2 h-8 rounded cursor-pointer border-2 ${colors.bg} ${colors.border}
-                      opacity-80 hover:opacity-100 transition-opacity flex items-center justify-center
-                      ${event.completed ? 'opacity-50' : ''}
-                      ${event.conflictOverride ? 'border-red-500 ring-1 ring-red-400' : ''}`}
-          style={{
-            left: `${barLeft}px`,
-            width: `${displayWidth}px`,
-          }}
-          onClick={handleBarClick}
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
-        >
-          {/* Conflict warning icon */}
-          {event.conflictOverride && (
-            <div className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5">
-              <AlertTriangle className="w-3 h-3 text-white" />
-            </div>
-          )}
+        {/* Indoor Segment - Lighter shade */}
+        {showIndoorSegment && indoorWidth > 0 && (
+          <div
+            className={`absolute top-2 h-8 rounded-l cursor-pointer border-2 ${colors.bg} ${colors.border}
+                        opacity-40 hover:opacity-60 transition-opacity flex items-center justify-center
+                        ${event.completed ? 'opacity-30' : ''}`}
+            style={{
+              left: `${indoorLeft}px`,
+              width: `${Math.max(indoorWidth, 10)}px`,
+            }}
+            onClick={handleBarClick}
+            title="Indoor seed starting phase"
+          >
+            {indoorWidth > 30 && (
+              <span className="text-xs font-medium text-gray-700 px-1">🌱 Indoor</span>
+            )}
+          </div>
+        )}
 
-          {/* Label inside bar if wide enough */}
-          {barWidth > 60 && (
-            <span className="text-xs font-medium text-white px-1 truncate">
-              {plant?.icon || '🌱'} {plant?.name}
-            </span>
-          )}
+        {/* Outdoor Segment - Full color */}
+        {showOutdoorSegment && outdoorWidth > 0 && (
+          <div
+            className={`absolute top-2 h-8 ${showIndoorSegment ? 'rounded-r' : 'rounded'} cursor-pointer border-2 ${colors.bg} ${colors.border}
+                        opacity-80 hover:opacity-100 transition-opacity flex items-center justify-center
+                        ${event.completed ? 'opacity-50' : ''}
+                        ${event.conflictOverride ? 'border-red-500 ring-1 ring-red-400' : ''}`}
+            style={{
+              left: `${outdoorLeft}px`,
+              width: `${Math.max(outdoorWidth, 20)}px`,
+            }}
+            onClick={handleBarClick}
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+          >
+            {/* Conflict warning icon */}
+            {event.conflictOverride && (
+              <div className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5">
+                <AlertTriangle className="w-3 h-3 text-white" />
+              </div>
+            )}
+
+            {/* Label inside bar if wide enough */}
+            {outdoorWidth > 60 && (
+              <span className="text-xs font-medium text-white px-1 truncate">
+                {plant?.icon || '🌱'} {plant?.name}
+              </span>
+            )}
 
           {/* Tooltip */}
           {showTooltip && (
@@ -129,10 +190,25 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
                 </div>
               )}
 
-              <div className="text-gray-300">
-                {formatDateRange(plantDate, event.expectedHarvestDate)}
+              {/* Phase breakdown */}
+              {seedStartDate && event.transplantDate && (
+                <div className="border-t border-gray-700 mt-2 pt-2">
+                  <div className="text-blue-300">
+                    🌱 Indoor: {format(seedStartDate, 'MMM d')} - {format(event.transplantDate, 'MMM d')}
+                    <span className="text-gray-400 ml-1">
+                      ({calculateDuration(seedStartDate, event.transplantDate)} days)
+                    </span>
+                    {!event.seedStartDate && <span className="text-xs text-gray-500 ml-1">(calc)</span>}
+                  </div>
+                </div>
+              )}
+
+              <div className={event.seedStartDate ? 'text-green-300' : 'text-gray-300'}>
+                🌿 Outdoor: {format(event.transplantDate || event.directSeedDate!, 'MMM d')} - {format(event.expectedHarvestDate, 'MMM d')}
+                <span className="text-gray-400 ml-1">
+                  ({calculateDuration(event.transplantDate || event.directSeedDate!, event.expectedHarvestDate)} days)
+                </span>
               </div>
-              <div className="text-gray-300">{duration} days to harvest</div>
               {event.successionGroupId && (
                 <div className="text-purple-300 mt-1">
                   🔄 Succession planting
@@ -151,13 +227,14 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
               )}
             </div>
           )}
-        </div>
+          </div>
+        )}
 
         {/* Succession group indicator */}
         {event.successionGroupId && (
           <div
             className="absolute top-0 w-1 h-1 bg-purple-500 rounded-full"
-            style={{ left: `${barLeft}px` }}
+            style={{ left: `${showIndoorSegment ? indoorLeft : outdoorLeft}px` }}
           />
         )}
       </div>

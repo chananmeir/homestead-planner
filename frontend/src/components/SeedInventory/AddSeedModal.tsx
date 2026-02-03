@@ -14,6 +14,12 @@ interface AddSeedModalProps {
   onSuccess: () => void;
 }
 
+interface CatalogSeed {
+  id: number;
+  variety: string;
+  brand?: string;
+}
+
 export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { showSuccess, showError } = useToast();
   const [loading, setLoading] = useState(false);
@@ -32,9 +38,14 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Catalog dropdown state
+  const [catalogSeeds, setCatalogSeeds] = useState<CatalogSeed[]>([]);
+  const [useCustomVariety, setUseCustomVariety] = useState(false);
+  const [selectedCatalogSeedId, setSelectedCatalogSeedId] = useState<string>('');
+
   const fetchPlants = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/plants`);
+      const response = await fetch(`${API_BASE_URL}/api/plants`, { credentials: 'include' });
       const data = await response.json();
       setPlants(data);
     } catch (error) {
@@ -42,6 +53,19 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
       showError('Failed to load plant list');
     }
   }, [showError]);
+
+  const fetchCatalogSeeds = useCallback(async (plantId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/seed-catalog`, { credentials: 'include' });
+      const data = await response.json();
+      // Filter to only seeds for this plant
+      const filtered = data.filter((seed: any) => seed.plantId === plantId);
+      setCatalogSeeds(filtered);
+    } catch (error) {
+      console.error('Error fetching catalog seeds:', error);
+      setCatalogSeeds([]);
+    }
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -60,8 +84,21 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
         notes: '',
       });
       setErrors({});
+      setUseCustomVariety(false);
+      setSelectedCatalogSeedId('');
+      setCatalogSeeds([]);
     }
   }, [isOpen, fetchPlants]);
+
+  // Fetch catalog seeds when plant is selected and not using custom variety
+  useEffect(() => {
+    if (formData.plantId && !useCustomVariety) {
+      fetchCatalogSeeds(formData.plantId);
+    } else {
+      setCatalogSeeds([]);
+      setSelectedCatalogSeedId('');
+    }
+  }, [formData.plantId, useCustomVariety, fetchCatalogSeeds]);
 
 
 
@@ -93,34 +130,63 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
 
     setLoading(true);
     try {
-      // Build payload with only non-empty fields
-      const payload: any = {
-        plantId: formData.plantId,
-        variety: formData.variety,
-        quantity: formData.quantity,
-      };
+      // If using catalog selection, use the from-catalog endpoint
+      if (selectedCatalogSeedId && !useCustomVariety) {
+        const payload: any = {
+          catalogSeedId: parseInt(selectedCatalogSeedId),
+          quantity: formData.quantity,
+        };
 
-      if (formData.brand) payload.brand = formData.brand;
-      if (formData.purchaseDate) payload.purchaseDate = formData.purchaseDate;
-      if (formData.expirationDate) payload.expirationDate = formData.expirationDate;
-      if (formData.germinationRate) payload.germinationRate = Number(formData.germinationRate);
-      if (formData.location) payload.location = formData.location;
-      if (formData.price) payload.price = Number(formData.price);
-      if (formData.notes) payload.notes = formData.notes;
+        if (formData.purchaseDate) payload.purchaseDate = formData.purchaseDate;
+        if (formData.location) payload.location = formData.location;
+        if (formData.notes) payload.notes = formData.notes;
 
-      const response = await fetch(`${API_BASE_URL}/api/seeds`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+        const response = await fetch(`${API_BASE_URL}/api/my-seeds/from-catalog`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload),
+        });
 
-      if (response.ok) {
-        showSuccess('Seed added successfully!');
-        onSuccess();
-        onClose();
+        if (response.ok) {
+          showSuccess('Seed added from catalog!');
+          onSuccess();
+          onClose();
+        } else {
+          const errorData = await response.json();
+          showError(errorData.error || 'Failed to add seed');
+        }
       } else {
-        const errorData = await response.json();
-        showError(errorData.error || 'Failed to add seed');
+        // Custom variety - use regular endpoint
+        const payload: any = {
+          plantId: formData.plantId,
+          variety: formData.variety,
+          quantity: formData.quantity,
+        };
+
+        if (formData.brand) payload.brand = formData.brand;
+        if (formData.purchaseDate) payload.purchaseDate = formData.purchaseDate;
+        if (formData.expirationDate) payload.expirationDate = formData.expirationDate;
+        if (formData.germinationRate) payload.germinationRate = Number(formData.germinationRate);
+        if (formData.location) payload.location = formData.location;
+        if (formData.price) payload.price = Number(formData.price);
+        if (formData.notes) payload.notes = formData.notes;
+
+        const response = await fetch(`${API_BASE_URL}/api/seeds`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload),
+        });
+
+        if (response.ok) {
+          showSuccess('Custom seed added successfully!');
+          onSuccess();
+          onClose();
+        } else {
+          const errorData = await response.json();
+          showError(errorData.error || 'Failed to add seed');
+        }
       }
     } catch (error) {
       console.error('Error adding seed:', error);
@@ -147,19 +213,69 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
           required
         />
 
-        <FormInput
-          label="Variety"
-          value={formData.variety}
-          onChange={(e) => setFormData({ ...formData, variety: e.target.value })}
-          placeholder="e.g., Cherry Tomato, Beefsteak, etc."
-        />
+        {/* Checkbox to toggle custom variety */}
+        {formData.plantId && (
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="useCustomVariety"
+              checked={useCustomVariety}
+              onChange={(e) => {
+                setUseCustomVariety(e.target.checked);
+                if (e.target.checked) {
+                  setSelectedCatalogSeedId('');
+                  setFormData({ ...formData, variety: '', brand: '' });
+                }
+              }}
+              className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+            />
+            <label htmlFor="useCustomVariety" className="text-sm text-gray-700">
+              Add custom variety (not in catalog)
+            </label>
+          </div>
+        )}
 
-        <FormInput
-          label="Brand"
-          value={formData.brand}
-          onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-          placeholder="e.g., Burpee, Ferry-Morse, etc."
-        />
+        {/* Conditional rendering: dropdown for catalog, text input for custom */}
+        {formData.plantId && !useCustomVariety && catalogSeeds.length > 0 ? (
+          <FormSelect
+            label="Select from Catalog"
+            options={[
+              { value: '', label: 'Choose a variety...' },
+              ...catalogSeeds.map(seed => ({
+                value: seed.id.toString(),
+                label: `${seed.variety}${seed.brand ? ` (${seed.brand})` : ''}`
+              }))
+            ]}
+            value={selectedCatalogSeedId}
+            onChange={(e) => {
+              setSelectedCatalogSeedId(e.target.value);
+              const selected = catalogSeeds.find(s => s.id.toString() === e.target.value);
+              if (selected) {
+                setFormData({
+                  ...formData,
+                  variety: selected.variety,
+                  brand: selected.brand || ''
+                });
+              }
+            }}
+          />
+        ) : (
+          <>
+            <FormInput
+              label="Variety"
+              value={formData.variety}
+              onChange={(e) => setFormData({ ...formData, variety: e.target.value })}
+              placeholder="e.g., Cherry Tomato, Beefsteak, etc."
+            />
+
+            <FormInput
+              label="Brand"
+              value={formData.brand}
+              onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
+              placeholder="e.g., Burpee, Ferry-Morse, etc."
+            />
+          </>
+        )}
 
         <FormNumber
           label="Quantity"

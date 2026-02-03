@@ -30,6 +30,41 @@ interface Beehive {
   notes?: string;
 }
 
+interface LivestockNutrition {
+  totals: {
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+  };
+  by_animal_type: Record<string, {
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+  }>;
+  production_summary: Array<{
+    species: string;
+    count: number;
+    annual_production: string;
+  }>;
+  year: number;
+}
+
+const CATEGORY_SINGULAR: Record<string, string> = {
+  chickens: 'chicken',
+  ducks: 'duck',
+  bees: 'beehive',
+  other: 'other livestock',
+};
+
+const CATEGORY_NAME_SINGULAR: Record<string, string> = {
+  'Chickens': 'Chicken',
+  'Ducks': 'Duck',
+  'Beehives': 'Beehive',
+  'Other Livestock': 'Other Livestock',
+};
+
 const Livestock: React.FC = () => {
   const { showSuccess, showError } = useToast();
   const [activeCategory, setActiveCategory] = useState<'chickens' | 'ducks' | 'bees' | 'other'>('chickens');
@@ -51,9 +86,29 @@ const Livestock: React.FC = () => {
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [sortBy, setSortBy] = useState<string>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [nutritionData, setNutritionData] = useState<LivestockNutrition | null>(null);
+  const [nutritionLoading, setNutritionLoading] = useState(false);
+
+  const loadNutritionData = async () => {
+    try {
+      setNutritionLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/nutrition/livestock`, { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch nutrition data: ${response.status}`);
+      }
+      const data = await response.json();
+      setNutritionData(data);
+    } catch (error) {
+      console.error('Error loading nutrition data:', error);
+      // Silently fail - nutrition is optional enhancement
+    } finally {
+      setNutritionLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
+    loadNutritionData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCategory]);
 
@@ -70,19 +125,31 @@ const Livestock: React.FC = () => {
       setLoading(true);
 
       if (activeCategory === 'chickens') {
-        const response = await fetch(`${API_BASE_URL}/api/chickens`);
+        const response = await fetch(`${API_BASE_URL}/api/chickens`, { credentials: 'include' });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch chickens: ${response.status}`);
+        }
         const data = await response.json();
         setChickens(data);
       } else if (activeCategory === 'ducks') {
-        const response = await fetch(`${API_BASE_URL}/api/ducks`);
+        const response = await fetch(`${API_BASE_URL}/api/ducks`, { credentials: 'include' });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ducks: ${response.status}`);
+        }
         const data = await response.json();
         setDucks(data);
       } else if (activeCategory === 'bees') {
-        const response = await fetch(`${API_BASE_URL}/api/beehives`);
+        const response = await fetch(`${API_BASE_URL}/api/beehives`, { credentials: 'include' });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch beehives: ${response.status}`);
+        }
         const data = await response.json();
         setBeehives(data);
       } else if (activeCategory === 'other') {
-        const response = await fetch(`${API_BASE_URL}/api/livestock`);
+        const response = await fetch(`${API_BASE_URL}/api/livestock`, { credentials: 'include' });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch other livestock: ${response.status}`);
+        }
         const data = await response.json();
         setOtherLivestock(data);
       }
@@ -131,10 +198,11 @@ const Livestock: React.FC = () => {
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
+        credentials: 'include',
       });
 
       if (response.ok) {
-        showSuccess(`${activeCategory.slice(0, -1)} deleted successfully!`);
+        showSuccess(`${CATEGORY_SINGULAR[activeCategory]} deleted successfully!`);
         loadData();
       } else {
         showError('Failed to delete');
@@ -642,13 +710,108 @@ const Livestock: React.FC = () => {
           ))}
         </div>
 
+        {/* Nutrition Summary Card */}
+        {nutritionData && nutritionData.production_summary.length > 0 && (
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6 mb-6 border border-green-200">
+            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <span>📊</span>
+              Annual Production & Nutrition Estimates
+            </h3>
+
+            {nutritionLoading ? (
+              <div className="text-center py-4">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Production Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {nutritionData.production_summary.map((item) => (
+                    <div key={item.species} className="bg-white rounded-lg p-4 shadow-sm">
+                      <div className="font-semibold text-gray-800 capitalize mb-1">
+                        {item.species}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {item.count} {item.count === 1 ? 'animal' : 'animals'}
+                      </div>
+                      <div className="text-sm text-green-700 font-medium mt-2">
+                        → {item.annual_production}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Nutritional Totals */}
+                <div className="bg-white rounded-lg p-4 shadow-sm">
+                  <div className="font-semibold text-gray-800 mb-3">Total Annual Nutrition:</div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <div className="text-2xl font-bold text-green-600">
+                        {nutritionData.totals.calories.toLocaleString()}
+                      </div>
+                      <div className="text-xs text-gray-600">Calories</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        ≈ {Math.round(nutritionData.totals.calories / 2000)} person-days
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-blue-600">
+                        {Math.round(nutritionData.totals.protein_g).toLocaleString()}g
+                      </div>
+                      <div className="text-xs text-gray-600">Protein</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        ≈ {Math.round(nutritionData.totals.protein_g / 50)} person-days
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-purple-600">
+                        {Math.round(nutritionData.totals.carbs_g).toLocaleString()}g
+                      </div>
+                      <div className="text-xs text-gray-600">Carbs</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-amber-600">
+                        {Math.round(nutritionData.totals.fat_g).toLocaleString()}g
+                      </div>
+                      <div className="text-xs text-gray-600">Fat</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Breakdown by Animal Type */}
+                {Object.keys(nutritionData.by_animal_type).length > 0 && (
+                  <details className="bg-white rounded-lg p-4 shadow-sm">
+                    <summary className="font-semibold text-gray-800 cursor-pointer hover:text-green-600">
+                      View Breakdown by Animal Type →
+                    </summary>
+                    <div className="mt-4 space-y-3">
+                      {Object.entries(nutritionData.by_animal_type).map(([species, nutrition]) => (
+                        <div key={species} className="border-l-4 border-green-500 pl-4">
+                          <div className="font-medium text-gray-800 capitalize">{species}</div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            {nutrition.calories.toLocaleString()} cal • {Math.round(nutrition.protein_g)}g protein • {Math.round(nutrition.carbs_g)}g carbs • {Math.round(nutrition.fat_g)}g fat
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                <div className="text-xs text-gray-500 italic mt-2">
+                  * Estimates based on industry averages. Actual production varies by breed, age, management, and environmental conditions.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Add New Button */}
         <div className="mb-6">
           <button
             className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
             onClick={handleAddNew}
           >
-            Add New {categories.find(c => c.id === activeCategory)?.name.slice(0, -1) || 'Animal'}
+            Add New {CATEGORY_NAME_SINGULAR[categories.find(c => c.id === activeCategory)?.name || ''] || 'Animal'}
           </button>
         </div>
 
@@ -724,7 +887,7 @@ const Livestock: React.FC = () => {
         isOpen={deleteConfirm.isOpen}
         onClose={() => setDeleteConfirm({ isOpen: false, id: null })}
         onConfirm={handleDeleteConfirm}
-        title={`Delete ${activeCategory.slice(0, -1)}`}
+        title={`Delete ${CATEGORY_SINGULAR[activeCategory]}`}
         message="Are you sure you want to delete this? This action cannot be undone."
         confirmText="Delete"
         variant="danger"

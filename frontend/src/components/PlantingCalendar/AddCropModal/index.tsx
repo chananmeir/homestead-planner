@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { Plant, PlantingCalendar as PlantingCalendarType, ConflictCheck } from '../../../types';
+import { Plant, PlantingCalendar as PlantingCalendarType, ConflictCheck, GardenBed, EventAdjustment } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { format, addDays } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';
 import { calculateSuggestedInterval, formatSuggestion, IntervalSuggestion } from '../utils/successionCalculations';
-import { API_BASE_URL } from '../../../config';
+import { calculateSpaceRequirement } from '../utils/spaceAvailability';
+import { apiGet, apiPut } from '../../../utils/api';
 import PositionSelector from './PositionSelector';
 import ConflictWarning from '../../common/ConflictWarning';
 import SuccessionWizard from './SuccessionWizard';
+import { AutoAdjustmentModal } from './AutoAdjustmentModal';
 
 interface AddCropModalProps {
   isOpen: boolean;
@@ -32,7 +34,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
   const [selectedPlant, setSelectedPlant] = useState<string>(initialPlant?.id || '');
   const [plantingMethod, setPlantingMethod] = useState<'seed' | 'transplant'>('seed');
   const [variety, setVariety] = useState('');
-  const [gardenBedId, setGardenBedId] = useState('');
+  const [gardenBedId, setGardenBedId] = useState<number | ''>('');
   const [notes, setNotes] = useState('');
   const [successionPlanting, setSuccessionPlanting] = useState(false);
   const [successionInterval, setSuccessionInterval] = useState(14);
@@ -44,6 +46,10 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
   const [conflicts, setConflicts] = useState<ConflictCheck | null>(null);
   const [showConflictWarning, setShowConflictWarning] = useState(false);
   const [conflictOverride, setConflictOverride] = useState(false);
+
+  // Auto-adjustment state (Phase 4)
+  const [showAutoAdjustModal, setShowAutoAdjustModal] = useState(false);
+  const [proposedAdjustments, setProposedAdjustments] = useState<EventAdjustment[]>([]);
 
   // Succession Wizard state (Phase 3B)
   const [showWizard, setShowWizard] = useState(false);
@@ -61,7 +67,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
   }>({});
 
   // Garden beds - fetched from API
-  const [gardenBeds, setGardenBeds] = useState<Array<{ id: number; name: string; width?: number; length?: number }>>([]);
+  const [gardenBeds, setGardenBeds] = useState<GardenBed[]>([]);
   const [loadingBeds, setLoadingBeds] = useState(true);
 
   // Fetch garden beds from API
@@ -69,7 +75,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
     const fetchGardenBeds = async () => {
       try {
         setLoadingBeds(true);
-        const response = await fetch(`${API_BASE_URL}/api/garden-beds`);
+        const response = await apiGet('/api/garden-beds');
         if (response.ok) {
           const data = await response.json();
           setGardenBeds(data);
@@ -95,7 +101,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
 
       try {
         setLoadingVarieties(true);
-        const response = await fetch(`${API_BASE_URL}/api/seeds/varieties/${selectedPlant}`);
+        const response = await apiGet(`/api/seeds/varieties/${selectedPlant}`);
         if (response.ok) {
           const varieties = await response.json();
           setAvailableVarieties(varieties);
@@ -171,10 +177,50 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
     }
   };
 
-  // Handler for conflict override
+  // Handler for conflict override - triggers auto-adjustment flow
   const handleConflictOverride = () => {
-    setConflictOverride(true);
+    // Close conflict warning and show auto-adjustment modal
     setShowConflictWarning(false);
+    setShowAutoAdjustModal(true);
+  };
+
+  // Handler for auto-adjustment confirmation
+  const handleAdjustmentConfirm = async (adjustments: EventAdjustment[]) => {
+    try {
+      // Apply adjustments via PUT requests
+      for (const adj of adjustments) {
+        const response = await apiPut(`/api/planting-events/${adj.eventId}`, {
+          expectedHarvestDate: adj.newHarvestDate,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to update event ${adj.eventId}`);
+        }
+      }
+
+      // Set conflict override flag for tracking
+      setConflictOverride(true);
+
+      // Close auto-adjustment modal
+      setShowAutoAdjustModal(false);
+
+      // Submit the form to create the new event
+      // The form will be submitted automatically since conflictOverride is now true
+      const form = document.querySelector('form');
+      if (form) {
+        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      }
+    } catch (error) {
+      console.error('Failed to apply adjustments:', error);
+      alert('Failed to adjust conflicting events. Please try again.');
+    }
+  };
+
+  // Handler for auto-adjustment cancellation
+  const handleAdjustmentCancel = () => {
+    setShowAutoAdjustModal(false);
+    setProposedAdjustments([]);
+    // Don't clear position - user might want to try override without adjustment
   };
 
   // Handler for conflict cancel
@@ -192,14 +238,14 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
 
     // Use initialDate if provided (from calendar click), otherwise use lastFrostDate
     const baseDate = initialDate || lastFrostDate;
-    const dates = calculatePlantingDates(plant, baseDate);
+    const dates = calculatePlantingDates(plant, baseDate, plantingMethod);
 
     // Create base event
     const baseEvent: PlantingCalendarType = {
-      id: String(Date.now()),
+      id: Date.now(),
       plantId: plant.id,
       variety: variety || undefined,
-      gardenBedId: gardenBedId || '',
+      gardenBedId: gardenBedId === '' ? undefined : gardenBedId,
       seedStartDate: plantingMethod === 'transplant'
         ? (manualDates.seedStartDate || dates.seedStartDate)
         : undefined,
@@ -207,14 +253,19 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
         ? (manualDates.transplantDate || dates.transplantDate)
         : undefined,
       directSeedDate: plantingMethod === 'seed'
-        ? (manualDates.directSeedDate || dates.transplantDate)
+        ? (manualDates.directSeedDate || dates.directSeedDate)
         : undefined,
       expectedHarvestDate: manualDates.expectedHarvestDate || dates.expectedHarvestDate,
       successionPlanting: successionPlanting,
       successionInterval: successionPlanting ? successionInterval : undefined,
       positionX: selectedPosition?.x,
       positionY: selectedPosition?.y,
-      spaceRequired: plant.spacing ? Math.ceil(plant.spacing / 12) : undefined, // Convert inches to grid cells
+      spaceRequired: (() => {
+        if (!selectedPosition || gardenBedId === '') return undefined;
+        const bed = gardenBeds.find(b => b.id === gardenBedId);
+        if (!bed) return plant.spacing ? Math.ceil(plant.spacing / 12) : undefined;
+        return calculateSpaceRequirement(plant, bed.gridSize, bed.planningMethod);
+      })(),
       conflictOverride: conflictOverride || undefined,
       completed: false,
       notes: notes || undefined,
@@ -230,7 +281,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
         const offset = i * successionInterval;
         const successionEvent: PlantingCalendarType = {
           ...baseEvent,
-          id: crypto.randomUUID(), // Unique ID for each event to avoid collisions
+          id: Date.now() + i, // Unique ID for each event to avoid collisions
           successionGroupId, // Link all events in this succession series
           seedStartDate: baseEvent.seedStartDate
             ? addDays(baseEvent.seedStartDate, offset)
@@ -241,7 +292,9 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
           directSeedDate: baseEvent.directSeedDate
             ? addDays(baseEvent.directSeedDate, offset)
             : undefined,
-          expectedHarvestDate: addDays(baseEvent.expectedHarvestDate, offset),
+          expectedHarvestDate: baseEvent.expectedHarvestDate
+            ? addDays(baseEvent.expectedHarvestDate, offset)
+            : undefined,
         };
         successionEvents.push(successionEvent);
       }
@@ -259,7 +312,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
 
   const selectedPlantData = selectedPlant ? getPlantById(selectedPlant) : null;
   const dates = selectedPlantData
-    ? calculatePlantingDates(selectedPlantData, initialDate || lastFrostDate)
+    ? calculatePlantingDates(selectedPlantData, initialDate || lastFrostDate, plantingMethod)
     : null;
 
   return (
@@ -348,7 +401,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
             </label>
             <select
               value={gardenBedId}
-              onChange={(e) => setGardenBedId(e.target.value)}
+              onChange={(e) => setGardenBedId(e.target.value ? Number(e.target.value) : '')}
               disabled={loadingBeds}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100"
             >
@@ -363,7 +416,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
 
           {/* Position Selector - Only show if garden bed selected and plant selected */}
           {gardenBedId && selectedPlantData && dates && (() => {
-            const bed = gardenBeds.find(b => b.id === parseInt(gardenBedId));
+            const bed = gardenBeds.find(b => b.id === gardenBedId);
             if (!bed || !bed.width || !bed.length) return null;
 
             // Create garden bed object with gridSize (default to 12" if not provided)
@@ -381,8 +434,8 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                 selectedPlant={selectedPlantData}
                 startDate={
                   plantingMethod === 'transplant'
-                    ? (manualDates.transplantDate || dates.transplantDate)
-                    : (manualDates.directSeedDate || dates.transplantDate)
+                    ? (manualDates.transplantDate || dates.transplantDate!)
+                    : (manualDates.directSeedDate || dates.directSeedDate!)
                 }
                 endDate={manualDates.expectedHarvestDate || dates.expectedHarvestDate}
                 onPositionSelect={handlePositionSelect}
@@ -440,7 +493,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                     <input
                       type="date"
                       value={format(
-                        manualDates.seedStartDate || dates.seedStartDate,
+                        manualDates.seedStartDate || dates.seedStartDate!,
                         'yyyy-MM-dd'
                       )}
                       onChange={(e) =>
@@ -459,7 +512,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                     <input
                       type="date"
                       value={format(
-                        manualDates.transplantDate || dates.transplantDate,
+                        manualDates.transplantDate || dates.transplantDate!,
                         'yyyy-MM-dd'
                       )}
                       onChange={(e) =>
@@ -482,7 +535,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                   <input
                     type="date"
                     value={format(
-                      manualDates.directSeedDate || dates.transplantDate,
+                      manualDates.directSeedDate || dates.directSeedDate!,
                       'yyyy-MM-dd'
                     )}
                     onChange={(e) =>
@@ -656,6 +709,27 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
           onOverride={handleConflictOverride}
           onCancel={handleConflictCancel}
           isOpen={showConflictWarning}
+        />
+      )}
+
+      {/* Auto-Adjustment Modal */}
+      {conflicts && conflicts.conflicts.length > 0 && (
+        <AutoAdjustmentModal
+          isOpen={showAutoAdjustModal}
+          conflicts={conflicts.conflicts}
+          newPlantName={selectedPlant ? (PLANT_DATABASE.find(p => p.id === selectedPlant)?.name || '') : ''}
+          newStartDate={(() => {
+            const plant = PLANT_DATABASE.find((p) => p.id === selectedPlant);
+            if (!plant) return new Date().toISOString();
+            const baseDate = initialDate || lastFrostDate;
+            const dates = calculatePlantingDates(plant, baseDate, plantingMethod);
+            return (plantingMethod === 'transplant'
+              ? (manualDates.transplantDate || dates.transplantDate)
+              : (manualDates.directSeedDate || dates.directSeedDate)
+            )?.toISOString() || new Date().toISOString();
+          })()}
+          onConfirm={handleAdjustmentConfirm}
+          onCancel={handleAdjustmentCancel}
         />
       )}
 

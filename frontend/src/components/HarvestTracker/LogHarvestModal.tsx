@@ -30,7 +30,7 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
 
   const fetchPlants = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/plants`);
+      const response = await fetch(`${API_BASE_URL}/api/plants`, { credentials: 'include' });
       const data = await response.json();
       setPlants(data);
     } catch (error) {
@@ -92,6 +92,7 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -156,7 +157,7 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
             onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
             error={errors.quantity}
             required
-            min={0}
+            min={0.1}
             step={0.1}
           />
 

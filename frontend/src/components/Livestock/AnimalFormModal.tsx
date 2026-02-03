@@ -160,6 +160,7 @@ export const AnimalFormModal: React.FC<AnimalFormModalProps> = ({
       const response = await fetch(getApiEndpoint(), {
         method: mode === 'edit' ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload),
       });
 
@@ -272,16 +273,75 @@ export const AnimalFormModal: React.FC<AnimalFormModalProps> = ({
           </>
         ) : (
           <>
-            <FormInput
+            <FormSelect
               label="Breed"
               value={formData.breed || ''}
               onChange={(e) => setFormData({ ...formData, breed: e.target.value })}
-              placeholder={
+              options={
                 category === 'chickens'
-                  ? 'e.g., Rhode Island Red, Plymouth Rock'
+                  ? [
+                      { value: '', label: 'Select breed...' },
+                      { value: 'Ameraucana', label: 'Ameraucana (215 eggs/yr)' },
+                      { value: 'Australorp', label: 'Australorp (275 eggs/yr)' },
+                      { value: 'Austra White', label: 'Austra White (250 eggs/yr)' },
+                      { value: 'Barnevelder', label: 'Barnevelder (190 eggs/yr)' },
+                      { value: 'Bielefelder', label: 'Bielefelder (230 eggs/yr)' },
+                      { value: 'Brahma', label: 'Brahma (175 eggs/yr)' },
+                      { value: 'Cinnamon Queen', label: 'Cinnamon Queen (300 eggs/yr)' },
+                      { value: 'Cochin', label: 'Cochin (130 eggs/yr)' },
+                      { value: 'Cornish Cross', label: 'Cornish Cross (Meat)' },
+                      { value: 'Delaware', label: 'Delaware (175 eggs/yr)' },
+                      { value: 'Easter Egger', label: 'Easter Egger (240 eggs/yr)' },
+                      { value: 'Golden Comet', label: 'Golden Comet (290 eggs/yr)' },
+                      { value: 'ISA Brown', label: 'ISA Brown (300 eggs/yr)' },
+                      { value: 'Leghorn', label: 'Leghorn (300 eggs/yr)' },
+                      { value: 'Marans', label: 'Marans (215 eggs/yr)' },
+                      { value: 'New Hampshire', label: 'New Hampshire (265 eggs/yr)' },
+                      { value: 'Orpington', label: 'Orpington (228 eggs/yr)' },
+                      { value: 'Plymouth Rock', label: 'Plymouth Rock (240 eggs/yr)' },
+                      { value: 'Polish', label: 'Polish (180 eggs/yr)' },
+                      { value: 'Rhode Island Red', label: 'Rhode Island Red (275 eggs/yr)' },
+                      { value: 'Silkie', label: 'Silkie (120 eggs/yr)' },
+                      { value: 'Sussex', label: 'Sussex (275 eggs/yr)' },
+                      { value: 'Welsummer', label: 'Welsummer (200 eggs/yr)' },
+                      { value: 'Wyandotte', label: 'Wyandotte (220 eggs/yr)' },
+                      { value: 'Other', label: 'Other/Unknown (250 eggs/yr default)' },
+                    ]
                   : category === 'ducks'
-                  ? 'e.g., Pekin, Khaki Campbell'
-                  : 'Breed name'
+                  ? [
+                      { value: '', label: 'Select breed...' },
+                      { value: 'Ancona', label: 'Ancona (245 eggs/yr)' },
+                      { value: 'Buff', label: 'Buff (185 eggs/yr)' },
+                      { value: 'Cayuga', label: 'Cayuga (140 eggs/yr)' },
+                      { value: 'Golden 300 Hybrid Layer', label: 'Golden 300 Hybrid Layer (260 eggs/yr)' },
+                      { value: 'Khaki Campbell', label: 'Khaki Campbell (300 eggs/yr)' },
+                      { value: 'Magpie', label: 'Magpie (220 eggs/yr)' },
+                      { value: 'Muscovy', label: 'Muscovy (120 eggs/yr)' },
+                      { value: 'Pekin', label: 'Pekin (200 eggs/yr)' },
+                      { value: 'Runner', label: 'Runner (280 eggs/yr)' },
+                      { value: 'Saxony', label: 'Saxony (215 eggs/yr)' },
+                      { value: 'Silver Appleyard', label: 'Silver Appleyard (235 eggs/yr)' },
+                      { value: 'Swedish', label: 'Swedish (150 eggs/yr)' },
+                      { value: 'Welsh Harlequin', label: 'Welsh Harlequin (275 eggs/yr)' },
+                      { value: 'White Layer', label: 'White Layer (260 eggs/yr)' },
+                      { value: 'Other', label: 'Other/Unknown (200 eggs/yr default)' },
+                    ]
+                  : [
+                      { value: '', label: 'Select breed...' },
+                      { value: 'Alpine', label: 'Alpine (2,500 lbs milk/yr)' },
+                      { value: 'Boer', label: 'Boer (Meat)' },
+                      { value: 'Golden Guernsey', label: 'Golden Guernsey (1,050 lbs milk/yr)' },
+                      { value: 'Kiko', label: 'Kiko (Meat)' },
+                      { value: 'LaMancha', label: 'LaMancha (2,200 lbs milk/yr)' },
+                      { value: 'Nigerian Dwarf', label: 'Nigerian Dwarf (750 lbs milk/yr)' },
+                      { value: 'Nubian', label: 'Nubian (1,800 lbs milk/yr)' },
+                      { value: 'Oberhasli', label: 'Oberhasli (2,000 lbs milk/yr)' },
+                      { value: 'Sable', label: 'Sable (2,400 lbs milk/yr)' },
+                      { value: 'Saanen', label: 'Saanen (2,600 lbs milk/yr)' },
+                      { value: 'Spanish', label: 'Spanish (Meat)' },
+                      { value: 'Toggenburg', label: 'Toggenburg (2,200 lbs milk/yr)' },
+                      { value: 'Other', label: 'Other/Unknown (2,000 lbs/yr default)' },
+                    ]
               }
             />
 

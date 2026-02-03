@@ -58,6 +58,7 @@ export const UploadPhotoModal: React.FC<UploadPhotoModalProps> = ({
 
       const response = await fetch(`${API_BASE_URL}/api/photos`, {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       });
 

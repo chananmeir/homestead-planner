@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PlantingCalendar as PlantingCalendarType } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
-import { format } from 'date-fns';
+import { format, addWeeks } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';
 
 interface ListViewProps {
@@ -30,12 +30,12 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
     const plant = PLANT_DATABASE.find((p) => p.id === selectedPlant);
     if (!plant) return;
 
-    const dates = calculatePlantingDates(plant, lastFrostDate);
+    const dates = calculatePlantingDates(plant, lastFrostDate, plantingMethod);
 
     const newEvent: PlantingCalendarType = {
-      id: String(Date.now()),
+      id: Date.now(),
       plantId: plant.id,
-      gardenBedId: '',
+      gardenBedId: undefined,
       seedStartDate: plantingMethod === 'transplant'
         ? (manualDates.seedStartDate || dates.seedStartDate)
         : undefined,
@@ -43,7 +43,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
         ? (manualDates.transplantDate || dates.transplantDate)
         : undefined,
       directSeedDate: plantingMethod === 'seed'
-        ? (manualDates.directSeedDate || dates.transplantDate)
+        ? (manualDates.directSeedDate || dates.directSeedDate)
         : undefined,
       expectedHarvestDate: manualDates.expectedHarvestDate || dates.expectedHarvestDate,
       successionPlanting: false,
@@ -56,11 +56,11 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
     setManualDates({}); // Reset manual dates
   };
 
-  const removeEvent = (id: string) => {
+  const removeEvent = (id: number) => {
     setPlantingEvents(plantingEvents.filter((e) => e.id !== id));
   };
 
-  const toggleCompleted = (id: string) => {
+  const toggleCompleted = (id: number) => {
     setPlantingEvents(
       plantingEvents.map((e) =>
         e.id === id ? { ...e, completed: !e.completed } : e
@@ -192,7 +192,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                   {(() => {
                     const plant = getPlantById(selectedPlant);
                     if (!plant) return null;
-                    const dates = calculatePlantingDates(plant, lastFrostDate);
+                    const dates = calculatePlantingDates(plant, lastFrostDate, plantingMethod);
                     return (
                       <div className="space-y-3">
                         {plantingMethod === 'transplant' && (
@@ -204,7 +204,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                               <input
                                 type="date"
                                 value={format(
-                                  manualDates.seedStartDate || dates.seedStartDate,
+                                  manualDates.seedStartDate || dates.seedStartDate!,
                                   'yyyy-MM-dd'
                                 )}
                                 onChange={(e) =>
@@ -223,7 +223,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                               <input
                                 type="date"
                                 value={format(
-                                  manualDates.transplantDate || dates.transplantDate,
+                                  manualDates.transplantDate || dates.transplantDate!,
                                   'yyyy-MM-dd'
                                 )}
                                 onChange={(e) =>
@@ -245,7 +245,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                             <input
                               type="date"
                               value={format(
-                                manualDates.directSeedDate || dates.transplantDate,
+                                manualDates.directSeedDate || dates.directSeedDate!,
                                 'yyyy-MM-dd'
                               )}
                               onChange={(e) =>
@@ -319,6 +319,54 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                   </h4>
                   <div className="space-y-3">
                     {events.map((event) => {
+                      // Handle maple-tapping events
+                      if (event.eventType === 'maple-tapping') {
+                        let treeType = 'Sugar Maple';
+                        let tapCount = 1;
+                        try {
+                          if (event.eventDetails) {
+                            const details = typeof event.eventDetails === 'string'
+                              ? JSON.parse(event.eventDetails)
+                              : event.eventDetails;
+                            const types = { sugar: 'Sugar Maple', red: 'Red Maple', black: 'Black Maple', boxelder: 'Box Elder Maple' };
+                            treeType = types[details.treeType as keyof typeof types] || 'Maple Tree';
+                            tapCount = details.tapCount || 1;
+                          }
+                        } catch {
+                          // Use defaults
+                        }
+
+                        return (
+                          <div key={event.id} className="p-4 rounded-lg border bg-white border-orange-200">
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center gap-2">
+                                <span className="text-2xl">🍁</span>
+                                <div>
+                                  <h4 className="font-semibold text-gray-900">{treeType}</h4>
+                                  <p className="text-sm text-gray-600">
+                                    {tapCount} tap{tapCount > 1 ? 's' : ''}
+                                  </p>
+                                  {event.expectedHarvestDate && (
+                                    <p className="text-sm text-orange-600 mt-1">
+                                      Tapped: {format(event.expectedHarvestDate, 'MMM d, yyyy')}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => removeEvent(event.id)}
+                                className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Skip other non-planting events (like mulch events) in list view for now
+                      if (!event.plantId) return null;
+
                       const plant = getPlantById(event.plantId);
                       if (!plant) return null;
 
@@ -345,12 +393,19 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                                     {plant.name}
                                   </h5>
                                   <div className="text-sm text-gray-600 space-y-1 mt-1">
-                                    {event.seedStartDate && (
-                                      <div>
-                                        🌱 Start Seeds:{' '}
-                                        {format(event.seedStartDate, 'MMM d')}
-                                      </div>
-                                    )}
+                                    {(() => {
+                                      let seedStart = event.seedStartDate;
+                                      if (!seedStart && event.transplantDate && plant?.transplantWeeksBefore) {
+                                        seedStart = addWeeks(event.transplantDate, -plant.transplantWeeksBefore);
+                                      }
+                                      return seedStart ? (
+                                        <div>
+                                          🌱 Start Seeds:{' '}
+                                          {format(seedStart, 'MMM d')}
+                                          {!event.seedStartDate && <span className="text-xs text-gray-500 ml-1">(calc)</span>}
+                                        </div>
+                                      ) : null;
+                                    })()}
                                     {event.transplantDate && (
                                       <div>
                                         🌿 Transplant:{' '}
@@ -363,10 +418,12 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                                         {format(event.directSeedDate, 'MMM d')}
                                       </div>
                                     )}
-                                    <div>
-                                      🎉 Harvest:{' '}
-                                      {format(event.expectedHarvestDate, 'MMM d')}
-                                    </div>
+                                    {event.expectedHarvestDate && (
+                                      <div>
+                                        🎉 Harvest:{' '}
+                                        {format(event.expectedHarvestDate, 'MMM d')}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>

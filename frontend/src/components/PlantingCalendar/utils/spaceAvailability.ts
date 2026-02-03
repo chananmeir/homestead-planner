@@ -1,5 +1,9 @@
 import { Plant, PlantingCalendar, GardenBed } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
+import { getSFGCellsRequired } from '../../../utils/sfgSpacing';
+import { getMIGardenerSpacing } from '../../../utils/migardenerSpacing';
+import { getIntensiveSpacing, calculateIntensiveCellsRequired } from '../../../utils/intensiveSpacing';
+import { calculateFootprintBedAware } from '../../GardenDesigner/utils/footprintCalculator';
 
 /**
  * Represents an occupied grid cell with metadata
@@ -7,7 +11,7 @@ import { PLANT_DATABASE } from '../../../data/plantDatabase';
 export interface OccupiedCell {
   x: number;
   y: number;
-  plantingEventId: string;
+  plantingEventId: number;
   plantName: string;
   variety?: string;
   startDate: Date;
@@ -33,12 +37,14 @@ export interface AvailableCell {
  * @param gardenBedId - ID of the garden bed to check
  * @param dateRange - Start and end dates to check for occupancy
  * @param plantingEvents - All planting events to check
+ * @param gardenBed - Optional garden bed object for bed-type aware footprint calculation
  * @returns Array of occupied cells with metadata
  */
 export function getOccupiedCells(
-  gardenBedId: string,
+  gardenBedId: string | number,
   dateRange: { start: Date; end: Date },
-  plantingEvents: PlantingCalendar[]
+  plantingEvents: PlantingCalendar[],
+  gardenBed?: GardenBed
 ): OccupiedCell[] {
   const occupiedCells: OccupiedCell[] = [];
 
@@ -52,35 +58,81 @@ export function getOccupiedCells(
 
   for (const event of relevantEvents) {
     // Determine event's date range
+    // Use the date when plant actually occupies space in the GARDEN BED
+    // (not indoor seed start date - that doesn't use garden space!)
     const eventStart =
-      event.seedStartDate || event.transplantDate || event.expectedHarvestDate;
+      event.directSeedDate || event.transplantDate || event.seedStartDate;
     const eventEnd = event.expectedHarvestDate;
+
+    // Skip if we can't determine when the plant goes in the garden
+    if (!eventStart || !eventEnd) continue;
 
     // Check for temporal overlap
     const hasOverlap =
       eventStart <= dateRange.end && eventEnd >= dateRange.start;
 
     if (hasOverlap && event.positionX !== undefined && event.positionY !== undefined) {
-      // Calculate all cells occupied by this event
+      // Calculate all cells occupied by this event using bed-aware footprint calculation
       const spaceRequired = event.spaceRequired || 1;
-      const cellsPerSide = Math.ceil(Math.sqrt(spaceRequired));
 
       // Look up human-readable plant name
       const plant = PLANT_DATABASE.find((p) => p.id === event.plantId);
-      const plantName = plant?.name || event.plantId;
+      const plantName = plant?.name || event.plantId || 'Unknown';
 
-      for (let dx = 0; dx < cellsPerSide; dx++) {
-        for (let dy = 0; dy < cellsPerSide; dy++) {
-          occupiedCells.push({
-            x: event.positionX + dx,
-            y: event.positionY + dy,
-            plantingEventId: event.id,
-            plantName,
-            variety: event.variety,
-            startDate: eventStart,
-            endDate: eventEnd,
-          });
+      // Get bed-specific footprint calculation
+      let footprintCells;
+      if (gardenBed) {
+        // Calculate spacing based on bed planning method
+        let rowSpacing: number | null | undefined;
+        let plantSpacing: number | undefined;
+        const gridSize = gardenBed.gridSize || 12;
+
+        if (gardenBed.planningMethod === 'migardener' && plant && event.plantId) {
+          // Use MIGardener spacing calculation with overrides
+          const migardenerSpacing = getMIGardenerSpacing(
+            event.plantId,
+            plant.spacing || 12,
+            plant.rowSpacing
+          );
+          rowSpacing = migardenerSpacing.rowSpacing;
+          plantSpacing = migardenerSpacing.plantSpacing;
+        } else {
+          // Use standard plant spacing
+          rowSpacing = plant?.rowSpacing;
+          plantSpacing = plant?.spacing;
         }
+
+        footprintCells = calculateFootprintBedAware(
+          event.positionX,
+          event.positionY,
+          spaceRequired,
+          gardenBed.planningMethod || 'square-foot',
+          gridSize,
+          rowSpacing,
+          plantSpacing
+        );
+      } else {
+        // Fallback to square packing if bed not provided
+        const cellsPerSide = Math.ceil(Math.sqrt(spaceRequired));
+        footprintCells = [];
+        for (let dx = 0; dx < cellsPerSide; dx++) {
+          for (let dy = 0; dy < cellsPerSide; dy++) {
+            footprintCells.push({ x: event.positionX + dx, y: event.positionY + dy });
+          }
+        }
+      }
+
+      // Add all occupied cells with metadata
+      for (const cell of footprintCells) {
+        occupiedCells.push({
+          x: cell.x,
+          y: cell.y,
+          plantingEventId: event.id,
+          plantName,
+          variety: event.variety,
+          startDate: eventStart,
+          endDate: eventEnd,
+        });
       }
     }
   }
@@ -102,9 +154,10 @@ export function getAvailableCells(
   const availableCells: AvailableCell[] = [];
 
   // Calculate grid dimensions (assuming 12" square foot gardening)
+  // NOTE: gardenBed.width and gardenBed.length are in FEET, must convert to inches
   const gridSize = gardenBed.gridSize || 12;
-  const gridWidth = Math.floor(gardenBed.width / gridSize);
-  const gridHeight = Math.floor(gardenBed.length / gridSize);
+  const gridWidth = Math.floor((gardenBed.width * 12) / gridSize);
+  const gridHeight = Math.floor((gardenBed.length * 12) / gridSize);
 
   // Create set of occupied positions for O(1) lookup
   const occupiedSet = new Set(
@@ -190,20 +243,47 @@ export function findContiguousSpaces(
 /**
  * Calculate space requirement (in grid cells) for a plant
  *
+ * Uses method-aware calculation based on the bed's planning method:
+ * - Square Foot Gardening: Uses SFG rules (tomato = 1 cell)
+ * - MIGardener: Uses ultra-dense spacing overrides
+ * - Row/Traditional: Uses spacing-based calculation
+ *
  * @param plant - Plant object with spacing requirements
  * @param gridSize - Grid cell size in inches (default: 12" square foot)
+ * @param planningMethod - Bed's planning method ('square-foot', 'row', 'migardener', etc.)
  * @returns Number of grid cells needed (1, 4, 9, etc.)
  */
 export function calculateSpaceRequirement(
   plant: Plant,
-  gridSize: number = 12
+  gridSize: number = 12,
+  planningMethod: string = 'row'
 ): number {
-  const spacing = plant.spacing; // Spacing in inches
+  // SQUARE FOOT GARDENING: Use SFG lookup table
+  if (planningMethod === 'square-foot') {
+    return getSFGCellsRequired(plant.id);
+  }
 
-  // Calculate how many grid cells are needed per side
+  // MIGARDENER: Use existing MIGardener spacing system
+  if (planningMethod === 'migardener') {
+    const spacing = getMIGardenerSpacing(plant.id, plant.spacing, plant.rowSpacing);
+    // Calculate cells needed based on both dimensions
+    const cellsHorizontal = Math.ceil(spacing.plantSpacing / gridSize);
+    // For intensive crops (null rowSpacing), use plantSpacing for both dimensions
+    const cellsVertical = spacing.rowSpacing === null || spacing.rowSpacing === 0
+      ? Math.ceil(spacing.plantSpacing / gridSize)
+      : Math.ceil(spacing.rowSpacing / gridSize);
+    return cellsHorizontal * cellsVertical;
+  }
+
+  // INTENSIVE/BIO-INTENSIVE: Use hexagonal packing with 0.866 offset
+  if (planningMethod === 'intensive') {
+    const onCenterSpacing = getIntensiveSpacing(plant.id, plant.spacing);
+    return calculateIntensiveCellsRequired(onCenterSpacing, gridSize);
+  }
+
+  // ROW / TRADITIONAL / RAISED-BED: Use spacing-based calculation
+  const spacing = plant.spacing || 12;
   const cellsPerSide = Math.ceil(spacing / gridSize);
-
-  // Return total cells (square area)
   return cellsPerSide * cellsPerSide;
 }
 

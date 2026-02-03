@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
+import { addWeeks } from 'date-fns';
 import { PlantingCalendar, Plant, GardenBed, ConflictCheck } from '../../../types';
-import { API_BASE_URL } from '../../../config';
+import { apiPost } from '../../../utils/api';
 import { getPrimaryPlantingDate } from './utils';
 
 interface ConflictDetailsModalProps {
@@ -24,6 +25,23 @@ export const ConflictDetailsModal: React.FC<ConflictDetailsModalProps> = ({
   const [conflictCheck, setConflictCheck] = useState<ConflictCheck | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Calculate seed start date if missing but transplant date exists
+  const displaySeedStartDate = useMemo(() => {
+    if (event.seedStartDate) {
+      return { date: event.seedStartDate, calculated: false };
+    }
+
+    // If transplant date exists but no seed start, calculate it
+    if (event.transplantDate && plant?.transplantWeeksBefore) {
+      return {
+        date: addWeeks(event.transplantDate, -plant.transplantWeeksBefore),
+        calculated: true,
+      };
+    }
+
+    return null;
+  }, [event.seedStartDate, event.transplantDate, plant?.transplantWeeksBefore]);
 
   useEffect(() => {
     if (isOpen && event.positionX !== undefined && event.positionY !== undefined) {
@@ -50,21 +68,17 @@ export const ConflictDetailsModal: React.FC<ConflictDetailsModalProps> = ({
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/planting-events/check-conflict`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gardenBedId: event.gardenBedId,
-          positionX: event.positionX,
-          positionY: event.positionY,
-          startDate: plantDate.toISOString(),
-          endDate: event.expectedHarvestDate.toISOString(),
-          plantId: event.plantId,
-          transplantDate: event.transplantDate?.toISOString(),
-          directSeedDate: event.directSeedDate?.toISOString(),
-          seedStartDate: event.seedStartDate?.toISOString(),
-          excludeEventId: event.id,
-        }),
+      const response = await apiPost('/api/planting-events/check-conflict', {
+        gardenBedId: event.gardenBedId,
+        positionX: event.positionX,
+        positionY: event.positionY,
+        startDate: plantDate.toISOString(),
+        endDate: event.expectedHarvestDate.toISOString(),
+        plantId: event.plantId,
+        transplantDate: event.transplantDate?.toISOString(),
+        directSeedDate: event.directSeedDate?.toISOString(),
+        seedStartDate: event.seedStartDate?.toISOString(),
+        excludeEventId: event.id,
       });
 
       if (!response.ok) {
@@ -140,11 +154,14 @@ export const ConflictDetailsModal: React.FC<ConflictDetailsModalProps> = ({
                   )}
                 </div>
               )}
-              {event.seedStartDate && (
+              {displaySeedStartDate && (
                 <div>
                   <span className="font-medium text-gray-700">Seed Start:</span>{' '}
                   <span className="text-gray-600">
-                    {event.seedStartDate.toLocaleDateString()}
+                    {displaySeedStartDate.date.toLocaleDateString()}
+                    {displaySeedStartDate.calculated && (
+                      <span className="text-xs text-gray-500 ml-1">(calculated)</span>
+                    )}
                   </span>
                 </div>
               )}
@@ -164,12 +181,14 @@ export const ConflictDetailsModal: React.FC<ConflictDetailsModalProps> = ({
                   </span>
                 </div>
               )}
-              <div>
-                <span className="font-medium text-gray-700">Expected Harvest:</span>{' '}
-                <span className="text-gray-600">
-                  {event.expectedHarvestDate.toLocaleDateString()}
-                </span>
-              </div>
+              {event.expectedHarvestDate && (
+                <div>
+                  <span className="font-medium text-gray-700">Expected Harvest:</span>{' '}
+                  <span className="text-gray-600">
+                    {event.expectedHarvestDate.toLocaleDateString()}
+                  </span>
+                </div>
+              )}
               {event.notes && (
                 <div>
                   <span className="font-medium text-gray-700">Notes:</span>{' '}

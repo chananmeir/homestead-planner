@@ -11,15 +11,17 @@ import {
 } from 'date-fns';
 import CalendarDayCell from './CalendarDayCell';
 import { PlantingCalendar } from '../../../types';
+import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { createDateMarkers, groupMarkersByDate } from './utils';
 
 interface CalendarGridProps {
   currentDate: Date;
   events: PlantingCalendar[];
   onDateClick?: (date: Date) => void;
+  onEventClick?: (event: PlantingCalendar) => void;
 }
 
-const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, onDateClick }) => {
+const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, onDateClick, onEventClick }) => {
   // Calculate the days to display in the calendar grid
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
@@ -33,7 +35,7 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, onDate
 
   // Group events by date for efficient lookup
   const markersByDate = useMemo(() => {
-    const markers = createDateMarkers(events);
+    const markers = createDateMarkers(events, PLANT_DATABASE);
     return groupMarkersByDate(markers);
   }, [events]);
 
@@ -75,6 +77,7 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, onDate
               isToday={isTodayDate}
               markers={dayMarkers}
               onClick={() => handleDayClick(day)}
+              onEventClick={onEventClick}
             />
           );
         })}

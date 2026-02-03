@@ -11,9 +11,9 @@ const ReadinessIndicator: React.FC<ReadinessIndicatorProps> = ({
   cropReadiness,
   plantingEvents
 }) => {
-  // Get unique plant IDs from planting events
+  // Get unique plant IDs from planting events (filter out non-planting events)
   const plantedCropIds = Array.from(
-    new Set(plantingEvents.map(event => event.plantId))
+    new Set(plantingEvents.map(event => event.plantId).filter((id): id is string => id !== undefined))
   );
 
   // Filter readiness data to only include planted crops

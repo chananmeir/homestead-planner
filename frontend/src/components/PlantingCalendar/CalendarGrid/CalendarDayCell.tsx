@@ -1,14 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { format } from 'date-fns';
 import EventMarker from './EventMarker';
-import { DateMarker } from './utils';
+import GroupedEventsModal from './GroupedEventsModal';
+import { DateMarkerOrGroup, GroupedDateMarker, isGroupedMarker } from './utils';
+import { PlantingCalendar } from '../../../types';
 
 interface CalendarDayCellProps {
   date: Date;
   isCurrentMonth: boolean;
   isToday: boolean;
-  markers: DateMarker[];
+  markers: DateMarkerOrGroup[];
   onClick: () => void;
+  onEventClick?: (event: PlantingCalendar) => void;
 }
 
 const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
@@ -16,11 +19,26 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
   isCurrentMonth,
   isToday,
   markers,
-  onClick
+  onClick,
+  onEventClick
 }) => {
-  // Show up to 3 markers, with "+X more" indicator if there are more
-  const visibleMarkers = markers.slice(0, 3);
-  const remainingCount = markers.length - 3;
+  const [selectedGroup, setSelectedGroup] = useState<GroupedDateMarker | null>(null);
+
+  // Show up to 5 markers, with "+X more" indicator if there are more
+  const visibleMarkers = markers.slice(0, 5);
+  const remainingCount = markers.length - 5;
+
+  const handleMarkerClick = (e: React.MouseEvent, marker: DateMarkerOrGroup) => {
+    e.stopPropagation(); // Prevent day click
+
+    if (isGroupedMarker(marker)) {
+      // Show grouped events modal
+      setSelectedGroup(marker);
+    } else if (onEventClick) {
+      // Show single event edit
+      onEventClick(marker.event);
+    }
+  };
 
   return (
     <div
@@ -51,11 +69,9 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
       {/* Event markers container */}
       <div className="flex flex-col gap-1">
         {visibleMarkers.map((marker, index) => (
-          <EventMarker
-            key={`${marker.event.id}-${marker.type}-${index}`}
-            type={marker.type}
-            event={marker.event}
-          />
+          <div key={index} onClick={(e) => handleMarkerClick(e, marker)}>
+            <EventMarker marker={marker} />
+          </div>
         ))}
 
         {/* "+X more" indicator */}
@@ -65,6 +81,18 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
           </div>
         )}
       </div>
+
+      {/* Grouped Events Modal */}
+      <GroupedEventsModal
+        isOpen={!!selectedGroup}
+        marker={selectedGroup}
+        onClose={() => setSelectedGroup(null)}
+        onEditEvent={(event) => {
+          if (onEventClick) {
+            onEventClick(event);
+          }
+        }}
+      />
     </div>
   );
 };

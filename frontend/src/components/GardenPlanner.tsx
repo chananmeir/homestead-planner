@@ -6,15 +6,23 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { API_BASE_URL } from '../config';
-import type { GardenPlan, SeedInventoryItem, PlanningStrategy, SuccessionPreference, CalculatePlanResponse, RotationWarning as RotationWarningType, GardenBed, SpaceBreakdown, BedSpaceUsage, TrellisStructure, TrellisSpaceUsage } from '../types';
+import type { GardenPlan, SeedInventoryItem, PlanningStrategy, SuccessionPreference, CalculatePlanResponse, RotationWarning as RotationWarningType, GardenBed, SpaceBreakdown, BedSpaceUsage, TrellisStructure, TrellisSpaceUsage, BedAssignment, AllocationMode } from '../types';
 import RotationWarning from './common/RotationWarning';
 import { Modal } from './common/Modal';
+import { ConfirmDialog, useToast } from './common';
 import { SearchBar } from './common/SearchBar';
 import { FilterBar, FilterGroup } from './common/FilterBar';
 import { SortDropdown, SortOption, SortDirection } from './common/SortDropdown';
 import { PLANT_DATABASE } from '../data/plantDatabase';
-import { calculateSpaceForQuantities, getSpaceEstimateForSeed, calculateSpacePerBed, calculateTrellisSpaceRequirement, isTrellisPlanting, getLinearFeetPerPlant } from '../utils/gardenPlannerSpaceCalculator';
+import { getPlantById, resolveAlias } from '../utils/plantIdResolver';
+import { calculateSpaceForQuantities, calculateSpacePerBed, calculateTrellisSpaceRequirement, isTrellisPlanting, getLinearFeetPerPlant, calculateSeedRowOptimization, SeedRowOptimization } from '../utils/gardenPlannerSpaceCalculator';
 import { calculateSuggestedInterval } from './PlantingCalendar/utils/successionCalculations';
+import { PlanNutritionCard } from './GardenPlanner/PlanNutritionCard';
+
+// Debug flag for Season Planner diagnostics
+// To enable: In browser console, run: localStorage.setItem('DEBUG_SEASON_PLANNER', 'true')
+// To disable: localStorage.removeItem('DEBUG_SEASON_PLANNER')
+const DEBUG_SEASON_PLANNER = typeof window !== 'undefined' && localStorage.getItem('DEBUG_SEASON_PLANNER') === 'true';
 
 const GardenPlanner: React.FC = () => {
   const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
@@ -28,7 +36,7 @@ const GardenPlanner: React.FC = () => {
 
   // Hardcoded defaults (Step 2 "Configure Strategy" removed from UI)
   const DEFAULT_STRATEGY: PlanningStrategy = 'balanced';
-  const DEFAULT_SUCCESSION: SuccessionPreference = 'moderate';
+  const DEFAULT_SUCCESSION: SuccessionPreference = '4';
   const [perSeedSuccession, setPerSeedSuccession] = useState<Map<number, SuccessionPreference>>(new Map());
   const [calculatedPlan, setCalculatedPlan] = useState<CalculatePlanResponse | null>(null);
   const [planName, setPlanName] = useState('');
@@ -44,17 +52,51 @@ const GardenPlanner: React.FC = () => {
   const [bedAssignments, setBedAssignments] = useState<Map<number, number[]>>(new Map());
   const [bedSpaceUsage, setBedSpaceUsage] = useState<Map<number, BedSpaceUsage>>(new Map());
   const [rotationWarnings, setRotationWarnings] = useState<Map<string, RotationWarningType[]>>(new Map());
+  const [perSeedBedFilter, setPerSeedBedFilter] = useState<Map<number, number | null>>(new Map());
+  const [editingBedsForSeedId, setEditingBedsForSeedId] = useState<number | null>(null);
+
+  // Per-bed quantity allocation state (keyed by seedId / seed.id)
+  const [bedAllocations, setBedAllocations] = useState<Map<number, BedAssignment[]>>(new Map());
+  const [allocationModes, setAllocationModes] = useState<Map<number, AllocationMode>>(new Map());
 
   // Trellis state
   const [trellisStructures, setTrellisStructures] = useState<TrellisStructure[]>([]);
   const [trellisAssignments, setTrellisAssignments] = useState<Map<number, number[]>>(new Map());
   const [trellisSpaceUsage, setTrellisSpaceUsage] = useState<Map<number, TrellisSpaceUsage>>(new Map());
 
+  // Optimization suggestion state (per-seed-row)
+  const [seedRowOptimizations, setSeedRowOptimizations] = useState<Map<number, SeedRowOptimization | null>>(new Map());
+
+  // Nutrition state
+  const [nutritionEstimates, setNutritionEstimates] = useState<{
+    totalCalories: number;
+    totalProtein: number;
+    byPlant: { [plantId: string]: { calories: number; protein: number; yieldLbs: number } };
+    missingNutritionData: string[];
+  } | null>(null);
+
   // Search, filter, and sort state for Step 1
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [sortBy, setSortBy] = useState('plantId');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  // Hide incompatible beds toggle - default ON
+  const [hideIncompatibleBeds, setHideIncompatibleBeds] = useState(true);
+
+  // Edit mode state
+  const [editingPlanId, setEditingPlanId] = useState<number | null>(null);
+  const [editingPlanName, setEditingPlanName] = useState<string>('');
+  const [missingSeeds, setMissingSeeds] = useState<string[]>([]);
+
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; planId: number | null }>({
+    isOpen: false,
+    planId: null,
+  });
+
+  // Toast notifications
+  const { showSuccess, showError } = useToast();
 
   // Helper function to get display-friendly name for planning methods
   const getPlanningMethodDisplay = (method: string | undefined): string => {
@@ -87,8 +129,8 @@ const GardenPlanner: React.FC = () => {
     allowedOptions: SuccessionPreference[];
     suggestedDefault: SuccessionPreference;
   } => {
-    // Get plant from database
-    const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
+    // Get plant from database (with alias resolution)
+    const plant = getPlantById(seed.plantId);
 
     // Get DTM - prioritize seed-specific override, fall back to plant database
     const dtm = seed.daysToMaturity ?? plant?.daysToMaturity;
@@ -99,8 +141,8 @@ const GardenPlanner: React.FC = () => {
       return {
         level: 'unsuitable',
         message: `Days to maturity not available for ${plantName}`,
-        allowedOptions: ['none', 'light', 'moderate', 'heavy'], // Allow all since we don't know
-        suggestedDefault: 'none'
+        allowedOptions: ['0', '1', '2', '3', '4', '5', '6', '7', '8'], // Allow all since we don't know
+        suggestedDefault: '0'
       };
     }
 
@@ -114,8 +156,8 @@ const GardenPlanner: React.FC = () => {
       return {
         level: 'ideal',
         message: `⭐ ${plantName} is ideal for succession planting (${dtm} days to maturity). ${intervalInfo.reasoning}`,
-        allowedOptions: ['none', 'light', 'moderate', 'heavy'],
-        suggestedDefault: 'moderate'
+        allowedOptions: ['0', '1', '2', '3', '4', '5', '6', '7', '8'], // All options
+        suggestedDefault: '4'
       };
     }
 
@@ -124,8 +166,8 @@ const GardenPlanner: React.FC = () => {
       return {
         level: 'good',
         message: `✅ ${plantName} is well-suited for succession planting (${dtm} days). ${intervalInfo.reasoning}`,
-        allowedOptions: ['none', 'light', 'moderate', 'heavy'],
-        suggestedDefault: 'light'
+        allowedOptions: ['0', '1', '2', '3', '4', '5', '6', '7', '8'], // All options
+        suggestedDefault: '2'
       };
     }
 
@@ -134,8 +176,8 @@ const GardenPlanner: React.FC = () => {
       return {
         level: 'limited',
         message: `⚠️ ${plantName} has limited succession potential (${dtm} days). Most growing seasons only support 2-3 plantings. ${intervalInfo.reasoning}`,
-        allowedOptions: ['none', 'light'],  // Only allow none or light (2x)
-        suggestedDefault: 'none'
+        allowedOptions: ['0', '1', '2', '3'],  // Limit to 0-3
+        suggestedDefault: '0'
       };
     }
 
@@ -143,8 +185,8 @@ const GardenPlanner: React.FC = () => {
     return {
       level: 'unsuitable',
       message: `❌ ${plantName} is not suitable for succession planting (${dtm} days). ${intervalInfo.reasoning}`,
-      allowedOptions: ['none'],
-      suggestedDefault: 'none'
+      allowedOptions: ['0'],
+      suggestedDefault: '0'
     };
   };
 
@@ -221,6 +263,86 @@ const GardenPlanner: React.FC = () => {
   };
 
   /**
+   * Reconstruct wizard state from a saved garden plan
+   * Used when editing or duplicating an existing plan
+   */
+  const reconstructWizardState = (
+    plan: GardenPlan,
+    seedInventory: SeedInventoryItem[]
+  ): {
+    selectedSeeds: Set<number>;
+    manualQuantities: Map<number, number>;
+    perSeedSuccession: Map<number, SuccessionPreference>;
+    bedAssignments: Map<number, number[]>;
+    trellisAssignments: Map<number, number[]>;
+    missingSeeds: string[];
+  } => {
+    const selectedSeeds = new Set<number>();
+    const manualQuantities = new Map<number, number>();
+    const perSeedSuccession = new Map<number, SuccessionPreference>();
+    const bedAssignments = new Map<number, number[]>();
+    const trellisAssignments = new Map<number, number[]>();
+    const missingSeeds: string[] = [];
+
+    // Build a lookup map of seed inventory by ID
+    const seedLookup = new Map(seedInventory.map(s => [s.id, s]));
+
+    // Map succession counts to preference levels
+    const successionCountToPreference = (count: number): SuccessionPreference => {
+      // Clamp to valid range 0-8
+      const clampedCount = Math.max(0, Math.min(8, count));
+      return String(clampedCount) as SuccessionPreference;
+    };
+
+    // Process each plan item
+    for (const item of plan.items || []) {
+      const seedId = item.seedInventoryId;
+
+      if (!seedId) continue; // Skip items without seed reference
+
+      // Check if seed still exists in inventory
+      if (!seedLookup.has(seedId)) {
+        const itemName = item.variety || item.plantId;
+        missingSeeds.push(itemName);
+        continue; // Don't add to wizard state
+      }
+
+      // Add to selected seeds
+      selectedSeeds.add(seedId);
+
+      // Reconstruct manual quantity (use targetValue)
+      manualQuantities.set(seedId, item.targetValue);
+
+      // Reconstruct per-seed succession preference
+      // Infer from succession count vs. plan default
+      const itemSuccessionPref = successionCountToPreference(item.successionCount || 1);
+      const planDefaultPref = plan.successionPreference || DEFAULT_SUCCESSION;
+
+      // Only store if different from plan default (treat as override)
+      if (itemSuccessionPref !== planDefaultPref) {
+        perSeedSuccession.set(seedId, itemSuccessionPref);
+      }
+
+      // Reconstruct bed assignments
+      if (item.bedsAllocated && item.bedsAllocated.length > 0) {
+        bedAssignments.set(seedId, item.bedsAllocated);
+      }
+
+      // TODO: Reconstruct trellis assignments when that data is available
+      // For now, trellisAssignments remains empty
+    }
+
+    return {
+      selectedSeeds,
+      manualQuantities,
+      perSeedSuccession,
+      bedAssignments,
+      trellisAssignments,
+      missingSeeds
+    };
+  };
+
+  /**
    * Check if the user has any beds compatible with a plant's sun requirements
    * Returns null if compatible beds exist, or a warning message if not
    */
@@ -228,7 +350,7 @@ const GardenPlanner: React.FC = () => {
     plantId: string,
     beds: GardenBed[]
   ): string | null => {
-    const plant = PLANT_DATABASE.find(p => p.id === plantId);
+    const plant = getPlantById(plantId); // Uses alias resolution
     if (!plant || !plant.sunRequirement) {
       return null; // Can't validate without plant data
     }
@@ -273,19 +395,31 @@ const GardenPlanner: React.FC = () => {
 
   /**
    * Check if a specific bed is compatible with a plant's sun requirements
-   * Returns: 'compatible' | 'incompatible' | 'unknown'
+   *
+   * Returns:
+   * - 'compatible': Bed's sun exposure matches plant's requirement
+   * - 'incompatible': Bed's sun exposure is explicitly incompatible
+   * - 'unknown': Can't determine (plant data missing OR bed has no sunExposure set)
+   *
+   * IMPORTANT: 'unknown' beds are NOT filtered out by getCompatibleBeds().
+   * This means beds without sunExposure set are treated as compatible (flexible).
+   *
+   * Compatibility matrix (plant requirement → acceptable bed exposures):
+   * - 'full': ['full'] only
+   * - 'partial': ['full', 'partial']
+   * - 'shade': ['full', 'partial', 'shade'] (shade-tolerant plants accept any)
    */
   const checkBedSunCompatibility = (
     plantId: string,
     bed: GardenBed
   ): 'compatible' | 'incompatible' | 'unknown' => {
-    const plant = PLANT_DATABASE.find(p => p.id === plantId);
+    const plant = getPlantById(plantId); // Uses alias resolution
     if (!plant || !plant.sunRequirement) {
       return 'unknown'; // Can't validate without plant data
     }
 
     if (!bed.sunExposure) {
-      return 'unknown'; // Bed doesn't have sun exposure set
+      return 'unknown'; // Bed doesn't have sun exposure set → treated as flexible
     }
 
     // Compatibility matrix: plant requirement -> acceptable bed exposures
@@ -302,18 +436,144 @@ const GardenPlanner: React.FC = () => {
 
   /**
    * Get beds compatible with a seed's planning methods and sun exposure
-   * Filters out beds with explicit incompatible sun exposure
+   *
+   * FILTERING LOGIC:
+   * - INCLUDES: 'compatible' beds (explicit match)
+   * - INCLUDES: 'unknown' beds (no sunExposure set → treated as flexible/compatible)
+   * - EXCLUDES: 'incompatible' beds (explicit mismatch)
+   *
+   * This means beds WITHOUT sunExposure set are NOT filtered out.
    */
-  const getCompatibleBeds = (seed: SeedInventoryItem): GardenBed[] => {
-    const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
-    if (!plant) return [];
+  const getCompatibleBeds = (seed: SeedInventoryItem): GardenBed[] | null => {
+    const plant = getPlantById(seed.plantId); // Uses alias resolution
+    if (!plant) {
+      if (DEBUG_SEASON_PLANNER) {
+        console.warn('[SeasonPlanner] getCompatibleBeds: Plant not found', { seedId: seed.id, plantId: seed.plantId, resolvedId: resolveAlias(seed.plantId) });
+      }
+      return null; // Return null to indicate "unknown plant" vs empty array "no compatible beds"
+    }
 
     // Filter out beds with explicit incompatible sun exposure
-    return gardenBeds.filter(bed => {
+    const compatibleBeds = gardenBeds.filter(bed => {
       const sunCompatibility = checkBedSunCompatibility(seed.plantId, bed);
       // Include compatible and unknown (undefined sun exposure) beds
       // Exclude only explicitly incompatible beds
       return sunCompatibility !== 'incompatible';
+    });
+
+    // Debug logging when enabled
+    if (DEBUG_SEASON_PLANNER && compatibleBeds.length === 0) {
+      console.group(`[SeasonPlanner] No Compatible Beds Found`);
+      console.log('Seed:', { id: seed.id, plantId: seed.plantId, variety: seed.variety });
+      console.log('Plant:', { name: plant.name, sunRequirement: plant.sunRequirement });
+      console.log('Total beds:', gardenBeds.length);
+      console.log('Bed compatibility analysis:');
+      gardenBeds.forEach(bed => {
+        const sunCompatibility = checkBedSunCompatibility(seed.plantId, bed);
+        console.log(`  - Bed "${bed.name}" (ID: ${bed.id}):`, {
+          sunExposure: bed.sunExposure || 'NOT SET',
+          compatibility: sunCompatibility,
+          reason: !bed.sunExposure
+            ? 'No sunExposure set (treated as unknown/compatible)'
+            : sunCompatibility === 'incompatible'
+            ? `Incompatible: plant needs ${plant.sunRequirement}, bed has ${bed.sunExposure}`
+            : 'Compatible'
+        });
+      });
+      console.groupEnd();
+    }
+
+    return compatibleBeds;
+  };
+
+  /**
+   * Get all beds for display (includes incompatible beds, but marked)
+   * This is used for the bed selector to show ALL beds with visual indicators
+   */
+  const getAllBedsForDisplay = (seed: SeedInventoryItem): Array<GardenBed & { isCompatible: boolean }> => {
+    return gardenBeds.map(bed => {
+      const sunCompatibility = checkBedSunCompatibility(seed.plantId, bed);
+      return {
+        ...bed,
+        isCompatible: sunCompatibility !== 'incompatible'
+      };
+    });
+  };
+
+  /**
+   * Get beds for the "Assign to Bed(s)" list with hide incompatible beds logic
+   *
+   * When hideIncompatibleBeds is ON:
+   * - Only show compatible beds (compatible or unknown sun compatibility)
+   * - ALWAYS show already-assigned beds even if incompatible
+   * - Sort assigned-but-incompatible beds to the top with warning
+   *
+   * Returns: { visibleBeds, hiddenCount, assignedIncompatibleBeds }
+   */
+  const getBedsForAssignment = (seed: SeedInventoryItem): {
+    visibleBeds: Array<GardenBed & { isCompatible: boolean; isAssignedIncompatible: boolean }>;
+    hiddenCount: number;
+    assignedIncompatibleBeds: Array<GardenBed & { isCompatible: boolean; isAssignedIncompatible: boolean }>;
+  } => {
+    const allBeds = getAllBedsForDisplay(seed);
+    const filterBedId = perSeedBedFilter.get(seed.id);
+    const assignedBedIds = bedAssignments.get(seed.id) || [];
+
+    // Mark which beds are assigned but incompatible
+    const bedsWithAssignmentStatus = allBeds.map(bed => ({
+      ...bed,
+      isAssignedIncompatible: !bed.isCompatible && assignedBedIds.includes(bed.id)
+    }));
+
+    // Apply per-seed bed filter (if any) while ALWAYS preserving assigned beds
+    // This ensures changing the filter never removes assigned beds from visibility
+    let filteredBeds = filterBedId
+      ? bedsWithAssignmentStatus.filter(bed => bed.id === filterBedId || assignedBedIds.includes(bed.id))
+      : bedsWithAssignmentStatus;
+
+    if (!hideIncompatibleBeds) {
+      // When toggle is OFF, show all beds (current behavior)
+      return {
+        visibleBeds: filteredBeds,
+        hiddenCount: 0,
+        assignedIncompatibleBeds: filteredBeds.filter(b => b.isAssignedIncompatible)
+      };
+    }
+
+    // When toggle is ON, filter out incompatible beds BUT keep assigned ones
+    const compatibleBeds = filteredBeds.filter(bed => bed.isCompatible);
+    const assignedIncompatibleBeds = filteredBeds.filter(bed => bed.isAssignedIncompatible);
+
+    // Count how many incompatible beds are being hidden (not assigned)
+    const hiddenCount = filteredBeds.filter(bed => !bed.isCompatible && !assignedBedIds.includes(bed.id)).length;
+
+    // Combine: assigned incompatible beds first (with warning), then compatible beds
+    const visibleBeds = [...assignedIncompatibleBeds, ...compatibleBeds];
+
+    return {
+      visibleBeds,
+      hiddenCount,
+      assignedIncompatibleBeds
+    };
+  };
+
+  /**
+   * Get beds for the Bed Filter dropdown with hide incompatible beds logic
+   * When hideIncompatibleBeds is ON, only show compatible beds plus any that are assigned
+   */
+  const getBedsForFilterDropdown = (seed: SeedInventoryItem): GardenBed[] => {
+    const assignedBedIds = bedAssignments.get(seed.id) || [];
+
+    if (!hideIncompatibleBeds) {
+      return gardenBeds;
+    }
+
+    // Return compatible beds + any assigned beds (even if incompatible)
+    return gardenBeds.filter(bed => {
+      const compatibility = checkBedSunCompatibility(seed.plantId, bed);
+      const isCompatible = compatibility !== 'incompatible';
+      const isAssigned = assignedBedIds.includes(bed.id);
+      return isCompatible || isAssigned;
     });
   };
 
@@ -326,7 +586,7 @@ const GardenPlanner: React.FC = () => {
     const bed = gardenBeds.find(b => b.id === bedId);
     if (!seed || !bed) return null;
 
-    const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
+    const plant = getPlantById(seed.plantId); // Uses alias resolution
     if (!plant || !plant.sunRequirement) return null;
 
     if (!bed.sunExposure) {
@@ -342,37 +602,6 @@ const GardenPlanner: React.FC = () => {
     return null;
   };
 
-  /**
-   * Calculate space status for a bed + crop combination
-   */
-  const getBedSpaceStatus = (bedId: number, seed: SeedInventoryItem): string => {
-    const bed = gardenBeds.find(b => b.id === bedId);
-    const quantity = manualQuantities.get(seed.id) || 0;
-    if (!bed || quantity === 0) return 'N/A';
-
-    const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
-    if (!plant) return 'N/A';
-
-    // Get current usage for this bed
-    const currentUsage = bedSpaceUsage.get(bedId);
-    const currentUsedSpace = currentUsage ? currentUsage.usedSpace : 0;
-    const totalSpace = bed.width * bed.length;
-
-    // Calculate utilization percentage
-    const utilization = (currentUsedSpace / totalSpace) * 100;
-
-    if (utilization < 80) return `${Math.round(utilization)}% ✓`;
-    if (utilization <= 100) return `${Math.round(utilization)}% ⚠️`;
-    return `${Math.round(utilization)}% ❌`;
-  };
-
-  /**
-   * Check if a seed-bed combination has rotation conflicts
-   */
-  const hasRotationConflict = (seedId: number, bedId: number): boolean => {
-    const key = `${seedId}-${bedId}`;
-    return rotationWarnings.has(key) && (rotationWarnings.get(key)?.length || 0) > 0;
-  };
 
   /**
    * Fetch rotation warnings for a seed and its assigned beds
@@ -422,6 +651,38 @@ const GardenPlanner: React.FC = () => {
   };
 
   /**
+   * Distribute quantity evenly across beds with integer remainder handling
+   * First N beds get +1 to handle remainder (deterministic distribution)
+   */
+  const distributeEvenly = (total: number, bedIds: number[]): BedAssignment[] => {
+    if (bedIds.length === 0) return [];
+    const base = Math.floor(total / bedIds.length);
+    const remainder = total % bedIds.length;
+    return bedIds.map((bedId, idx) => ({
+      bedId,
+      quantity: base + (idx < remainder ? 1 : 0)
+    }));
+  };
+
+  /**
+   * Get allocated sum for a seed
+   */
+  const getAllocatedSum = (seedId: number): number => {
+    const allocations = bedAllocations.get(seedId) || [];
+    return allocations.reduce((acc, a) => acc + a.quantity, 0);
+  };
+
+  /**
+   * Check if allocation is valid (sum equals total quantity)
+   */
+  const isAllocationValid = (seedId: number): boolean => {
+    const mode = allocationModes.get(seedId) || 'even';
+    if (mode === 'even') return true; // Even mode auto-calculates
+    const total = manualQuantities.get(seedId) || 0;
+    return getAllocatedSum(seedId) === total;
+  };
+
+  /**
    * Handle bed selection change for a seed
    */
   const handleBedSelection = (seedId: number, bedIds: number[]) => {
@@ -434,6 +695,31 @@ const GardenPlanner: React.FC = () => {
       }
       return newMap;
     });
+
+    const mode = allocationModes.get(seedId) || 'even';
+    const quantity = manualQuantities.get(seedId) || 0;
+
+    if (bedIds.length === 0) {
+      // Clear allocations when no beds selected
+      setBedAllocations(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(seedId);
+        return newMap;
+      });
+    } else if (mode === 'even' && quantity > 0) {
+      // Redistribute evenly
+      const allocations = distributeEvenly(quantity, bedIds);
+      setBedAllocations(prev => new Map(prev).set(seedId, allocations));
+    } else if (mode === 'custom') {
+      // Prune stale bedIds from custom allocations (prevent saving stale data)
+      setBedAllocations(prev => {
+        const next = new Map(prev);
+        const existing = next.get(seedId) || [];
+        const filtered = existing.filter(a => bedIds.includes(a.bedId));
+        next.set(seedId, filtered);
+        return next;
+      });
+    }
 
     // Recalculate space for all beds
     updateBedSpaceUsage();
@@ -487,7 +773,20 @@ const GardenPlanner: React.FC = () => {
   };
 
   /**
+   * Apply optimization suggestion - reduces bed assignment to minimum needed
+   */
+  const handleApplyOptimization = (seedId: number, requiredBedIds: number[]) => {
+    // Use existing handleBedSelection to update assignments
+    // This ensures all side effects (allocations, space usage, rotation warnings) are handled
+    handleBedSelection(seedId, requiredBedIds);
+  };
+
+  /**
    * Update bed space usage based on current assignments
+   * Bug fixes applied:
+   * - Now passes bedAllocations for custom per-bed quantities (Bug #2)
+   * - Now passes allocationModes to distinguish even vs custom (Bug #2)
+   * - Now passes DEFAULT_SUCCESSION for seeds not in perSeedSuccession Map (Bug #1)
    */
   const updateBedSpaceUsage = () => {
     const usage = calculateSpacePerBed(
@@ -495,17 +794,21 @@ const GardenPlanner: React.FC = () => {
       manualQuantities,
       bedAssignments,
       gardenBeds,
-      perSeedSuccession
+      perSeedSuccession,
+      bedAllocations,
+      allocationModes,
+      DEFAULT_SUCCESSION
     );
     setBedSpaceUsage(usage);
   };
 
   // Update bed space usage when relevant state changes
+  // Bug #3 fix: Added bedAllocations and allocationModes to dependencies
   useEffect(() => {
     if (gardenBeds.length > 0 && manualQuantities.size > 0) {
       updateBedSpaceUsage();
     }
-  }, [manualQuantities, bedAssignments, gardenBeds, seedInventory, perSeedSuccession]);
+  }, [manualQuantities, bedAssignments, gardenBeds, seedInventory, perSeedSuccession, bedAllocations, allocationModes]);
 
   // Update space breakdown summary when succession preferences change
   useEffect(() => {
@@ -513,6 +816,127 @@ const GardenPlanner: React.FC = () => {
       calculateSpaceBreakdown(manualQuantities, perSeedSuccession);
     }
   }, [perSeedSuccession, manualQuantities, gardenBeds, trellisStructures, seedInventory]);
+
+  // Calculate per-seed-row optimization suggestions
+  useEffect(() => {
+    const calculateOptimizations = async () => {
+      const newOptimizations = new Map<number, SeedRowOptimization | null>();
+
+      for (const seedId of Array.from(selectedSeeds)) {
+        const seed = seedInventory.find(s => s.id === seedId);
+        if (!seed) continue;
+
+        const quantity = manualQuantities.get(seedId) || 0;
+        const succession = perSeedSuccession.get(seedId) || DEFAULT_SUCCESSION;
+        const assignedBeds = bedAssignments.get(seedId) || [];
+
+        const opt = await calculateSeedRowOptimization(
+          seed,
+          quantity,
+          succession,
+          assignedBeds,
+          gardenBeds,
+          seedInventory
+        );
+        newOptimizations.set(seedId, opt);
+      }
+
+      setSeedRowOptimizations(newOptimizations);
+    };
+
+    if (selectedSeeds.size > 0 && gardenBeds.length > 0) {
+      calculateOptimizations();
+    } else {
+      setSeedRowOptimizations(new Map());
+    }
+  }, [selectedSeeds, manualQuantities, perSeedSuccession, bedAssignments, gardenBeds, seedInventory]);
+
+  // Calculate nutrition estimates when quantities change (via backend API)
+  useEffect(() => {
+    if (manualQuantities.size === 0) {
+      setNutritionEstimates(null);
+      return;
+    }
+
+    // Build items array for API request
+    const items: Array<{ plantId: string; quantity: number; successionCount: number; variety?: string }> = [];
+    manualQuantities.forEach((quantity, seedId) => {
+      const seed = seedInventory.find(s => s.id === seedId);
+      if (!seed || !quantity) return;
+
+      const successionPref = perSeedSuccession.get(seedId) || DEFAULT_SUCCESSION;
+      const successionCount = Math.max(1, parseInt(successionPref, 10));
+
+      items.push({
+        plantId: seed.plantId,
+        quantity,
+        successionCount,
+        variety: seed.variety || undefined
+      });
+    });
+
+    if (items.length === 0) {
+      setNutritionEstimates(null);
+      return;
+    }
+
+    // AbortController to cancel pending requests when dependencies change
+    const abortController = new AbortController();
+
+    // Debounce API calls
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/nutrition/estimate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ items, year: new Date().getFullYear() }),
+          signal: abortController.signal
+        });
+
+        if (!response.ok) {
+          console.error('Failed to fetch nutrition estimates');
+          setNutritionEstimates(null); // Clear stale data on failure
+          return;
+        }
+
+        const data = await response.json();
+
+        // Map backend response (camelCase) to local state format
+        const estimates = {
+          totalCalories: data.totals?.calories || 0,
+          totalProtein: data.totals?.proteinG || 0,
+          byPlant: {} as { [plantId: string]: { calories: number; protein: number; yieldLbs: number } },
+          missingNutritionData: data.missingNutritionData || []
+        };
+
+        // Convert byPlant from backend format
+        if (data.byPlant) {
+          Object.entries(data.byPlant).forEach(([plantId, plantData]: [string, any]) => {
+            estimates.byPlant[plantId] = {
+              calories: plantData.calories || 0,
+              protein: plantData.proteinG || 0,
+              yieldLbs: plantData.totalYieldLbs || 0
+            };
+          });
+        }
+
+        setNutritionEstimates(estimates);
+      } catch (err) {
+        // Don't clear estimates or log error if request was aborted
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+        console.error('Error fetching nutrition estimates:', err);
+        setNutritionEstimates(null); // Clear stale data on error
+      }
+    }, 300); // 300ms debounce
+
+    return () => {
+      clearTimeout(timeoutId);
+      abortController.abort();
+    };
+  }, [manualQuantities, seedInventory, perSeedSuccession]);
 
   const toggleSeedSelection = (seedId: number) => {
     const newSelection = new Set(selectedSeeds);
@@ -550,6 +974,56 @@ const GardenPlanner: React.FC = () => {
       updated.delete(seedId);
     }
     setManualQuantities(updated);
+
+    // Redistribute bed allocations when quantity changes
+    const mode = allocationModes.get(seedId) || 'even';
+    const bedIds = bedAssignments.get(seedId) || [];
+
+    if (quantity === 0) {
+      // Clear allocations when quantity is 0
+      setBedAllocations(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(seedId);
+        return newMap;
+      });
+    } else if (bedIds.length > 0) {
+      if (mode === 'even') {
+        // Redistribute evenly
+        const allocations = distributeEvenly(quantity, bedIds);
+        setBedAllocations(prev => new Map(prev).set(seedId, allocations));
+      } else if (mode === 'custom') {
+        // Auto-rebalance custom allocations: adjust last bed by delta
+        setBedAllocations(prev => {
+          const existing = prev.get(seedId) || [];
+          if (existing.length === 0) {
+            // No existing allocations - distribute evenly
+            return new Map(prev).set(seedId, distributeEvenly(quantity, bedIds));
+          }
+
+          const currentSum = existing.reduce((acc, a) => acc + a.quantity, 0);
+          const delta = quantity - currentSum;
+
+          if (delta === 0) return prev; // No change needed
+
+          // Adjust last bed's quantity by delta
+          const rebalanced = existing.map((a, idx) => {
+            if (idx === existing.length - 1) {
+              return { ...a, quantity: Math.max(0, a.quantity + delta) };
+            }
+            return a;
+          });
+
+          // Verify sum - if last bed went to 0 and we still need more adjustment, redistribute evenly
+          const newSum = rebalanced.reduce((acc, a) => acc + a.quantity, 0);
+          if (newSum !== quantity) {
+            // Fallback to even distribution
+            return new Map(prev).set(seedId, distributeEvenly(quantity, bedIds));
+          }
+
+          return new Map(prev).set(seedId, rebalanced);
+        });
+      }
+    }
 
     // Recalculate space breakdown with current succession preferences
     calculateSpaceBreakdown(updated, perSeedSuccession);
@@ -642,28 +1116,79 @@ const GardenPlanner: React.FC = () => {
       setError('Please enter a plan name');
       return;
     }
+
+    // Detect edit mode
+    const isEditMode = editingPlanId !== null;
+
     setLoading(true);
     try {
-      // Merge bed assignments into plan items
+      // Merge bed assignments and allocations into plan items
       const itemsWithBeds = calculatedPlan.items.map(item => {
-        // Find the original seed to get bed assignments
+        // Find the original seed to get bed assignments and allocations
         const seed = seedInventory.find(s =>
           s.plantId === item.plantId && s.variety === item.variety
         );
 
         if (seed) {
           const beds = bedAssignments.get(seed.id) || [];
+          const mode = allocationModes.get(seed.id) || 'even';
+          let allocations = bedAllocations.get(seed.id) || [];
+          const total = manualQuantities.get(seed.id) || item.targetValue || 0;
+
+          // Ensure allocations sum correctly for both even and custom modes
+          if (beds.length > 0 && total > 0) {
+            const sum = allocations.reduce((acc, a) => acc + a.quantity, 0);
+
+            if (mode === 'even') {
+              // Even mode: always redistribute if needed
+              if (allocations.length === 0 || sum !== total) {
+                allocations = distributeEvenly(total, beds);
+              }
+            } else if (mode === 'custom') {
+              // Custom mode: auto-rebalance if sum doesn't match
+              if (sum !== total) {
+                console.warn(`[GardenPlanner] Auto-rebalancing custom allocation: sum=${sum}, target=${total}`);
+                if (allocations.length === 0) {
+                  // No allocations - distribute evenly
+                  allocations = distributeEvenly(total, beds);
+                } else {
+                  // Adjust last bed by delta
+                  const delta = total - sum;
+                  allocations = allocations.map((a, idx) => {
+                    if (idx === allocations.length - 1) {
+                      return { ...a, quantity: Math.max(0, a.quantity + delta) };
+                    }
+                    return a;
+                  });
+                  // Final check - if still wrong, fall back to even
+                  const newSum = allocations.reduce((acc, a) => acc + a.quantity, 0);
+                  if (newSum !== total) {
+                    allocations = distributeEvenly(total, beds);
+                  }
+                }
+              }
+            }
+          }
+
           return {
             ...item,
-            bedsAllocated: beds.length > 0 ? beds : undefined
+            bedsAllocated: beds.length > 0 ? beds : undefined,
+            bedAssignments: allocations.length > 0 ? allocations : undefined,
+            allocationMode: beds.length > 0 ? mode : undefined
           };
         }
 
         return item;
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/garden-plans`, {
-        method: 'POST',
+      // Build URL and method based on mode
+      const url = isEditMode
+        ? `${API_BASE_URL}/api/garden-plans/${editingPlanId}`
+        : `${API_BASE_URL}/api/garden-plans`;
+      const method = isEditMode ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method: method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
@@ -676,15 +1201,33 @@ const GardenPlanner: React.FC = () => {
           items: itemsWithBeds
         })
       });
+
       if (response.ok) {
         const savedPlan = await response.json();
-        await loadPlans();
+
+        // Update plans array based on mode
+        if (isEditMode) {
+          // Update existing plan in array
+          setPlans(prev => prev.map(p => p.id === editingPlanId ? savedPlan : p));
+        } else {
+          // Reload all plans to get new plan
+          await loadPlans();
+        }
+
         setSelectedPlan(savedPlan);
         setView('detail');
         resetWizard();
-      } else setError('Failed to save plan');
+
+        // Show success message
+        setError(null);
+        console.log(`[GardenPlanner] Successfully ${isEditMode ? 'updated' : 'created'} plan: ${savedPlan.name}`);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setError(`Failed to ${isEditMode ? 'update' : 'save'} plan: ${errorData.error || 'Unknown error'}`);
+      }
     } catch (err) {
-      setError('Error saving plan');
+      console.error(`[GardenPlanner] Error ${isEditMode ? 'updating' : 'saving'} plan:`, err);
+      setError(`Error ${isEditMode ? 'updating' : 'saving'} plan`);
     } finally {
       setLoading(false);
     }
@@ -724,11 +1267,173 @@ const GardenPlanner: React.FC = () => {
     setRotationWarnings(new Map());
     setTrellisAssignments(new Map());
     setTrellisSpaceUsage(new Map());
+    setBedAllocations(new Map());
+    setAllocationModes(new Map());
+    setEditingPlanId(null);
+    setEditingPlanName('');
+    setMissingSeeds([]);
+    setPerSeedSuccession(new Map());
   };
 
-  // Helper functions for search and filter
+  /**
+   * Load an existing plan into the wizard for editing
+   */
+  const handleEditPlan = async (plan: GardenPlan) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Fetch full plan details (includes items)
+      const response = await fetch(`${API_BASE_URL}/api/garden-plans/${plan.id}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load plan details');
+      }
+
+      const fullPlan: GardenPlan = await response.json();
+
+      // Check if plan has any exported items
+      const hasExportedItems = fullPlan.items?.some(item => item.status === 'exported');
+      if (hasExportedItems) {
+        setError('⚠️ This plan was exported to calendar. Editing may create duplicate events.');
+      }
+
+      // Reconstruct wizard state from plan data
+      const reconstructed = reconstructWizardState(fullPlan, seedInventory);
+
+      // Show warning if seeds are missing
+      if (reconstructed.missingSeeds.length > 0) {
+        setMissingSeeds(reconstructed.missingSeeds);
+        setError(`Warning: ${reconstructed.missingSeeds.length} seed(s) from this plan are no longer in your inventory.`);
+      }
+
+      // Populate wizard state
+      setSelectedSeeds(reconstructed.selectedSeeds);
+      setManualQuantities(reconstructed.manualQuantities);
+      setPerSeedSuccession(reconstructed.perSeedSuccession);
+      setBedAssignments(reconstructed.bedAssignments);
+      setTrellisAssignments(reconstructed.trellisAssignments);
+      setPlanName(fullPlan.name);
+
+      // Set edit mode
+      setEditingPlanId(fullPlan.id);
+      setEditingPlanName(fullPlan.name);
+
+      // Switch to wizard
+      setView('create');
+      setStep(1);
+
+      // Trigger space calculation
+      await calculateSpaceBreakdown(reconstructed.manualQuantities, reconstructed.perSeedSuccession);
+
+    } catch (err) {
+      console.error('[GardenPlanner] Error loading plan for editing:', err);
+      setError('Failed to load plan for editing. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Duplicate an existing plan as a new plan
+   */
+  const handleDuplicatePlan = async (plan: GardenPlan) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Fetch full plan details
+      const response = await fetch(`${API_BASE_URL}/api/garden-plans/${plan.id}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load plan details');
+      }
+
+      const fullPlan: GardenPlan = await response.json();
+
+      // Reconstruct wizard state (same as edit)
+      const reconstructed = reconstructWizardState(fullPlan, seedInventory);
+
+      // Show warning if seeds are missing
+      if (reconstructed.missingSeeds.length > 0) {
+        setMissingSeeds(reconstructed.missingSeeds);
+        setError(`Warning: ${reconstructed.missingSeeds.length} seed(s) from this plan are no longer in your inventory.`);
+      }
+
+      // Populate wizard state
+      setSelectedSeeds(reconstructed.selectedSeeds);
+      setManualQuantities(reconstructed.manualQuantities);
+      setPerSeedSuccession(reconstructed.perSeedSuccession);
+      setBedAssignments(reconstructed.bedAssignments);
+      setTrellisAssignments(reconstructed.trellisAssignments);
+
+      // Pre-fill name with "(Copy)" suffix - DON'T set editingPlanId (creates new plan)
+      setPlanName(`${fullPlan.name} (Copy)`);
+
+      // Switch to wizard
+      setView('create');
+      setStep(1);
+
+      // Trigger space calculation
+      await calculateSpaceBreakdown(reconstructed.manualQuantities, reconstructed.perSeedSuccession);
+
+    } catch (err) {
+      console.error('[GardenPlanner] Error duplicating plan:', err);
+      setError('Failed to duplicate plan. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Open delete confirmation dialog for a plan
+   */
+  const handleDeleteClick = (planId: number) => {
+    setDeleteConfirm({ isOpen: true, planId });
+  };
+
+  /**
+   * Execute plan deletion after confirmation
+   */
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm.planId) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/garden-plans/${deleteConfirm.planId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        showSuccess('Garden plan deleted successfully!');
+        await loadPlans(); // Refresh the list
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to delete plan' }));
+        showError(errorData.error || 'Failed to delete plan');
+      }
+    } catch (error) {
+      console.error('[GardenPlanner] Error deleting plan:', error);
+      showError('Network error occurred while deleting plan');
+    } finally {
+      setDeleteConfirm({ isOpen: false, planId: null });
+    }
+  };
+
+  /**
+   * Cancel editing and return to list view
+   */
+  const handleCancelEdit = () => {
+    if (window.confirm('Discard all changes to this plan?')) {
+      resetWizard();
+      setView('list');
+    }
+  };
+
+  // Helper functions for search and filter (uses alias resolution)
   const getPlantInfo = useCallback((plantId: string) => {
-    return PLANT_DATABASE.find(p => p.id === plantId);
+    return getPlantById(plantId);
   }, []);
 
   const getPlantName = useCallback((plantId: string) => {
@@ -755,12 +1460,19 @@ const GardenPlanner: React.FC = () => {
     const query = searchQuery.toLowerCase();
     return seedInventory.filter(seed => {
       const plant = getPlantInfo(seed.plantId);
-      return (
-        seed.variety?.toLowerCase().includes(query) ||
-        plant?.name.toLowerCase().includes(query) ||
-        seed.brand?.toLowerCase().includes(query) ||
-        seed.notes?.toLowerCase().includes(query)
-      );
+
+      // Build searchable string from all relevant fields
+      const searchableFields = [
+        seed.variety || '',
+        plant?.name || '',
+        seed.plantId || '', // Include plantId as fallback
+        seed.brand || '',
+        seed.notes || '',
+        plant?.category || '',
+      ];
+
+      const searchableText = searchableFields.join(' ').toLowerCase();
+      return searchableText.includes(query);
     });
   }, [seedInventory, searchQuery, getPlantInfo]);
 
@@ -772,10 +1484,20 @@ const GardenPlanner: React.FC = () => {
       .filter(cat => cat !== undefined) as string[];
     const categories = Array.from(new Set(categoryList)).sort();
 
+    // Extract unique plant types (crop types) efficiently
+    const plantTypeCounts: Record<string, number> = {};
+    baseFilteredSeeds.forEach(s => {
+      const plant = getPlantInfo(s.plantId);
+      if (plant?.name) {
+        plantTypeCounts[plant.name] = (plantTypeCounts[plant.name] || 0) + 1;
+      }
+    });
+    const plantTypes = Object.keys(plantTypeCounts).sort();
+
     // Extract unique locations
     const locationList = baseFilteredSeeds
       .map(s => s.location)
-      .filter(loc => loc !== undefined && loc.trim() !== '') as string[];
+      .filter(loc => loc != null && loc.trim() !== '') as string[];
     const locations = Array.from(new Set(locationList)).sort();
 
     return [
@@ -786,6 +1508,15 @@ const GardenPlanner: React.FC = () => {
           value: cat as string,
           label: cat.charAt(0).toUpperCase() + cat.slice(1),
           count: baseFilteredSeeds.filter(s => getPlantInfo(s.plantId)?.category === cat).length,
+        })),
+      },
+      {
+        id: 'plantType',
+        label: 'Crop Type',
+        options: plantTypes.map(plantType => ({
+          value: plantType,
+          label: plantType,
+          count: plantTypeCounts[plantType],
         })),
       },
       {
@@ -820,6 +1551,15 @@ const GardenPlanner: React.FC = () => {
       result = result.filter(s => {
         const plant = getPlantInfo(s.plantId);
         return plant && categoryFilters.includes(plant.category);
+      });
+    }
+
+    // Apply plant type (crop type) filters
+    const plantTypeFilters = activeFilters['plantType'] || [];
+    if (plantTypeFilters.length > 0) {
+      result = result.filter(s => {
+        const plant = getPlantInfo(s.plantId);
+        return plant && plantTypeFilters.includes(plant.name);
       });
     }
 
@@ -921,12 +1661,31 @@ const GardenPlanner: React.FC = () => {
               <div className="grid gap-4">
                 {plans.map(plan => (
                   <div key={plan.id} className="bg-white border rounded-lg p-6 hover:shadow-md">
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-start">
                       <div>
                         <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
                         <div className="text-sm text-gray-600">Year: {plan.year} | Crops: {plan.items?.length || 0}</div>
                       </div>
-                      <button onClick={() => { setSelectedPlan(plan); setView('detail'); }} className="px-4 py-2 bg-blue-600 text-white rounded">View</button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEditPlan(plan)}
+                          className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => { setSelectedPlan(plan); setView('detail'); }}
+                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(plan.id)}
+                          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -936,7 +1695,7 @@ const GardenPlanner: React.FC = () => {
         )}
 
         {view === 'create' && (
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-7xl mx-auto">
             <div className="flex items-center justify-center mb-8">
               {[1, 2].map(num => (
                 <React.Fragment key={num}>
@@ -945,6 +1704,49 @@ const GardenPlanner: React.FC = () => {
                 </React.Fragment>
               ))}
             </div>
+
+            {/* Edit Mode Banner */}
+            {editingPlanId && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-yellow-900">📝 Editing Plan:</span>
+                    <span className="ml-2 text-yellow-800">{editingPlanName}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <a
+                      href={`?tab=designer&planId=${editingPlanId}`}
+                      className="text-sm text-green-700 hover:text-green-900 underline"
+                      title="Open Garden Designer with this plan's bed assignments"
+                    >
+                      View in Designer
+                    </a>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="text-sm text-yellow-700 hover:text-yellow-900 underline"
+                    >
+                      Cancel Edit
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Missing Seeds Warning */}
+            {missingSeeds.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                <h4 className="font-semibold text-red-900 mb-2">⚠️ Missing Seeds</h4>
+                <p className="text-sm text-red-700 mb-2">
+                  The following seeds from this plan are no longer in your inventory:
+                </p>
+                <ul className="list-disc list-inside text-sm text-red-700 mb-2">
+                  {missingSeeds.map(seed => <li key={seed}>{seed}</li>)}
+                </ul>
+                <p className="text-sm text-red-700">
+                  You can continue editing but must remove these items or re-add the seeds before saving.
+                </p>
+              </div>
+            )}
 
             <div className="bg-white rounded-lg shadow-lg p-8">
               {step === 1 && (
@@ -967,6 +1769,79 @@ const GardenPlanner: React.FC = () => {
                       <li>✓ Example: 40 lettuce with "Moderate (4x)" = 10 plants per planting = ~3 sq ft per planting</li>
                     </ul>
                   </div>
+
+                  {/* Bed Sun Exposure Status Panel */}
+                  {(() => {
+                    const totalBeds = gardenBeds.length;
+                    const bedsWithoutSun = gardenBeds.filter(b => !b.sunExposure);
+                    const hasMissingExposure = bedsWithoutSun.length > 0;
+
+                    if (totalBeds === 0) {
+                      return (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                          <h3 className="font-semibold text-yellow-900 mb-2">⚠️ No Garden Beds Found</h3>
+                          <p className="text-sm text-yellow-800">
+                            You need to create garden beds first. Go to <strong>Garden Designer</strong> to add beds.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    if (hasMissingExposure) {
+                      return (
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
+                          <h3 className="font-semibold text-orange-900 mb-2">
+                            ⚠️ Bed Sun Exposure: {bedsWithoutSun.length} of {totalBeds} bed(s) missing configuration
+                          </h3>
+                          <div className="text-sm text-orange-800 space-y-2">
+                            <div className="bg-orange-100 border border-orange-300 rounded p-2">
+                              <p className="font-medium text-orange-900">These beds are treated as UNKNOWN for sun compatibility.</p>
+                              <p className="text-orange-700 text-xs mt-1">
+                                They are NOT filtered out and may be assigned plants with incompatible sun requirements.
+                              </p>
+                            </div>
+                            <details className="mt-2">
+                              <summary className="cursor-pointer font-medium text-orange-900 hover:text-orange-700">
+                                View beds needing configuration ({bedsWithoutSun.length})
+                              </summary>
+                              <ul className="mt-2 ml-4 space-y-1 text-orange-700">
+                                {bedsWithoutSun.map(bed => (
+                                  <li key={bed.id}>• {bed.name} (ID: {bed.id})</li>
+                                ))}
+                              </ul>
+                            </details>
+                            <p className="mt-2 text-orange-900 font-medium">
+                              → Go to <strong>Garden Designer</strong> → Edit bed → Set sun exposure (full-sun, part-sun, or shade)
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // All beds have sun exposure - show success
+                    return (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                        <h3 className="font-semibold text-green-900 mb-2">
+                          ✅ Bed Sun Exposure: Fully Configured
+                        </h3>
+                        <p className="text-sm text-green-800">
+                          All {totalBeds} bed(s) have sun exposure set. Plants will only show if compatible with your bed configurations.
+                        </p>
+                        {DEBUG_SEASON_PLANNER && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-green-700 text-xs hover:text-green-900">
+                              Debug: View bed sun exposure details
+                            </summary>
+                            <ul className="mt-2 ml-4 space-y-1 text-xs text-green-700">
+                              {gardenBeds.map(bed => (
+                                <li key={bed.id}>• {bed.name}: {bed.sunExposure}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {error && (
                     <div className="bg-red-50 border border-red-200 rounded p-4 mb-4">
@@ -1013,6 +1888,19 @@ const GardenPlanner: React.FC = () => {
                           sortDirection={sortDirection}
                           onSortChange={handleSortChange}
                         />
+
+                        {/* Hide Incompatible Beds Toggle */}
+                        <label className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white cursor-pointer hover:bg-gray-50">
+                          <input
+                            type="checkbox"
+                            checked={hideIncompatibleBeds}
+                            onChange={(e) => setHideIncompatibleBeds(e.target.checked)}
+                            className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                            Hide incompatible beds
+                          </span>
+                        </label>
                       </div>
 
                       {/* Results Count */}
@@ -1033,11 +1921,7 @@ const GardenPlanner: React.FC = () => {
                           {filteredAndSortedSeeds.map(seed => {
                             const isSelected = selectedSeeds.has(seed.id);
                             const quantity = manualQuantities.get(seed.id) || 0;
-                            const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
-                            const spaceEstimate = isSelected && quantity > 0 && gardenBeds.length > 0
-                              ? getSpaceEstimateForSeed(seed, quantity, gardenBeds, getEffectiveSuccession(seed.id))
-                              : null;
-
+                            const plant = getPlantById(seed.plantId); // Uses alias resolution
                             const assignedBeds = bedAssignments.get(seed.id) || [];
                             const compatibleBeds = getCompatibleBeds(seed);
 
@@ -1051,7 +1935,7 @@ const GardenPlanner: React.FC = () => {
                                     className="mr-3"
                                   />
                                   <div className="flex-1 grid grid-cols-12 gap-2 items-center">
-                                    <div className="col-span-4">
+                                    <div className="col-span-3">
                                       <div className="font-medium">{seed.variety}</div>
                                       <div className="text-sm text-gray-600">
                                         {getPlantName(seed.plantId)}
@@ -1075,7 +1959,7 @@ const GardenPlanner: React.FC = () => {
                                         className="w-full px-2 py-1 text-sm border rounded disabled:bg-gray-100 disabled:text-gray-400"
                                       />
                                     </div>
-                                    <div className="col-span-3">
+                                    <div className="col-span-2">
                                       <label className="text-xs text-gray-500 block mb-1">Succession</label>
                                       {isSelected ? (
                                         <>
@@ -1090,16 +1974,17 @@ const GardenPlanner: React.FC = () => {
 
                                               return (
                                                 <>
-                                                  <option value="none">None</option>
-                                                  <option value="light" disabled={!allowedOptions.includes('light')}>
-                                                    Light (2x) {!allowedOptions.includes('light') ? '(Not recommended)' : ''}
-                                                  </option>
-                                                  <option value="moderate" disabled={!allowedOptions.includes('moderate')}>
-                                                    Moderate (4x) {!allowedOptions.includes('moderate') ? '(Not recommended)' : ''}
-                                                  </option>
-                                                  <option value="heavy" disabled={!allowedOptions.includes('heavy')}>
-                                                    Heavy (8x) {!allowedOptions.includes('heavy') ? '(Not recommended)' : ''}
-                                                  </option>
+                                                  <option value="0">None (0x)</option>
+                                                  {[1, 2, 3, 4, 5, 6, 7, 8].map(count => (
+                                                    <option
+                                                      key={count}
+                                                      value={String(count)}
+                                                      disabled={!allowedOptions.includes(String(count) as SuccessionPreference)}
+                                                    >
+                                                      {count} succession{count !== 1 ? 's' : ''} ({count}x)
+                                                      {!allowedOptions.includes(String(count) as SuccessionPreference) ? ' (Not recommended)' : ''}
+                                                    </option>
+                                                  ))}
                                                 </>
                                               );
                                             })()}
@@ -1109,13 +1994,166 @@ const GardenPlanner: React.FC = () => {
                                         <span className="text-gray-400 text-sm italic">—</span>
                                       )}
                                     </div>
+                                    <div className="col-span-2">
+                                      <label className="text-xs text-gray-500 block mb-1">Bed Filter</label>
+                                      {isSelected && quantity > 0 ? (
+                                        <select
+                                          value={perSeedBedFilter.get(seed.id) || ''}
+                                          onChange={(e) => {
+                                            const newFilter = new Map(perSeedBedFilter);
+                                            if (e.target.value === '') {
+                                              newFilter.delete(seed.id);
+                                            } else {
+                                              const filteredBedId = parseInt(e.target.value);
+                                              newFilter.set(seed.id, filteredBedId);
+
+                                              // Auto-add filtered bed to assignments if not already selected
+                                              // This removes double-work (filter + assign separately)
+                                              const currentAssigned = bedAssignments.get(seed.id) || [];
+                                              if (!currentAssigned.includes(filteredBedId)) {
+                                                handleBedSelection(seed.id, [...currentAssigned, filteredBedId]);
+                                              }
+                                            }
+                                            setPerSeedBedFilter(newFilter);
+                                          }}
+                                          className="w-full border rounded px-2 py-1 text-sm"
+                                        >
+                                          <option value="">All Beds</option>
+                                          {getBedsForFilterDropdown(seed).map(bed => {
+                                            const compatibility = checkBedSunCompatibility(seed.plantId, bed);
+                                            const isIncompatible = compatibility === 'incompatible';
+                                            const isAssigned = (bedAssignments.get(seed.id) || []).includes(bed.id);
+                                            return (
+                                              <option
+                                                key={bed.id}
+                                                value={bed.id}
+                                                className={isIncompatible && isAssigned ? 'text-yellow-600' : ''}
+                                              >
+                                                {bed.name} ({getPlanningMethodDisplay(bed.planningMethod)})
+                                                {isIncompatible && isAssigned ? ' ⚠️' : ''}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      ) : (
+                                        <span className="text-gray-400 text-sm italic">—</span>
+                                      )}
+                                    </div>
                                     <div className="col-span-3 text-sm">
-                                      {spaceEstimate ? (
-                                        <div className="text-gray-700">
-                                          <span className="font-medium">Space:</span> {spaceEstimate}
+                                      {isSelected && quantity > 0 ? (
+                                        <div>
+                                          <div className="flex items-center gap-1 mb-1">
+                                            <span className="text-xs text-gray-500">Beds:</span>
+                                            {assignedBeds.length === 0 && editingBedsForSeedId !== seed.id && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditingBedsForSeedId(seed.id)}
+                                                className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                              >
+                                                + Add
+                                              </button>
+                                            )}
+                                            {assignedBeds.length > 0 && editingBedsForSeedId !== seed.id && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditingBedsForSeedId(seed.id)}
+                                                className="text-xs text-gray-500 hover:text-gray-700 ml-1"
+                                                title="Edit bed assignments"
+                                              >
+                                                ✏️
+                                              </button>
+                                            )}
+                                            {editingBedsForSeedId === seed.id && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditingBedsForSeedId(null)}
+                                                className="text-xs text-green-600 hover:text-green-800 font-medium"
+                                              >
+                                                Done
+                                              </button>
+                                            )}
+                                          </div>
+                                          {/* Bed chips */}
+                                          {assignedBeds.length > 0 && editingBedsForSeedId !== seed.id && (
+                                            <div className="flex flex-wrap gap-1">
+                                              {assignedBeds.map(bedId => {
+                                                const bed = gardenBeds.find(b => b.id === bedId);
+                                                if (!bed) return null;
+                                                const opt = seedRowOptimizations.get(seed.id);
+                                                const isExtraBed = opt?.extraBedIds?.includes(bedId) || false;
+                                                return (
+                                                  <span
+                                                    key={bedId}
+                                                    className={`inline-block px-1.5 py-0.5 text-xs rounded border ${
+                                                      isExtraBed
+                                                        ? 'bg-amber-50 text-amber-700 border-amber-300 border-dashed opacity-70'
+                                                        : 'bg-green-100 text-green-800 border-green-300'
+                                                    }`}
+                                                    title={isExtraBed ? 'Optional - could be removed' : undefined}
+                                                  >
+                                                    {bed.name}
+                                                    {isExtraBed && ' (optional)'}
+                                                  </span>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                          {/* Optimization suggestion callout */}
+                                          {(() => {
+                                            const opt = seedRowOptimizations.get(seed.id);
+                                            if (!opt || opt.extraBedIds.length === 0) return null;
+                                            return (
+                                              <div className="mt-1 flex items-center gap-2 text-xs text-amber-600">
+                                                <span>
+                                                  Could fit in {opt.minBedsNeeded} bed{opt.minBedsNeeded > 1 ? 's' : ''}
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleApplyOptimization(seed.id, opt.requiredBedIds)}
+                                                  className="text-blue-600 hover:text-blue-800 underline font-medium"
+                                                >
+                                                  Apply
+                                                </button>
+                                              </div>
+                                            );
+                                          })()}
+                                          {/* Inline checkbox list when editing */}
+                                          {editingBedsForSeedId === seed.id && (
+                                            <div className="border border-gray-300 rounded p-1 max-h-32 overflow-y-auto bg-white">
+                                              {getBedsForAssignment(seed).visibleBeds.map(bed => {
+                                                const sunCompatibility = checkBedSunCompatibility(seed.plantId, bed);
+                                                const isAssignedIncompatible = bed.isAssignedIncompatible;
+                                                const isChecked = assignedBeds.includes(bed.id);
+                                                const isDisabled = !bed.isCompatible && !isAssignedIncompatible;
+                                                return (
+                                                  <label
+                                                    key={bed.id}
+                                                    className={`flex items-center gap-1.5 px-1 py-0.5 text-xs cursor-pointer hover:bg-gray-50 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isAssignedIncompatible ? 'text-yellow-700' : ''}`}
+                                                  >
+                                                    <input
+                                                      type="checkbox"
+                                                      checked={isChecked}
+                                                      disabled={isDisabled}
+                                                      onChange={() => {
+                                                        const next = isChecked
+                                                          ? assignedBeds.filter(id => id !== bed.id)
+                                                          : [...assignedBeds, bed.id];
+                                                        handleBedSelection(seed.id, next);
+                                                      }}
+                                                      className="w-3 h-3"
+                                                    />
+                                                    <span>
+                                                      {bed.name} ({getPlanningMethodDisplay(bed.planningMethod)})
+                                                      {sunCompatibility === 'incompatible' ? ' ⚠️' : ''}
+                                                    </span>
+                                                  </label>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
                                       ) : isSelected ? (
-                                        <div className="text-gray-400 italic">Enter quantity</div>
+                                        <div className="text-gray-400 italic text-xs">Enter qty first</div>
                                       ) : (
                                         <div className="text-gray-400">—</div>
                                       )}
@@ -1149,9 +2187,9 @@ const GardenPlanner: React.FC = () => {
                                       </div>
 
                                       {/* Succession selection warning */}
-                                      {selectedSuccession !== 'none' && !suitability.allowedOptions.includes(selectedSuccession) && (
+                                      {selectedSuccession !== '0' && !suitability.allowedOptions.includes(selectedSuccession) && (
                                         <div className="mt-1 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
-                                          ⚠️ {selectedSuccession.charAt(0).toUpperCase() + selectedSuccession.slice(1)} succession not recommended for this plant.
+                                          ⚠️ {selectedSuccession} succession{selectedSuccession !== '1' ? 's' : ''} not recommended for this plant.
                                           Backend may adjust to fewer plantings based on growing season length.
                                         </div>
                                       )}
@@ -1162,86 +2200,79 @@ const GardenPlanner: React.FC = () => {
                                 {/* Bed Selector - Show when seed is selected and has quantity */}
                                 {isSelected && quantity > 0 && (
                                   <div className="px-3 pb-3 pt-0 border-t bg-gray-50">
-                                    {compatibleBeds.length === 0 ? (
+                                    {compatibleBeds === null ? (
+                                      // Missing plant definition - distinct from "no compatible beds"
+                                      <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded">
+                                        <p className="text-sm text-amber-800 font-medium mb-1">
+                                          Missing Plant Definition
+                                        </p>
+                                        <p className="text-xs text-amber-700">
+                                          Plant ID "{seed.plantId}" not found in database. Cannot evaluate bed compatibility.
+                                          This seed may reference a plant not yet synced to the frontend.
+                                        </p>
+                                      </div>
+                                    ) : compatibleBeds.length === 0 ? (
+                                      // True "no compatible beds" (plant exists but no beds match sun requirements)
                                       <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded">
                                         <p className="text-sm text-red-800 font-medium mb-1">
-                                          ☀️ No Compatible Beds Available
+                                          No Compatible Beds Available
                                         </p>
                                         <p className="text-xs text-red-700">
                                           {(() => {
-                                            const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
-                                            if (!plant?.sunRequirement) return 'Plant sun requirement not defined.';
+                                            const plant = getPlantById(seed.plantId); // Uses alias resolution
 
-                                            const bedsWithSun = gardenBeds.filter(b => b.sunExposure);
-                                            if (bedsWithSun.length === 0) {
-                                              return `${plant.name} requires ${plant.sunRequirement} sun. Set sun exposure on your beds to enable assignment.`;
+                                            // Plant should always exist here since compatibleBeds !== null
+                                            if (!plant) {
+                                              return `Unexpected error: plant lookup failed.`;
                                             }
 
-                                            return `${plant.name} requires ${plant.sunRequirement} sun, but all your beds have incompatible sun exposure. Consider adding a bed with ${plant.sunRequirement} sun or choosing different plants.`;
+                                            if (!plant.sunRequirement) {
+                                              if (DEBUG_SEASON_PLANNER) {
+                                                console.warn('[SeasonPlanner] Plant missing sunRequirement', {
+                                                  plantId: plant.id,
+                                                  plant
+                                                });
+                                              }
+                                              return `Plant ${plant.name} missing sun requirement data.`;
+                                            }
+
+                                            // Use actual compatibility function - don't duplicate logic!
+                                            const compatibilityResults = gardenBeds.map(bed => ({
+                                              bed,
+                                              compatibility: checkBedSunCompatibility(seed.plantId, bed)
+                                            }));
+
+                                            const compatibleCount = compatibilityResults.filter(r => r.compatibility === 'compatible').length;
+                                            const incompatibleCount = compatibilityResults.filter(r => r.compatibility === 'incompatible').length;
+                                            const unknownCount = compatibilityResults.filter(r => r.compatibility === 'unknown').length;
+
+                                            // Build list of actual sun exposures present (from beds WITH sunExposure set)
+                                            const bedsWithExposure = compatibilityResults.filter(r => r.bed.sunExposure);
+                                            const exposureList = bedsWithExposure.length > 0
+                                              ? bedsWithExposure.map(r => r.bed.sunExposure).join(', ')
+                                              : 'none';
+
+                                            // Build error message entirely from compatibility results
+                                            let msg = `${plant.name} requires ${plant.sunRequirement} sun. `;
+
+                                            if (bedsWithExposure.length === 0) {
+                                              // All beds have no sunExposure set (all "unknown")
+                                              msg += `No beds have sun exposure configured. These beds are treated as UNKNOWN for compatibility and may reduce accuracy. `;
+                                              msg += `Set sun exposure in Garden Designer.`;
+                                            } else {
+                                              // Some/all beds have sunExposure set
+                                              msg += `Your beds have: ${exposureList}. `;
+                                              msg += `(${compatibleCount} compatible, ${incompatibleCount} incompatible, ${unknownCount} unknown)`;
+                                            }
+
+                                            return msg;
                                           })()}
                                         </p>
                                       </div>
-                                    ) : (
+                                    ) : assignedBeds.length > 0 ? (
                                       <>
-                                        <label className="block text-xs font-medium text-gray-700 mb-1 mt-2">
-                                          Assign to Bed(s) (optional - Ctrl+Click for multiple)
-                                        </label>
-
-                                        {/* Show filtered beds information */}
-                                        {(() => {
-                                          const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
-                                          const totalBeds = gardenBeds.length;
-                                          const compatibleCount = compatibleBeds.length;
-                                          const filteredCount = totalBeds - compatibleCount;
-
-                                          if (filteredCount > 0 && plant?.sunRequirement) {
-                                            return (
-                                              <div className="mb-1 text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1">
-                                                ☀️ {filteredCount} bed{filteredCount > 1 ? 's' : ''} hidden -
-                                                incompatible with {plant.sunRequirement} sun requirement
-                                              </div>
-                                            );
-                                          }
-                                          return null;
-                                        })()}
-
-                                        <select
-                                          multiple
-                                          size={Math.min(compatibleBeds.length, 4)}
-                                          value={assignedBeds.map(String)}
-                                          onChange={(e) => {
-                                            const selectedIds = Array.from(e.target.selectedOptions, opt => parseInt(opt.value));
-                                            handleBedSelection(seed.id, selectedIds);
-                                          }}
-                                          className="w-full border border-gray-300 rounded p-2 text-sm"
-                                        >
-                                          {compatibleBeds.map(bed => {
-                                            const bedStatus = getBedSpaceStatus(bed.id, seed);
-                                            const hasConflict = hasRotationConflict(seed.id, bed.id);
-                                            const sunCompatibility = checkBedSunCompatibility(seed.plantId, bed);
-
-                                            let sunIndicator = '';
-                                            if (sunCompatibility === 'unknown' && !bed.sunExposure) {
-                                              sunIndicator = ' ❓ Sun?';
-                                            }
-
-                                            return (
-                                              <option key={bed.id} value={bed.id}>
-                                                {bed.name} ({getPlanningMethodDisplay(bed.planningMethod)}) - {bedStatus}
-                                                {hasConflict ? ' ⚠️ Rotation' : ''}
-                                                {sunIndicator}
-                                              </option>
-                                            );
-                                          })}
-                                        </select>
-                                        {assignedBeds.length > 0 && (
-                                          <div className="mt-1 text-xs text-gray-600">
-                                            ✓ Assigned to {assignedBeds.length} bed{assignedBeds.length > 1 ? 's' : ''}
-                                          </div>
-                                        )}
-
                                         {/* Sun exposure warnings for assigned beds */}
-                                        {assignedBeds.length > 0 && (() => {
+                                        {(() => {
                                           const warnings = assignedBeds
                                             .map(bedId => getSunExposureWarning(seed.id, bedId))
                                             .filter(w => w !== null);
@@ -1256,8 +2287,104 @@ const GardenPlanner: React.FC = () => {
                                           }
                                           return null;
                                         })()}
+
+                                        {/* Allocation Mode Toggle - show when 2+ beds assigned and quantity > 0 */}
+                                        {assignedBeds.length > 1 && quantity > 0 && (
+                                          <div className="mt-2">
+                                            <label className="text-xs text-gray-600 block mb-1">Allocation:</label>
+                                            <div className="flex gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setAllocationModes(prev => new Map(prev).set(seed.id, 'even'));
+                                                  // Redistribute evenly when switching to even mode
+                                                  const allocations = distributeEvenly(quantity, assignedBeds);
+                                                  setBedAllocations(prev => new Map(prev).set(seed.id, allocations));
+                                                }}
+                                                className={`px-2 py-1 text-xs rounded ${
+                                                  (allocationModes.get(seed.id) || 'even') === 'even'
+                                                    ? 'bg-green-600 text-white'
+                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                }`}
+                                              >
+                                                Even Split
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setAllocationModes(prev => new Map(prev).set(seed.id, 'custom'));
+                                                  // Initialize with even distribution if no allocations exist
+                                                  const existing = bedAllocations.get(seed.id) || [];
+                                                  if (existing.length === 0) {
+                                                    const allocations = distributeEvenly(quantity, assignedBeds);
+                                                    setBedAllocations(prev => new Map(prev).set(seed.id, allocations));
+                                                  }
+                                                }}
+                                                className={`px-2 py-1 text-xs rounded ${
+                                                  allocationModes.get(seed.id) === 'custom'
+                                                    ? 'bg-blue-600 text-white'
+                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                }`}
+                                              >
+                                                Custom
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Custom Allocation Inputs */}
+                                        {assignedBeds.length > 1 && quantity > 0 && allocationModes.get(seed.id) === 'custom' && (
+                                          <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+                                            <p className="text-xs font-medium text-blue-800 mb-2">
+                                              Allocate {quantity} plants:
+                                            </p>
+                                            {assignedBeds.map(bedId => {
+                                              const bed = gardenBeds.find(b => b.id === bedId);
+                                              const allocations = bedAllocations.get(seed.id) || [];
+                                              const alloc = allocations.find(a => a.bedId === bedId);
+                                              const allocQty = alloc?.quantity || 0;
+
+                                              return (
+                                                <div key={bedId} className="flex items-center gap-2 mb-1">
+                                                  <span className="text-xs w-24 truncate" title={bed?.name}>{bed?.name}</span>
+                                                  <input
+                                                    type="number"
+                                                    min={0}
+                                                    value={allocQty}
+                                                    onChange={(e) => {
+                                                      const newQty = parseInt(e.target.value) || 0;
+                                                      setBedAllocations(prev => {
+                                                        const existing = prev.get(seed.id) || [];
+                                                        const updated = existing.filter(a => a.bedId !== bedId);
+                                                        updated.push({ bedId, quantity: newQty });
+                                                        return new Map(prev).set(seed.id, updated);
+                                                      });
+                                                    }}
+                                                    className="w-16 px-2 py-1 text-sm border rounded"
+                                                  />
+                                                  <span className="text-xs text-gray-500">plants</span>
+                                                </div>
+                                              );
+                                            })}
+                                            {/* Validation */}
+                                            {(() => {
+                                              const sum = getAllocatedSum(seed.id);
+                                              const diff = quantity - sum;
+                                              if (diff !== 0) {
+                                                return (
+                                                  <p className={`text-xs mt-1 ${diff > 0 ? 'text-orange-600' : 'text-red-600'}`}>
+                                                    {diff > 0
+                                                      ? `⚠️ ${diff} plants unallocated`
+                                                      : `❌ ${Math.abs(diff)} plants over-allocated`}
+                                                  </p>
+                                                );
+                                              }
+                                              return <p className="text-xs mt-1 text-green-600">✓ All {quantity} plants allocated</p>;
+                                            })()}
+                                          </div>
+                                        )}
                                       </>
-                                    )}
+                                    ) : null}
                                   </div>
                                 )}
 
@@ -1493,6 +2620,92 @@ const GardenPlanner: React.FC = () => {
                         </div>
                       )}
 
+                      {/* Nutrition Estimates Summary */}
+                      {nutritionEstimates && (nutritionEstimates.totalCalories > 0 || nutritionEstimates.totalProtein > 0 || nutritionEstimates.missingNutritionData.length > 0) && (
+                        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded">
+                          <h3 className="font-semibold text-green-900 mb-1">
+                            🥬 Nutritional Output Estimate
+                            <span className="text-xs font-normal text-green-700 ml-2">(annual)</span>
+                          </h3>
+                          <p className="text-xs text-green-700 mb-3">
+                            Estimated nutrition from this garden plan based on average yields
+                          </p>
+
+                          {/* Totals */}
+                          <div className="grid grid-cols-2 gap-3 mb-3">
+                            <div className="bg-white rounded p-3 border border-green-100">
+                              <div className="text-2xl font-bold text-green-900">
+                                {Math.round(nutritionEstimates.totalCalories).toLocaleString()}
+                              </div>
+                              <div className="text-xs text-green-700">Total Calories</div>
+                              <div className="text-xs text-green-600 mt-1">
+                                ~{Math.round(nutritionEstimates.totalCalories / 2000)} person-days
+                              </div>
+                            </div>
+                            <div className="bg-white rounded p-3 border border-green-100">
+                              <div className="text-2xl font-bold text-green-900">
+                                {Math.round(nutritionEstimates.totalProtein).toLocaleString()}g
+                              </div>
+                              <div className="text-xs text-green-700">Total Protein</div>
+                              <div className="text-xs text-green-600 mt-1">
+                                ~{Math.round(nutritionEstimates.totalProtein / 50)} person-days
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* By Plant Breakdown */}
+                          {Object.keys(nutritionEstimates.byPlant).length > 0 && (
+                            <details className="mt-2">
+                              <summary className="text-xs text-green-800 cursor-pointer hover:text-green-900 font-medium">
+                                View breakdown by crop ({Object.keys(nutritionEstimates.byPlant).length} crops)
+                              </summary>
+                              <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                                {Object.entries(nutritionEstimates.byPlant)
+                                  .sort((a, b) => b[1].calories - a[1].calories)
+                                  .map(([plantId, data]) => {
+                                    const plant = getPlantById(plantId); // Uses alias resolution
+                                    return (
+                                      <div key={plantId} className="text-xs text-green-800 flex justify-between bg-white bg-opacity-50 rounded px-2 py-1">
+                                        <span className="font-medium">
+                                          {plant?.icon} {plant?.name || plantId}:
+                                        </span>
+                                        <span>
+                                          {Math.round(data.calories).toLocaleString()} cal, {Math.round(data.protein)}g protein
+                                          <span className="text-green-600 ml-1">
+                                            (~{data.yieldLbs.toFixed(1)} lbs)
+                                          </span>
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            </details>
+                          )}
+
+                          {/* Warning for missing nutrition data */}
+                          {nutritionEstimates.missingNutritionData.length > 0 && (
+                            <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                              <p className="text-xs text-yellow-800 font-medium">
+                                ⚠️ {nutritionEstimates.missingNutritionData.length} crop{nutritionEstimates.missingNutritionData.length > 1 ? 's' : ''} missing nutrition data:
+                              </p>
+                              <p className="text-xs text-yellow-700 mt-1">
+                                {nutritionEstimates.missingNutritionData.map(plantId => {
+                                  const plant = getPlantById(plantId);
+                                  return plant ? `${plant.name} (${plantId})` : plantId;
+                                }).join(', ')}
+                              </p>
+                              <p className="text-xs text-yellow-600 mt-1 italic">
+                                Totals exclude crops missing nutrition data.
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="mt-3 pt-2 border-t border-green-300 text-xs text-green-700">
+                            💡 Estimates based on average yields. Actual production varies by conditions, experience, and weather.
+                          </div>
+                        </div>
+                      )}
+
                       {/* Succession Planning Summary */}
                       {selectedSeeds.size > 0 && (
                         <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded">
@@ -1504,7 +2717,7 @@ const GardenPlanner: React.FC = () => {
 
                               const suitability = getSuccessionSuitability(seed);
                               const selectedSuccession = getEffectiveSuccession(seedId);
-                              const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
+                              const plant = getPlantById(seed.plantId); // Uses alias resolution
 
                               // Get DTM - prioritize seed override
                               const dtm = seed.daysToMaturity ?? plant?.daysToMaturity;
@@ -1531,10 +2744,7 @@ const GardenPlanner: React.FC = () => {
                                     {icon} {displayName} {dtm ? `(${dtm} days)` : '(DTM unknown)'}
                                   </span>
                                   <span className="font-medium">
-                                    {selectedSuccession === 'none' && 'No succession'}
-                                    {selectedSuccession === 'light' && 'Light (2x)'}
-                                    {selectedSuccession === 'moderate' && 'Moderate (4x)'}
-                                    {selectedSuccession === 'heavy' && 'Heavy (8x)'}
+                                    {selectedSuccession === '0' ? 'No succession' : `${selectedSuccession} succession${selectedSuccession !== '1' ? 's' : ''} (${selectedSuccession}x)`}
                                   </span>
                                 </div>
                               );
@@ -1620,7 +2830,7 @@ const GardenPlanner: React.FC = () => {
                               <tr className="border-t">
                                 <td className="px-4 py-2">{item.variety || item.plantId}</td>
                                 <td className="px-4 py-2 text-right">{item.plantEquivalent}</td>
-                                <td className="px-4 py-2 text-right">{item.successionCount}</td>
+                                <td className="px-4 py-2 text-right">{item.successionEnabled ? `${item.successionCount}x` : 'None'}</td>
                                 <td className="px-4 py-2 text-right">
                                   <div>{item.seedsRequired || 0}</div>
                                   {item.rowSeedingInfo && (
@@ -1676,7 +2886,9 @@ const GardenPlanner: React.FC = () => {
                   {error && <div className="bg-red-50 border rounded p-3 mb-4 text-red-700">{error}</div>}
                   <div className="flex justify-between">
                     <button onClick={() => setStep(1)} className="px-4 py-2 border rounded">Back</button>
-                    <button onClick={handleSavePlan} disabled={loading || !planName.trim()} className="px-4 py-2 bg-green-600 text-white rounded disabled:bg-gray-300">{loading ? 'Saving...' : 'Save'}</button>
+                    <button onClick={handleSavePlan} disabled={loading || !planName.trim()} className="px-4 py-2 bg-green-600 text-white rounded disabled:bg-gray-300">
+                      {loading ? 'Saving...' : (editingPlanId ? 'Update Plan' : 'Save Plan')}
+                    </button>
                   </div>
 
                   {/* Rotation Warnings Modal */}
@@ -1724,7 +2936,29 @@ const GardenPlanner: React.FC = () => {
                   <h2 className="text-2xl font-bold mb-2">{selectedPlan.name}</h2>
                   <div className="text-gray-600 text-sm">Year: {selectedPlan.year} | Strategy: {selectedPlan.strategy}</div>
                 </div>
-                <button onClick={() => handleExportToCalendar(selectedPlan.id)} disabled={loading} className="px-4 py-2 bg-green-600 text-white rounded disabled:bg-gray-300">{loading ? 'Exporting...' : 'Export to Calendar'}</button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEditPlan(selectedPlan)}
+                    disabled={loading}
+                    className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:bg-gray-300"
+                  >
+                    Edit Plan
+                  </button>
+                  <button
+                    onClick={() => handleDuplicatePlan(selectedPlan)}
+                    disabled={loading}
+                    className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-300"
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    onClick={() => handleExportToCalendar(selectedPlan.id)}
+                    disabled={loading}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300"
+                  >
+                    {loading ? 'Exporting...' : 'Export to Calendar'}
+                  </button>
+                </div>
               </div>
               {error && <div className="bg-red-50 border rounded p-3 mb-4 text-red-700">{error}</div>}
               <table className="w-full border rounded">
@@ -1736,7 +2970,7 @@ const GardenPlanner: React.FC = () => {
                     <tr key={item.id} className="border-t">
                       <td className="px-4 py-2">{item.variety || item.plantId}</td>
                       <td className="px-4 py-2 text-right">{item.plantEquivalent}</td>
-                      <td className="px-4 py-2 text-right">{item.successionCount}x</td>
+                      <td className="px-4 py-2 text-right">{item.successionEnabled ? `${item.successionCount}x` : 'None'}</td>
                       <td className="px-4 py-2 text-right">{item.seedsRequired || 0}</td>
                       <td className="px-4 py-2 text-center">
                         <span className={`px-2 py-1 rounded text-xs ${item.status === 'exported' ? 'bg-green-100 text-green-800' : 'bg-gray-100'}`}>{item.status}</span>
@@ -1745,9 +2979,30 @@ const GardenPlanner: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+
+              {/* Nutrition estimates */}
+              <PlanNutritionCard
+                planId={selectedPlan.id}
+                planYear={selectedPlan.year}
+              />
             </div>
           </div>
         )}
+
+        {/* Delete Confirmation Dialog */}
+        <ConfirmDialog
+          isOpen={deleteConfirm.isOpen}
+          onClose={() => setDeleteConfirm({ isOpen: false, planId: null })}
+          onConfirm={handleDeleteConfirm}
+          title="Delete Garden Plan"
+          message={`Are you sure you want to delete this plan? This will permanently remove all ${
+            deleteConfirm.planId
+              ? (plans.find(p => p.id === deleteConfirm.planId)?.items?.length || 0)
+              : 0
+          } crops from the plan.\n\nThis action cannot be undone.`}
+          confirmText="Delete Plan"
+          variant="danger"
+        />
       </div>
     </div>
   );

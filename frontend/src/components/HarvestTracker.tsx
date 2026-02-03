@@ -51,21 +51,34 @@ const HarvestTracker: React.FC = () => {
       setLoading(true);
 
       // Load harvests
-      const harvestResponse = await fetch(`${API_BASE_URL}/api/harvests`);
+      const harvestResponse = await fetch(`${API_BASE_URL}/api/harvests`, { credentials: 'include' });
+      if (!harvestResponse.ok) {
+        showError('Failed to load harvests');
+        return;
+      }
       const harvestData = await harvestResponse.json();
       setHarvests(harvestData);
 
       // Load plants
-      const plantResponse = await fetch(`${API_BASE_URL}/api/plants`);
+      const plantResponse = await fetch(`${API_BASE_URL}/api/plants`, { credentials: 'include' });
+      if (!plantResponse.ok) {
+        showError('Failed to load plant data');
+        return;
+      }
       const plantData = await plantResponse.json();
       setPlants(plantData);
 
       // Load stats
-      const statsResponse = await fetch(`${API_BASE_URL}/api/harvests/stats`);
+      const statsResponse = await fetch(`${API_BASE_URL}/api/harvests/stats`, { credentials: 'include' });
+      if (!statsResponse.ok) {
+        showError('Failed to load harvest statistics');
+        return;
+      }
       const statsData = await statsResponse.json();
       setStats(statsData);
     } catch (error) {
       console.error('Error loading harvest data:', error);
+      showError('Network error occurred');
     } finally {
       setLoading(false);
     }
@@ -222,27 +235,32 @@ const HarvestTracker: React.FC = () => {
     // Sorting
     result.sort((a, b) => {
       let aValue: string | number, bValue: string | number;
-      switch (sortBy) {
-        case 'harvestDate':
-          aValue = new Date(a.harvestDate).getTime();
-          bValue = new Date(b.harvestDate).getTime();
-          break;
-        case 'plantId':
-          aValue = getPlantName(a.plantId).toLowerCase();
-          bValue = getPlantName(b.plantId).toLowerCase();
-          break;
-        case 'quantity':
-          aValue = a.quantity;
-          bValue = b.quantity;
-          break;
-        case 'quality':
-          const qualityOrder: { [key: string]: number } = { excellent: 4, good: 3, fair: 2, poor: 1 };
-          aValue = qualityOrder[a.quality.toLowerCase()] || 0;
-          bValue = qualityOrder[b.quality.toLowerCase()] || 0;
-          break;
-        default:
-          return 0;
+
+      // For plant name sorting, create a lookup map for O(1) access
+      if (sortBy === 'plantId') {
+        const plantNameMap = new Map(plants.map(p => [p.id, p.name.toLowerCase()]));
+        aValue = plantNameMap.get(a.plantId) || a.plantId.toLowerCase();
+        bValue = plantNameMap.get(b.plantId) || b.plantId.toLowerCase();
+      } else {
+        switch (sortBy) {
+          case 'harvestDate':
+            aValue = new Date(a.harvestDate).getTime();
+            bValue = new Date(b.harvestDate).getTime();
+            break;
+          case 'quantity':
+            aValue = a.quantity;
+            bValue = b.quantity;
+            break;
+          case 'quality':
+            const qualityOrder: { [key: string]: number } = { excellent: 4, good: 3, fair: 2, poor: 1 };
+            aValue = qualityOrder[a.quality.toLowerCase()] || 0;
+            bValue = qualityOrder[b.quality.toLowerCase()] || 0;
+            break;
+          default:
+            return 0;
+        }
       }
+
       if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
       if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
       return 0;

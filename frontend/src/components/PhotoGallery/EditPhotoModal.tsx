@@ -64,6 +64,7 @@ export const EditPhotoModal: React.FC<EditPhotoModalProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({
           caption: formData.caption,
           category: formData.category,

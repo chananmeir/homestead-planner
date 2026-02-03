@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { X, MapPin } from 'lucide-react';
-import { GardenBed, PlantingCalendar, Plant } from '../../../types';
+import { GardenBed, PlantingCalendar } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
-import { API_BASE_URL } from '../../../config';
+import { apiGet } from '../../../utils/api';
+import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 import {
   getOccupiedCells,
   getAvailableCells,
@@ -16,9 +17,9 @@ import {
 interface AvailableSpacesViewProps {
   isOpen: boolean;
   onClose: () => void;
-  initialBedId?: string;
+  initialBedId?: string | number;
   initialDateRange?: { start: Date; end: Date };
-  onPositionSelect?: (bedId: string, position: { x: number; y: number }) => void;
+  onPositionSelect?: (bedId: string | number, position: { x: number; y: number }) => void;
 }
 
 const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
@@ -30,7 +31,7 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
 }) => {
   // State
   const [gardenBeds, setGardenBeds] = useState<GardenBed[]>([]);
-  const [selectedBedId, setSelectedBedId] = useState<string>(initialBedId || '');
+  const [selectedBedId, setSelectedBedId] = useState<number | string>(initialBedId || '');
   const [startDate, setStartDate] = useState<Date>(
     initialDateRange?.start || new Date()
   );
@@ -49,11 +50,15 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
     ? PLANT_DATABASE.find((p) => p.id === selectedPlantId)
     : null;
   const spaceRequired = selectedPlant
-    ? calculateSpaceRequirement(selectedPlant, selectedBed?.gridSize || 12)
+    ? calculateSpaceRequirement(
+        selectedPlant,
+        selectedBed?.gridSize || 12,
+        selectedBed?.planningMethod || 'row'
+      )
     : 0;
 
   const occupiedCells: OccupiedCell[] = selectedBed
-    ? getOccupiedCells(selectedBedId, { start: startDate, end: endDate }, plantingEvents)
+    ? getOccupiedCells(selectedBedId, { start: startDate, end: endDate }, plantingEvents, selectedBed)
     : [];
 
   const availableCells: AvailableCell[] = selectedBed
@@ -71,7 +76,7 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`${API_BASE_URL}/api/garden-beds`);
+        const response = await apiGet('/api/garden-beds');
         if (response.ok) {
           const data = await response.json();
           setGardenBeds(data);
@@ -91,7 +96,8 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
     if (isOpen) {
       loadBeds();
     }
-  }, [isOpen, selectedBedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // Load planting events
   useEffect(() => {
@@ -99,10 +105,18 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`${API_BASE_URL}/api/planting-events`);
+        const response = await apiGet('/api/planting-events');
         if (response.ok) {
           const data = await response.json();
-          setPlantingEvents(data);
+          // Parse date strings to Date objects
+          const eventsWithDates = data.map((event: any) => ({
+            ...event,
+            seedStartDate: event.seedStartDate ? new Date(event.seedStartDate) : undefined,
+            transplantDate: event.transplantDate ? new Date(event.transplantDate) : undefined,
+            directSeedDate: event.directSeedDate ? new Date(event.directSeedDate) : undefined,
+            expectedHarvestDate: new Date(event.expectedHarvestDate),
+          }));
+          setPlantingEvents(eventsWithDates);
         } else {
           throw new Error('Failed to load planting events');
         }
@@ -178,7 +192,9 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
               <select
                 value={selectedBedId}
                 onChange={(e) => {
-                  setSelectedBedId(e.target.value);
+                  const value = e.target.value;
+                  const bedId = value === '' ? '' : Number(value);
+                  setSelectedBedId(bedId);
                   setSelectedPosition(null);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
@@ -269,15 +285,15 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
               {/* SVG Grid */}
               <div className="inline-block border border-gray-300 bg-white rounded">
                 <svg
-                  width={Math.min(600, Math.floor(selectedBed.width / (selectedBed.gridSize || 12)) * 40)}
-                  height={Math.min(400, Math.floor(selectedBed.length / (selectedBed.gridSize || 12)) * 40)}
+                  width={Math.min(600, Math.floor((selectedBed.width * 12) / (selectedBed.gridSize || 12)) * 40)}
+                  height={Math.min(400, Math.floor((selectedBed.length * 12) / (selectedBed.gridSize || 12)) * 40)}
                   className="cursor-pointer"
                 >
                   {Array.from(
-                    { length: Math.floor(selectedBed.length / (selectedBed.gridSize || 12)) },
+                    { length: Math.floor((selectedBed.length * 12) / (selectedBed.gridSize || 12)) },
                     (_, y) =>
                       Array.from(
-                        { length: Math.floor(selectedBed.width / (selectedBed.gridSize || 12)) },
+                        { length: Math.floor((selectedBed.width * 12) / (selectedBed.gridSize || 12)) },
                         (_, x) => {
                           const isOccupied = occupiedCells.some(
                             (cell) => cell.x === x && cell.y === y
@@ -360,8 +376,8 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
                   <div>
                     <span className="text-blue-700">Total cells:</span>{' '}
                     <span className="font-medium text-blue-900">
-                      {Math.floor(selectedBed.width / (selectedBed.gridSize || 12)) *
-                        Math.floor(selectedBed.length / (selectedBed.gridSize || 12))}
+                      {Math.floor((selectedBed.width * 12) / (selectedBed.gridSize || 12)) *
+                        Math.floor((selectedBed.length * 12) / (selectedBed.gridSize || 12))}
                     </span>
                   </div>
                   <div>
@@ -374,6 +390,28 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Available Positions List */}
+              {(spaceRequired > 0 ? suitableCells : availableCells).length > 0 && (
+                <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-green-900 mb-2">
+                    Available Positions {spaceRequired > 0 && '(Suitable for Selected Plant)'}
+                  </h4>
+                  <div className="text-xs text-green-800 flex flex-wrap gap-1">
+                    {(spaceRequired > 0 ? suitableCells : availableCells)
+                      .sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x)
+                      .map((cell) => (
+                        <span
+                          key={`${cell.x}-${cell.y}`}
+                          className="inline-block px-2 py-1 bg-white border border-green-300 rounded font-mono cursor-pointer hover:bg-green-100 transition-colors"
+                          onClick={() => handleCellClick(cell.x, cell.y)}
+                        >
+                          {coordinateToGridLabel(cell.x, cell.y)}
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-gray-50 rounded-lg p-12 text-center border border-gray-200">

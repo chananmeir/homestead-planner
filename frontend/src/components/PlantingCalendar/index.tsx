@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { List, Calendar, Menu, Clock } from 'lucide-react';
-import { PlantingCalendar as PlantingCalendarType, Plant } from '../../types';
-import { API_BASE_URL } from '../../config';
+import { List, Calendar, Menu, Clock, PlusCircle, MapPin } from 'lucide-react';
+import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../types';
+import { apiGet, apiPost } from '../../utils/api';
+import { PLANT_DATABASE } from '../../data/plantDatabase';
 import ListView from './ListView';
 import CalendarGrid from './CalendarGrid';
 import CalendarHeader from './CalendarGrid/CalendarHeader';
 import CropsSidebar from './CropsSidebar';
 import AddCropModal from './AddCropModal';
+import AddGardenEventModal from './AddGardenEventModal';
+import AddMapleTappingModal from './AddMapleTappingModal';
 import SoilTemperatureCard from './SoilTemperatureCard';
+import MapleTappingSeasonCard from './MapleTappingSeasonCard';
 import TimelineView from './TimelineView';
 
 const PlantingCalendar: React.FC = () => {
@@ -25,6 +29,16 @@ const PlantingCalendar: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalInitialDate, setModalInitialDate] = useState<Date | undefined>();
   const [modalInitialPlant, setModalInitialPlant] = useState<Plant | undefined>();
+
+  // Garden Event Modal state
+  const [gardenEventModalOpen, setGardenEventModalOpen] = useState(false);
+  const [gardenBeds, setGardenBeds] = useState<GardenBed[]>([]);
+
+  // Maple Tapping Modal state
+  const [mapleTappingModalOpen, setMapleTappingModalOpen] = useState(false);
+
+  // Available Spaces state (for Timeline view)
+  const [showAvailableSpaces, setShowAvailableSpaces] = useState(false);
 
   // Frost dates - fetched from API
   const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date('2024-04-15'));
@@ -63,25 +77,19 @@ const PlantingCalendar: React.FC = () => {
   const handleAddEvent = async (event: PlantingCalendarType) => {
     try {
       // Save to API
-      const response = await fetch(`${API_BASE_URL}/api/planting-events`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...event,
-          // Convert dates to ISO strings for API
-          seedStartDate: event.seedStartDate?.toISOString(),
-          transplantDate: event.transplantDate?.toISOString(),
-          directSeedDate: event.directSeedDate?.toISOString(),
-          expectedHarvestDate: event.expectedHarvestDate.toISOString(),
-        }),
+      const response = await apiPost('/api/planting-events', {
+        ...event,
+        // Convert dates to ISO strings for API
+        seedStartDate: event.seedStartDate?.toISOString(),
+        transplantDate: event.transplantDate?.toISOString(),
+        directSeedDate: event.directSeedDate?.toISOString(),
+        expectedHarvestDate: event.expectedHarvestDate?.toISOString(),
       });
 
       if (response.ok) {
         const savedEvent = await response.json();
         // Add saved event to local state
-        setPlantingEvents([...plantingEvents, savedEvent]);
+        setPlantingEvents(prev => [...prev, savedEvent]);
       } else {
         throw new Error('Failed to save planting event');
       }
@@ -95,19 +103,13 @@ const PlantingCalendar: React.FC = () => {
     try {
       // Save all events to API in parallel
       const savePromises = events.map(event =>
-        fetch(`${API_BASE_URL}/api/planting-events`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ...event,
-            // Convert dates to ISO strings for API
-            seedStartDate: event.seedStartDate?.toISOString(),
-            transplantDate: event.transplantDate?.toISOString(),
-            directSeedDate: event.directSeedDate?.toISOString(),
-            expectedHarvestDate: event.expectedHarvestDate.toISOString(),
-          }),
+        apiPost('/api/planting-events', {
+          ...event,
+          // Convert dates to ISO strings for API
+          seedStartDate: event.seedStartDate?.toISOString(),
+          transplantDate: event.transplantDate?.toISOString(),
+          directSeedDate: event.directSeedDate?.toISOString(),
+          expectedHarvestDate: event.expectedHarvestDate?.toISOString(),
         }).then(res => {
           if (!res.ok) throw new Error('Failed to save event');
           return res.json();
@@ -117,7 +119,7 @@ const PlantingCalendar: React.FC = () => {
       // Wait for all events to save
       const savedEvents = await Promise.all(savePromises);
       // Add all saved events to local state in one update
-      setPlantingEvents([...plantingEvents, ...savedEvents]);
+      setPlantingEvents(prev => [...prev, ...savedEvents]);
     } catch (err) {
       console.error('Error saving planting events:', err);
       setError('Failed to save planting events. Please try again.');
@@ -143,7 +145,7 @@ const PlantingCalendar: React.FC = () => {
   useEffect(() => {
     const fetchFrostDates = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/frost-dates`);
+        const response = await apiGet('/api/frost-dates');
         if (response.ok) {
           const data = await response.json();
           if (data.lastFrostDate) {
@@ -162,13 +164,30 @@ const PlantingCalendar: React.FC = () => {
     fetchFrostDates();
   }, []);
 
+  // Fetch garden beds for garden event modal
+  useEffect(() => {
+    const fetchGardenBeds = async () => {
+      try {
+        const response = await apiGet('/api/garden-beds');
+        if (response.ok) {
+          const data = await response.json();
+          setGardenBeds(data);
+        }
+      } catch (err) {
+        console.error('Failed to load garden beds:', err);
+      }
+    };
+
+    fetchGardenBeds();
+  }, []);
+
   // Fetch planting events from API
   useEffect(() => {
     const fetchPlantingEvents = async () => {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`${API_BASE_URL}/api/planting-events`);
+        const response = await apiGet('/api/planting-events');
         if (response.ok) {
           const data = await response.json();
           setPlantingEvents(data);
@@ -216,7 +235,7 @@ const PlantingCalendar: React.FC = () => {
                 <h2 className="text-2xl font-bold text-gray-800">Planting Calendar</h2>
               </div>
 
-              {/* View Mode Toggle Buttons */}
+              {/* View Mode Toggle Buttons + Add Garden Event Button */}
               <div className="flex gap-2">
                 <button
                   onClick={() => setViewMode('list')}
@@ -242,7 +261,7 @@ const PlantingCalendar: React.FC = () => {
                   `}
                 >
                   <Calendar className="w-4 h-4" />
-                  <span className="hidden sm:inline">Grid</span>
+                  <span className="hidden sm:inline">Calendar</span>
                 </button>
                 <button
                   onClick={() => setViewMode('timeline')}
@@ -257,12 +276,51 @@ const PlantingCalendar: React.FC = () => {
                   <Clock className="w-4 h-4" />
                   <span className="hidden sm:inline">Timeline</span>
                 </button>
+
+                {/* Add Garden Event Button */}
+                <div className="ml-2 pl-2 border-l border-gray-300">
+                  <button
+                    onClick={() => setGardenEventModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                    title="Add garden maintenance events like mulch application"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span className="hidden sm:inline">Garden Event</span>
+                  </button>
+                </div>
+
+                {/* Add Maple Tapping Button */}
+                <div className="ml-2 pl-2 border-l border-gray-300">
+                  <button
+                    onClick={() => setMapleTappingModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                    title="Track maple syrup tapping events"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span className="hidden sm:inline">Maple Tapping</span>
+                  </button>
+                </div>
+
+                {/* Available Spaces Button - Only in Timeline view */}
+                {viewMode === 'timeline' && (
+                  <button
+                    onClick={() => setShowAvailableSpaces(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ml-2"
+                    title="View available planting spaces in your beds"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    <span className="hidden sm:inline">Available Spaces</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
           {/* Soil Temperature Card */}
           <SoilTemperatureCard plantingEvents={plantingEvents} />
+
+          {/* Maple Tapping Season Card */}
+          <MapleTappingSeasonCard />
 
           {/* Error State */}
           {error && (
@@ -304,7 +362,40 @@ const PlantingCalendar: React.FC = () => {
                 currentDate={currentDate}
                 events={plantingEvents}
                 onDateClick={handleDateClick}
+                onEventClick={(event) => {
+                  // For now, open the add modal with the event's plant and date
+                  // TODO: Implement proper edit functionality
+                  const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
+                  setModalInitialPlant(plant);
+                  setModalInitialDate(event.directSeedDate || event.transplantDate || event.expectedHarvestDate);
+                  setModalOpen(true);
+                }}
               />
+
+              {/* Legend */}
+              {plantingEvents.length > 0 && (
+                <div className="mt-6 pt-4 border-t border-gray-200">
+                  <div className="flex flex-wrap items-center gap-4 text-sm">
+                    <div className="font-medium text-gray-700">Event Types:</div>
+                    <div className="flex items-center gap-2">
+                      <span>🌱</span>
+                      <span className="text-gray-600">Start Seeds (Indoor)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span>🥕</span>
+                      <span className="text-gray-600">Direct Seed (Outdoor)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span>🌿</span>
+                      <span className="text-gray-600">Transplant (Outdoor)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span>🎉</span>
+                      <span className="text-gray-600">Harvest</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Empty state for grid view */}
               {plantingEvents.length === 0 && (
@@ -338,11 +429,12 @@ const PlantingCalendar: React.FC = () => {
                 }}
                 onEditEvent={(event) => {
                   // TODO: Implement edit functionality
-                  console.log('Edit event:', event);
                 }}
                 onRefresh={() => {
                   // Timeline manages its own data loading
                 }}
+                showAvailableSpaces={showAvailableSpaces}
+                setShowAvailableSpaces={setShowAvailableSpaces}
               />
             </div>
           )}
@@ -360,6 +452,49 @@ const PlantingCalendar: React.FC = () => {
         initialDate={modalInitialDate}
         initialPlant={modalInitialPlant}
         lastFrostDate={lastFrostDate}
+      />
+
+      {/* Add Garden Event Modal */}
+      <AddGardenEventModal
+        isOpen={gardenEventModalOpen}
+        onClose={() => setGardenEventModalOpen(false)}
+        onEventAdded={() => {
+          // Refresh planting events to show new garden event
+          const fetchPlantingEvents = async () => {
+            try {
+              const response = await apiGet('/api/planting-events');
+              if (response.ok) {
+                const data = await response.json();
+                setPlantingEvents(data);
+              }
+            } catch (err) {
+              console.error('Failed to reload events:', err);
+            }
+          };
+          fetchPlantingEvents();
+        }}
+        gardenBeds={gardenBeds}
+      />
+
+      {/* Add Maple Tapping Modal */}
+      <AddMapleTappingModal
+        isOpen={mapleTappingModalOpen}
+        onClose={() => setMapleTappingModalOpen(false)}
+        onEventAdded={() => {
+          // Refresh planting events to show new tapping event
+          const fetchPlantingEvents = async () => {
+            try {
+              const response = await apiGet('/api/planting-events');
+              if (response.ok) {
+                const data = await response.json();
+                setPlantingEvents(data);
+              }
+            } catch (err) {
+              console.error('Failed to reload events:', err);
+            }
+          };
+          fetchPlantingEvents();
+        }}
       />
     </>
   );

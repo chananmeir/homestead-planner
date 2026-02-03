@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plant, ConflictCheck } from '../../../types';
-import { API_BASE_URL } from '../../../config';
+import { apiGet, apiPost } from '../../../utils/api';
 
 interface GardenBed {
   id: number;
@@ -49,8 +49,10 @@ const PositionSelector: React.FC<PositionSelectorProps> = ({
       try {
         setLoading(true);
         // Fetch planting events for this bed in the date range
-        const response = await fetch(
-          `${API_BASE_URL}/api/planting-events?start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
+        // Use planning_mode=true to check expected_harvest_date (not actual_harvest_date)
+        // This allows planning future plantings in spaces that will be available
+        const response = await apiGet(
+          `/api/planting-events?start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}&planning_mode=true`
         );
 
         if (response.ok) {
@@ -88,19 +90,13 @@ const PositionSelector: React.FC<PositionSelectorProps> = ({
       try {
         setCheckingConflict(true);
 
-        const response = await fetch(`${API_BASE_URL}/api/planting-events/check-conflict`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            gardenBedId: gardenBed.id,
-            positionX: position.x,
-            positionY: position.y,
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString(),
-            plantId: selectedPlant.id,
-          }),
+        const response = await apiPost('/api/planting-events/check-conflict', {
+          gardenBedId: gardenBed.id,
+          positionX: position.x,
+          positionY: position.y,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          plantId: selectedPlant.id,
         });
 
         if (response.ok) {

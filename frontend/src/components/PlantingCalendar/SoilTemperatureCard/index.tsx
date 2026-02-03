@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Thermometer, AlertCircle } from 'lucide-react';
-import { API_BASE_URL } from '../../../config';
+import { apiGet } from '../../../utils/api';
 import { SoilConfig, SoilTempResponse } from './types';
 import { PlantingCalendar } from '../../../types';
 import SoilConfigForm from './SoilConfigForm';
@@ -48,7 +48,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
           has_mulch: String(config.hasMulch)
         });
 
-        const response = await fetch(`${API_BASE_URL}/api/soil-temperature?${params}`);
+        const response = await apiGet(`/api/soil-temperature?${params}`);
 
         if (!response.ok) {
           throw new Error('Failed to fetch soil temperature');

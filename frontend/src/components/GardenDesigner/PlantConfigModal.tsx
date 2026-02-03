@@ -1,23 +1,48 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Modal } from '../common/Modal';
-import { Plant, ValidationWarning, ValidationResult, DateSuggestion, GardenBed, SeedInventoryItem } from '../../types';
+import { Plant, PlantedItem, ValidationWarning, ValidationResult, DateSuggestion, GardenBed, SeedInventoryItem, TrellisStructure, TrellisCapacity } from '../../types';
 import { API_BASE_URL } from '../../config';
 import WarningDisplay from '../common/WarningDisplay';
-import { extractCropName, getVarietyOptions } from '../../utils/plantUtils';
-import { autoPlacePlants } from './utils/autoPlacement';
+import { extractCropName } from '../../utils/plantUtils';
+import { autoPlacePlants, FillDirection } from './utils/autoPlacement';
 import { useToast } from '../common/Toast';
 import { coordinateToGridLabel, gridLabelToCoordinate, isValidGridLabel, getGridBoundsDescription } from './utils/gridCoordinates';
+import { getMIGardenerSpacing } from '../../utils/migardenerSpacing';
+import PlantIcon from '../common/PlantIcon';
+import { determineRowContinuity, getRowContinuityMessage } from './utils/rowContinuity';
+import { getIntensiveSpacing, HEX_ROW_OFFSET } from '../../utils/intensiveSpacing';
+import { getEffectivePlantingStyle, PlantingStyle, PLANTING_STYLES, requiresSeedDensity, getQuantityTerminology } from '../../utils/plantingStyles';
 
 /**
  * Determine if plant should use dense planting (multiple plants in one cell)
  * vs spread planting (one plant per cell)
  */
 function shouldUseDensePlanting(plant: Plant, planningMethod: string): boolean {
-  if (planningMethod !== 'square-foot' && planningMethod !== 'migardener') {
-    return false; // Only SFG and MIgardener support dense planting
+  if (planningMethod !== 'square-foot' && planningMethod !== 'migardener' && planningMethod !== 'intensive') {
+    return false; // Only SFG, MIgardener, and Intensive support dense planting
   }
-  const spacing = plant.spacing || 12;
-  return spacing <= 12; // Plants with 12" or less spacing can be planted densely
+
+  // Get spacing based on method
+  let spacing = plant.spacing || 12;
+  if (planningMethod === 'migardener') {
+    const migardenerSpacing = getMIGardenerSpacing(plant.id, spacing, plant.rowSpacing);
+    spacing = migardenerSpacing.plantSpacing;
+  } else if (planningMethod === 'intensive') {
+    spacing = getIntensiveSpacing(plant.id, spacing);
+  }
+
+  // Determine grid size threshold based on planning method
+  const gridSizeThresholds: Record<string, number> = {
+    'square-foot': 12,
+    'migardener': 3,
+    'intensive': 6,
+    'row': 6,
+    'raised-bed': 6,
+    'permaculture': 12,
+  };
+  const threshold = gridSizeThresholds[planningMethod] || 12;
+
+  return spacing <= threshold; // Plants with spacing <= grid size can be planted densely
 }
 
 interface PlantConfigModalProps {
@@ -29,6 +54,10 @@ interface PlantConfigModalProps {
   plantingDate?: string;  // Date when plant will be placed (from dateFilter)
   bedId?: number;  // Garden bed ID (for protection offset calculation)
   bed?: GardenBed;  // Full bed object (for auto-placement)
+  activePlants?: PlantedItem[];  // Date-filtered active plants (respects planning mode)
+  rowNumber?: number;  // For MIGardener row planting (if provided, planting entire row)
+  sourcePlanItemId?: number;  // Link to GardenPlanItem when placing from planned panel
+  initialVariety?: string;  // Pre-filled variety (from Season Planner drag)
   onDateChange?: (newDate: string) => void;  // Callback to change the planting date
   onPreviewChange?: (positions: { x: number; y: number }[]) => void;  // Callback to show preview in grid
   onSave: (config: PlantConfig) => void;
@@ -42,6 +71,37 @@ export interface PlantConfig {
   plantingMethod: 'direct' | 'transplant';
   skipPost?: boolean; // If true, items already created via batch POST - parent should skip POST
   position?: { x: number; y: number }; // Updated position if user edited grid label
+  successionPlanting?: boolean;  // Enable succession planting
+  weekInterval?: number;          // Weeks between successive rows/squares
+  positionDates?: { x: number; y: number; date: string }[];  // For SFG: date per position
+  trellisStructureId?: number;   // For trellis-required plants
+
+  // NEW: Seed density metadata for MIGardener method
+  seedDensityData?: {
+    plantingMethod: 'individual_plants' | 'seed_density' | 'seed_density_broadcast';
+    seedCount?: number;
+
+    // Row-based seed density fields
+    seedDensity?: number;
+    uiSegmentLengthInches?: number;
+
+    // Broadcast seed density fields
+    seedDensityPerSqFt?: number;
+    gridCellAreaInches?: number;
+
+    // Plant-spacing seed density fields
+    seedsPerSpot?: number;
+    plantsKeptPerSpot?: number;
+
+    plantingStyle?: 'row_based' | 'broadcast' | 'dense_patch' | 'plant_spacing';
+
+    // Common fields
+    expectedGerminationRate?: number;
+    expectedSurvivalRate?: number;
+    expectedFinalCount?: number;
+    harvestMethod?: 'individual_head' | 'cut_and_come_again' | 'leaf_mass' | 'continuous_picking' | 'perennial_cutback' | 'individual_root' | 'partial_harvest';
+    spacing?: number;
+  };
 }
 
 const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
@@ -53,6 +113,10 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   plantingDate,
   bedId,
   bed,
+  activePlants = [],
+  rowNumber,
+  sourcePlanItemId,
+  initialVariety,
   onDateChange,
   onPreviewChange,
   onSave,
@@ -68,32 +132,85 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   const [suggestion, setSuggestion] = useState<DateSuggestion | undefined>(undefined);
   const [validating, setValidating] = useState<boolean>(false);
 
+  // Track previous isOpen state to detect modal opening vs re-rendering
+  const prevIsOpenRef = useRef<boolean>(false);
+
+  // NEW: Seed density metadata for MIGardener method
+  const [seedDensityMetadata, setSeedDensityMetadata] = useState<{
+    plantingMethod: 'individual_plants' | 'seed_density' | 'seed_density_broadcast';
+    seedCount?: number;
+
+    // Row-based seed density fields
+    seedDensity?: number;
+    uiSegmentLengthInches?: number;
+
+    // Broadcast seed density fields
+    seedDensityPerSqFt?: number;
+    gridCellAreaInches?: number;
+
+    // Plant-spacing seed density fields
+    seedsPerSpot?: number;
+    plantsKeptPerSpot?: number;
+
+    plantingStyle?: 'row_based' | 'broadcast' | 'dense_patch' | 'plant_spacing';
+
+    // Common fields
+    expectedGerminationRate?: number;
+    expectedSurvivalRate?: number;
+    expectedFinalCount?: number;
+    harvestMethod?: 'individual_head' | 'cut_and_come_again' | 'leaf_mass' | 'continuous_picking' | 'perennial_cutback' | 'individual_root' | 'partial_harvest';
+    spacing?: number;
+
+    // Row continuity fields (only for row-based)
+    rowGroupId?: string;
+    rowSegmentIndex?: number;
+    totalRowSegments?: number;
+    rowContinuityMessage?: string | null;
+  } | null>(null);
+
   // Preview state
   const [previewPositions, setPreviewPositions] = useState<{ x: number; y: number }[]>([]);
   const [showingPreview, setShowingPreview] = useState(false);
   const [plantsPerSquare, setPlantsPerSquare] = useState<number>(1); // For dense planting
+  const [numberOfSquares, setNumberOfSquares] = useState<number>(1); // For succession planting UI
   const [isSubmitting, setIsSubmitting] = useState(false); // Prevent double-submission
+
+  // Succession planting state (for MIGardener row planting)
+  const [successionPlanting, setSuccessionPlanting] = useState<boolean>(false);
+  const [weekInterval, setWeekInterval] = useState<number>(1);
 
   // Position editing state
   const [editedPosition, setEditedPosition] = useState<{ x: number; y: number } | null>(null);
   const [gridLabelInput, setGridLabelInput] = useState<string>('');
   const [positionError, setPositionError] = useState<string>('');
 
+  // Fill direction state for auto-placement
+  const [fillDirection, setFillDirection] = useState<FillDirection>('across');
+
   // User's personal seed inventory
   const [userSeeds, setUserSeeds] = useState<SeedInventoryItem[]>([]);
+  const [showCatalogVarieties, setShowCatalogVarieties] = useState<boolean>(false);
+
+  // Trellis selection state (for trellis-required plants like grapes)
+  const [selectedTrellisId, setSelectedTrellisId] = useState<number | null>(null);
+  const [availableTrellises, setAvailableTrellises] = useState<any[]>([]);
+  const [trellisCapacity, setTrellisCapacity] = useState<any>(null);
+
+  // Planting style selection state (NEW: Enable for ALL methods, not just MIGardener)
+  const [selectedPlantingStyle, setSelectedPlantingStyle] = useState<PlantingStyle>('grid');
 
   // Find representative plant for this crop
   const representativePlant = useMemo(() => {
     return allPlants.find(p => extractCropName(p.name) === cropName);
   }, [allPlants, cropName]);
 
-  // Fetch user's personal seed inventory
+  // Fetch user's personal seed inventory + global catalog
   useEffect(() => {
     if (!isOpen) return;
 
     const fetchUserSeeds = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/my-seeds`, {
+        const response = await fetch(`${API_BASE_URL}/api/my-seeds?includeGlobal=true`, {
           credentials: 'include',
         });
 
@@ -113,12 +230,89 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     fetchUserSeeds();
   }, [isOpen]);
 
+  // Fetch available trellises if plant requires trellis
+  useEffect(() => {
+    if (!isOpen || !representativePlant) return;
+
+    const trellisRequired = representativePlant.migardener?.trellisRequired;
+    if (!trellisRequired) return;
+
+    const fetchTrellises = async () => {
+      try {
+        // Fetch all trellises (backend will filter by user)
+        const response = await fetch(`${API_BASE_URL}/api/trellis-structures`, {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const trellises = await response.json();
+          setAvailableTrellises(trellises);
+        }
+      } catch (error) {
+        console.error('Error fetching trellises:', error);
+      }
+    };
+
+    fetchTrellises();
+  }, [isOpen, representativePlant]);
+
+  // Fetch capacity for selected trellis
+  useEffect(() => {
+    if (!selectedTrellisId) {
+      setTrellisCapacity(null);
+      return;
+    }
+
+    const fetchCapacity = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/trellis-structures/${selectedTrellisId}/capacity`, {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const capacity = await response.json();
+          setTrellisCapacity(capacity);
+        }
+      } catch (error) {
+        console.error('Error fetching trellis capacity:', error);
+      }
+    };
+
+    fetchCapacity();
+  }, [selectedTrellisId]);
+
+  // Initialize planting style based on effective planting style (NEW: Enable for ALL methods)
+  useEffect(() => {
+    if (!representativePlant || !isOpen) return;
+
+    const effectiveStyle = getEffectivePlantingStyle(representativePlant, bed);
+    setSelectedPlantingStyle(effectiveStyle);
+  }, [representativePlant, bed, isOpen]);
+
+  // Update seed density metadata when planting style changes
+  useEffect(() => {
+    if (!selectedPlantingStyle || !seedDensityMetadata) return;
+
+    // Update the planting style in metadata if it exists
+    if (seedDensityMetadata.plantingStyle !== selectedPlantingStyle) {
+      setSeedDensityMetadata(prev => prev ? {
+        ...prev,
+        plantingStyle: selectedPlantingStyle as 'row_based' | 'broadcast' | 'dense_patch' | 'plant_spacing'
+      } : null);
+    }
+  }, [selectedPlantingStyle]);
+
   // Get variety options from user's personal seed inventory for this crop
   const varietyOptions = useMemo(() => {
     if (!cropName) return [];
 
     // Filter user's seeds by matching the crop name from the plant database
     const matchingSeeds = userSeeds.filter(seed => {
+      // Filter by catalog setting: if showCatalogVarieties is false, exclude global seeds
+      if (!showCatalogVarieties && seed.isGlobal === true) {
+        return false;
+      }
+
       // Find the plant in allPlants by plantId
       const plant = allPlants.find(p => p.id === seed.plantId);
       if (!plant) return false;
@@ -149,12 +343,22 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       plantId: cropName, // Use cropName as plantId
       plant: representativePlant // Use representative plant for agronomic data
     }));
-  }, [cropName, userSeeds, representativePlant, allPlants]);
+  }, [cropName, userSeeds, representativePlant, allPlants, showCatalogVarieties]);
 
   // Determine if this plant should use dense planting mode
   const isDensePlanting = useMemo(() => {
     return representativePlant && shouldUseDensePlanting(representativePlant, planningMethod);
   }, [representativePlant, planningMethod]);
+
+  // Determine if we should show dual-input UI (for SFG/MIGardener, both dense and spread)
+  const usesDualInput = useMemo(() => {
+    return (planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive');
+  }, [planningMethod]);
+
+  // Get context-appropriate labels based on selected planting style
+  const quantityTerminology = useMemo(() => {
+    return getQuantityTerminology(selectedPlantingStyle || 'grid');
+  }, [selectedPlantingStyle]);
 
   // Validate planting conditions when plant, date, or method changes
   useEffect(() => {
@@ -183,28 +387,104 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/api/validate-planting`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            plantId: representativePlant.id,
-            plantingDate: plantingDate,
-            zipcode: zipcode,
-            bedId: bedId,
-            plantingMethod: plantingMethod
+        // Call BOTH validation endpoints in parallel
+        const [basicValidationResponse, forwardValidationResponse] = await Promise.all([
+          // Original validation (frost dates, current soil temp)
+          fetch(`${API_BASE_URL}/api/validate-planting`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              plantId: representativePlant.id,
+              plantingDate: plantingDate,
+              zipcode: zipcode,
+              bedId: bedId,
+              plantingMethod: plantingMethod
+            })
+          }),
+          // Forward-looking validation (future cold snaps using historical data)
+          fetch(`${API_BASE_URL}/api/validate-planting-date`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              plant_id: representativePlant.id,
+              plant_name: representativePlant.name,
+              planting_date: plantingDate,
+              zipcode: zipcode,
+              current_soil_temp: representativePlant.germinationTemp?.min || 40,
+              min_soil_temp: representativePlant.soil_temp_min || representativePlant.germinationTemp?.min || 40,
+              days_to_maturity: representativePlant.daysToMaturity || 60
+            })
           })
-        });
+        ]);
 
-        if (!response.ok) {
-          console.error('Validation request failed:', response.status);
-          setValidating(false);
-          return;
+        // Collect all warnings
+        const allWarnings: ValidationWarning[] = [];
+        let mainSuggestion: DateSuggestion | undefined;
+
+        // Process basic validation response
+        if (basicValidationResponse.ok) {
+          const basicResult: ValidationResult = await basicValidationResponse.json();
+          allWarnings.push(...(basicResult.warnings || []));
+          mainSuggestion = basicResult.suggestion;
         }
 
-        const result: ValidationResult = await response.json();
-        setWarnings(result.warnings || []);
-        setSuggestion(result.suggestion);
+        // Process forward-looking validation response
+        if (forwardValidationResponse.ok) {
+          const forwardResult = await forwardValidationResponse.json();
+          // Add forward-looking warnings if there's danger
+          if (forwardResult.future_cold_danger && forwardResult.warnings && forwardResult.warnings.length > 0) {
+            forwardResult.warnings.forEach((warningText: string) => {
+              allWarnings.push({
+                type: 'future_cold_danger',
+                message: warningText,
+                severity: 'warning'
+              });
+            });
+          }
+        }
+
+        // Check sun exposure compatibility
+        if (bed && bed.sunExposure && representativePlant.sunRequirement) {
+          const plantRequirement = representativePlant.sunRequirement;
+          const bedExposure = bed.sunExposure;
+
+          // Compatibility matrix: plant requirement -> acceptable bed exposures
+          const compatibilityMap: { [key: string]: string[] } = {
+            'full': ['full'],
+            'partial': ['full', 'partial'],
+            'shade': ['full', 'partial', 'shade']
+          };
+
+          const acceptableExposures = compatibilityMap[plantRequirement] || ['full'];
+          const compatible = acceptableExposures.includes(bedExposure);
+
+          if (!compatible) {
+            let severity: 'error' | 'warning' = 'warning';
+            let message = '';
+
+            if (plantRequirement === 'full' && (bedExposure === 'partial' || bedExposure === 'shade')) {
+              severity = 'error';
+              message = `${representativePlant.name} requires full sun (6+ hours) but this bed has ${bedExposure} sun. Growth will be poor and yields reduced.`;
+            } else if (plantRequirement === 'partial' && bedExposure === 'shade') {
+              severity = 'warning';
+              message = `${representativePlant.name} prefers partial sun but this bed has shade. May grow slowly with reduced yields.`;
+            } else {
+              severity = 'warning';
+              message = `${representativePlant.name} prefers ${plantRequirement} sun but bed has ${bedExposure} sun.`;
+            }
+
+            allWarnings.push({
+              type: 'sun_exposure_mismatch',
+              message: message,
+              severity: severity
+            });
+          }
+        }
+
+        setWarnings(allWarnings);
+        setSuggestion(mainSuggestion);
       } catch (err) {
         console.error('Error validating planting:', err);
         // Don't block user if validation fails
@@ -268,40 +548,202 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
   // Reset form when modal opens/closes
   useEffect(() => {
-    if (isOpen && representativePlant) {
-      // Calculate default quantity based on planning method
+    // Only reset form when modal OPENS (transitions from closed to open)
+    // Don't reset during re-renders when modal is already open (e.g., during succession planting)
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+
+    if (justOpened && representativePlant) {
+      // Calculate plants per square for dual-input UI
+      let calculatedPlantsPerSquare = 1;
       let defaultQuantity = 1;
 
       if (planningMethod === 'square-foot' && representativePlant.spacing) {
-        // Square foot gardening: plants per square foot
+        // Square foot gardening: (12 / spacing)²
+        // Works for both dense (>1) and spread (<1) planting
         const spacing = representativePlant.spacing;
-        if (spacing <= 12) {
-          // Small plants: multiple per square - (12 / spacing)²
-          defaultQuantity = Math.floor(Math.pow(12 / spacing, 2));
+        calculatedPlantsPerSquare = Math.pow(12 / spacing, 2);
+        defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+      } else if (planningMethod === 'migardener') {
+        // MIGardener: Seed density planting (row-based or broadcast)
+        if (representativePlant.migardener) {
+          const mgData = representativePlant.migardener;
+          const gridSize = bed?.gridSize || 3;
+
+          // Branch on planting style
+          if (mgData.plantingStyle === 'broadcast' || mgData.plantingStyle === 'dense_patch') {
+            // BROADCAST: Calculate based on area coverage
+            const gridCellAreaInches = gridSize * gridSize;  // e.g., 3" × 3" = 9 sq in
+            const seedsPerSqFt = mgData.seedDensityPerSqFt || 50;  // Default to 50 if not specified
+            const seedsPerSqInch = seedsPerSqFt / 144;  // Convert sq ft → sq inch
+            const seedCount = Math.round(gridCellAreaInches * seedsPerSqInch);
+
+            const expectedGermination = seedCount * mgData.germinationRate;
+            const expectedFinalCount = Math.round(expectedGermination * mgData.survivalRate);
+
+            // Store broadcast seed density metadata
+            setSeedDensityMetadata({
+              plantingMethod: 'seed_density_broadcast',
+              seedCount,
+              seedDensityPerSqFt: seedsPerSqFt,
+              gridCellAreaInches,
+              expectedGerminationRate: mgData.germinationRate,
+              expectedSurvivalRate: mgData.survivalRate,
+              expectedFinalCount,
+              harvestMethod: mgData.harvestMethod,
+              plantingStyle: 'broadcast'
+            });
+
+            defaultQuantity = expectedFinalCount;
+            calculatedPlantsPerSquare = expectedFinalCount;
+
+          } else if (mgData.plantingStyle === 'row_based') {
+            // ROW-BASED: Existing logic for seed density along rows
+            const uiSegmentLengthInches = gridSize; // One grid cell = segment of continuous row
+            const seedCount = Math.round(uiSegmentLengthInches * (mgData.seedDensityPerInch || 0));
+            const expectedGermination = seedCount * mgData.germinationRate;
+            const expectedFinalCount = Math.round(expectedGermination * mgData.survivalRate);
+
+            // Determine row continuity if position and active plants are available
+            let rowContinuity;
+            if (position && activePlants && representativePlant.id) {
+              rowContinuity = determineRowContinuity(position, representativePlant.id, activePlants);
+            }
+
+            const rowContinuityMessage = rowContinuity
+              ? getRowContinuityMessage(rowContinuity.totalRowSegments, uiSegmentLengthInches, rowContinuity.isPartOfRow)
+              : null;
+
+            // Store row-based seed density metadata
+            setSeedDensityMetadata({
+              plantingMethod: 'seed_density',
+              seedCount,
+              seedDensity: mgData.seedDensityPerInch,
+              uiSegmentLengthInches,
+              expectedGerminationRate: mgData.germinationRate,
+              expectedSurvivalRate: mgData.survivalRate,
+              expectedFinalCount,
+              harvestMethod: mgData.harvestMethod,
+              // Row continuity fields
+              rowGroupId: rowContinuity?.rowGroupId,
+              rowSegmentIndex: rowContinuity?.rowSegmentIndex,
+              totalRowSegments: rowContinuity?.totalRowSegments,
+              rowContinuityMessage
+            });
+
+            defaultQuantity = expectedFinalCount;
+            calculatedPlantsPerSquare = expectedFinalCount;
+
+          } else if (mgData.plantingStyle === 'plant_spacing') {
+            // PLANT-SPACING: Multi-seed spots with thinning (e.g., beans)
+            // Plant N seeds per spot, thin to M plants per spot
+            const spotsNeeded = 1;  // One grid cell = one planting spot
+            const seedsPerSpot = mgData.seedsPerSpot || 3;
+            const plantsKeptPerSpot = mgData.plantsKeptPerSpot || 1;
+            const totalSeeds = spotsNeeded * seedsPerSpot;
+
+            const expectedGermination = totalSeeds * mgData.germinationRate;
+            const expectedSurvival = expectedGermination * mgData.survivalRate;
+            const finalPlantsAfterThinning = spotsNeeded * plantsKeptPerSpot;
+
+            // Store plant-spacing metadata
+            setSeedDensityMetadata({
+              plantingMethod: 'seed_density',  // Backend treats as seed_density for now
+              seedCount: totalSeeds,
+              seedsPerSpot,
+              plantsKeptPerSpot,
+              expectedGerminationRate: mgData.germinationRate,
+              expectedSurvivalRate: mgData.survivalRate,
+              expectedFinalCount: finalPlantsAfterThinning,
+              harvestMethod: mgData.harvestMethod,
+              plantingStyle: 'plant_spacing'
+            });
+
+            defaultQuantity = finalPlantsAfterThinning;
+            calculatedPlantsPerSquare = finalPlantsAfterThinning;
+          }
         } else {
-          // Large plants: store as negative to indicate squares needed
-          defaultQuantity = -Math.floor(Math.pow(spacing / 12, 2));
+          // OLD: Individual plants model (fallback for plants without migardener data)
+          const migardenerSpacing = getMIGardenerSpacing(representativePlant.id, representativePlant.spacing, representativePlant.rowSpacing);
+
+          // For intensive crops (null rowSpacing), use grid-based calculation
+          if (migardenerSpacing.rowSpacing === null || migardenerSpacing.rowSpacing === 0) {
+            // Intensive planting: plants spaced equally in all directions
+            const plantsPerFoot = 12 / migardenerSpacing.plantSpacing;
+            calculatedPlantsPerSquare = plantsPerFoot * plantsPerFoot;
+            defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+          } else {
+            // Traditional row-based planting
+            const rowsPerFoot = 12 / migardenerSpacing.rowSpacing;
+            const plantsPerFoot = 12 / migardenerSpacing.plantSpacing;
+            calculatedPlantsPerSquare = rowsPerFoot * plantsPerFoot;
+            defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+          }
+
+          // Store individual plants metadata
+          setSeedDensityMetadata({
+            plantingMethod: 'individual_plants',
+            spacing: migardenerSpacing.plantSpacing
+          });
         }
-      } else if (planningMethod === 'migardener' && representativePlant.rowSpacing && representativePlant.spacing) {
-        // MIgardener high-intensity: (12 / rowSpacing) × (12 / plantSpacing)
-        const rowsPerFoot = 12 / representativePlant.rowSpacing;
-        const plantsPerFoot = 12 / representativePlant.spacing;
-        defaultQuantity = Math.floor(rowsPerFoot * plantsPerFoot);
+      } else if (planningMethod === 'intensive' && representativePlant.spacing) {
+        // Intensive/Bio-Intensive: Hexagonal packing with 0.866 row offset
+        // More efficient than square spacing: ~15% more plants per area
+        const onCenterSpacing = getIntensiveSpacing(representativePlant.id, representativePlant.spacing);
+        const rowSpacing = onCenterSpacing * HEX_ROW_OFFSET; // 0.866 × spacing
+        const rowsPerFoot = 12 / rowSpacing;
+        const plantsPerFoot = 12 / onCenterSpacing;
+        calculatedPlantsPerSquare = rowsPerFoot * plantsPerFoot;
+        defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
       }
-      // For other methods (row, intensive, etc.), default to 1
+      // For other methods (row, raised-bed, etc.), default to 1
 
       setQuantity(defaultQuantity);
-      setPlantsPerSquare(defaultQuantity > 0 ? defaultQuantity : 1); // Store for succession planting
-      setVariety('');
+      setPlantsPerSquare(calculatedPlantsPerSquare); // Store actual plants per square (can be < 1)
+      setNumberOfSquares(1); // Initialize squares to 1 for dual-input UI
+      // Pre-fill variety from Season Planner drag, or start empty for Plant Palette
+      setVariety(initialVariety || '');
       setNotes('');
-      setPlantingMethod('direct');
+      setShowCatalogVarieties(false); // Default to personal seeds only
+
+      // Auto-detect planting method based on planning mode and weeksIndoors
+      // MIGardener methodology typically uses direct seeding for row crops
+      const weeksIndoors = representativePlant.weeksIndoors || 0;
+      const defaultMethod = planningMethod === 'migardener'
+        ? 'direct'  // MIGardener defaults to direct seed for row crops
+        : (weeksIndoors > 0 ? 'transplant' : 'direct');
+      setPlantingMethod(defaultMethod);
 
       // Reset position editing
       setEditedPosition(null);
       setGridLabelInput('');
       setPositionError('');
+
+      // Reset preview state
+      setPreviewPositions([]);
+      setShowingPreview(false);
+
+      // Reset succession planting state
+      setSuccessionPlanting(false);
+      setWeekInterval(1);
+
+      // Reset fill direction to default
+      setFillDirection('across');
     }
-  }, [isOpen, representativePlant, planningMethod]);
+  }, [isOpen, representativePlant, planningMethod, initialVariety]);
+
+  // Sync handlers for dual-input UI (squares <-> plants)
+  const handleSquaresChange = (value: number) => {
+    const validated = Math.max(1, Math.min(100, Math.floor(value)));
+    setNumberOfSquares(validated);
+    setQuantity(validated * plantsPerSquare); // Sync total plants
+  };
+
+  const handlePlantsChange = (value: number) => {
+    const validated = Math.max(1, Math.min(1600, Math.floor(value)));
+    setQuantity(validated);
+    setNumberOfSquares(Math.ceil(validated / plantsPerSquare)); // Sync squares (round up)
+  };
 
   const handlePreviewPlacement = () => {
     if (!bed || !representativePlant || !position || quantity <= 1) {
@@ -312,26 +754,22 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     const gridWidth = Math.floor((bed.width * 12) / (bed.gridSize || 12));
     const gridHeight = Math.floor((bed.length * 12) / (bed.gridSize || 12));
 
-    // For dense planting, calculate number of squares needed
-    const numSquares = isDensePlanting ? Math.ceil(quantity / plantsPerSquare) : quantity;
+    // For dense planting, use numberOfSquares directly
+    const numSquares = isDensePlanting ? numberOfSquares : quantity;
 
     // Run auto-placement algorithm
+    // Use activePlants (date-filtered with planning mode) instead of all bed.plantedItems
     const result = autoPlacePlants({
-      startPosition: position,
+      startPosition: currentPosition,
       plant: representativePlant,
       quantity: numSquares, // Number of squares to find
       bedDimensions: { gridWidth, gridHeight },
       gridSize: bed.gridSize || 12,
-      existingPlants: bed.plantedItems || [],
+      existingPlants: activePlants, // Only plants active on the planting date (respects planning mode)
       dateFilter: plantingDate,
+      planningMethod: bed.planningMethod || planningMethod, // Pass planning method for row-based placement
+      fillDirection: fillDirection, // Pass fill direction for generic grid placement
     });
-
-    // DEBUG: Log auto-placement results
-    console.log('=== AUTO-PLACEMENT DEBUG ===');
-    console.log('numSquares requested:', numSquares);
-    console.log('result.placed:', result.placed);
-    console.log('result.positions.length:', result.positions.length);
-    console.log('result.positions:', result.positions);
 
     setPreviewPositions(result.positions);
     setShowingPreview(true);
@@ -343,10 +781,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
     // Show warning if partial placement
     if (result.placed < numSquares) {
-      const plantsPlaced = isDensePlanting ? result.placed * plantsPerSquare : result.placed;
-      const plantsTotal = quantity;
       showWarning(
-        `Can only place ${plantsPlaced} of ${plantsTotal} plants in ${result.placed} squares. Not enough space for remaining ${plantsTotal - plantsPlaced}.`
+        `Placed ${result.placed} of ${numSquares} ${quantityTerminology.unitLabel.toLowerCase()} (bed boundary reached)`
       );
     } else {
       const message = isDensePlanting
@@ -359,28 +795,30 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   const handleSave = async () => {
     // Prevent double-submission
     if (isSubmitting) {
-      console.log('❌ Already submitting, ignoring duplicate click');
       return;
     }
 
-    console.log('=== HANDLE SAVE START ===');
-    console.log('isDensePlanting:', isDensePlanting);
-    console.log('quantity:', quantity);
-    console.log('showingPreview:', showingPreview);
-    console.log('previewPositions.length:', previewPositions.length);
+    // Validate trellis selection if required
+    if (representativePlant?.migardener?.trellisRequired && !selectedTrellisId) {
+      showError('Please select a trellis structure for this plant');
+      return;
+    }
 
     setIsSubmitting(true);
 
     try {
       // PATH 1: DENSE PLANTING - Single item with quantity at one position
       if (isDensePlanting && quantity >= 1 && !showingPreview) {
-        console.log('✅ Taking PATH 1: Dense planting without preview');
         const config: PlantConfig = {
           variety: variety.trim() || undefined,
           quantity, // e.g., 4 for lettuce
           notes: notes.trim(),
           plantingMethod,
           position: editedPosition || undefined, // Include edited position if changed
+          successionPlanting: rowNumber ? successionPlanting : false,
+          weekInterval: successionPlanting ? weekInterval : undefined,
+          seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
+          trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
         };
         onSave(config); // Parent GardenDesigner handles API call
         return;
@@ -388,19 +826,20 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
       // PATH 2: SPREAD PLANTING - Single plant or no preview - use existing logic
       if (quantity === 1 || !showingPreview || previewPositions.length === 0) {
-        console.log('✅ Taking PATH 2: Spread planting or single plant');
         const config: PlantConfig = {
           variety: variety.trim() || undefined,
           quantity,
           notes: notes.trim(),
           plantingMethod,
           position: editedPosition || undefined, // Include edited position if changed
+          successionPlanting: rowNumber ? successionPlanting : false,
+          weekInterval: successionPlanting ? weekInterval : undefined,
+          seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
+          trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
         };
         onSave(config);
         return;
       }
-
-      console.log('✅ Taking PATH 3: Multi-plant batch creation');
 
       // Multi-plant batch creation
       if (!bed || !bedId || !representativePlant) {
@@ -409,16 +848,42 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         return;
       }
 
+      // Check if SFG succession planting is enabled
+      const isSFGSuccession = successionPlanting && !rowNumber && previewPositions.length > 1;
+
+      if (isSFGSuccession) {
+        // SFG Succession: Calculate position-date pairs and let parent handle posting
+        const positionDates = previewPositions.map((pos, index) => {
+          const baseDate = new Date(plantingDate!);
+          const offsetDays = index * weekInterval * 7;
+          const squareDate = new Date(baseDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+          return {
+            x: pos.x,
+            y: pos.y,
+            date: squareDate.toISOString().split('T')[0]
+          };
+        });
+
+        // Return config with positionDates - parent will handle succession logic
+        const config: PlantConfig = {
+          variety: variety.trim() || undefined,
+          quantity: previewPositions.length,
+          notes: notes.trim(),
+          plantingMethod,
+          skipPost: false, // Parent will handle posting with succession dates
+          successionPlanting: true,
+          weekInterval: weekInterval,
+          positionDates: positionDates,
+          seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
+          trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
+        };
+        onSave(config);
+        return;
+      }
+
+      // No succession: Do batch POST immediately (existing behavior)
       // For dense planting, each position gets plantsPerSquare quantity
       const quantityPerPosition = isDensePlanting ? plantsPerSquare : 1;
-
-      // DEBUG: Log preview positions
-      console.log('=== BATCH CREATION DEBUG ===');
-      console.log('previewPositions:', previewPositions);
-      console.log('previewPositions.length:', previewPositions.length);
-      console.log('quantityPerPosition:', quantityPerPosition);
-      console.log('isDensePlanting:', isDensePlanting);
-      console.log('plantsPerSquare:', plantsPerSquare);
 
       const response = await fetch(`${API_BASE_URL}/api/planted-items/batch`, {
         method: 'POST',
@@ -433,6 +898,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           status: 'planned',
           notes: notes.trim(),
           positions: previewPositions.map((pos) => ({ x: pos.x, y: pos.y, quantity: quantityPerPosition })),
+          sourcePlanItemId,
         }),
       });
 
@@ -451,6 +917,10 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           notes: notes.trim(),
           plantingMethod,
           skipPost: true, // Items already created via batch POST - parent should skip POST
+          successionPlanting: rowNumber ? successionPlanting : false,
+          weekInterval: successionPlanting ? weekInterval : undefined,
+          seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
+          trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
         };
         onSave(config);
       } else {
@@ -482,7 +952,9 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     onCancel();
   };
 
-  if (!cropName || !representativePlant || !position) {
+  // For grid-based placement, position is required
+  // For MIGardener row planting, rowNumber is required (position will be null)
+  if (!cropName || !representativePlant || (!position && !rowNumber)) {
     return null;
   }
 
@@ -496,56 +968,330 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         {/* Plant Info */}
         <div className="bg-gray-50 p-3 rounded-lg">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">{representativePlant.icon || '🌱'}</span>
+            <PlantIcon plantId={representativePlant.id} plantIcon={representativePlant.icon || '🌱'} size={32} />
             <div className="flex-1">
               <p className="font-semibold text-gray-900">{cropName}</p>
+              {bed && (
+                <>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Bed: <span className="font-medium text-blue-700">{bed.name}</span>
+                    {bed.sunExposure && representativePlant && (
+                      <span className="ml-2">
+                        {(() => {
+                          const plantReq = representativePlant.sunRequirement;
+                          const bedExp = bed.sunExposure;
+                          const compatibilityMap: { [key: string]: string[] } = {
+                            'full': ['full'],
+                            'partial': ['full', 'partial'],
+                            'shade': ['full', 'partial', 'shade']
+                          };
+                          const acceptable = compatibilityMap[plantReq] || ['full'];
+                          const compatible = acceptable.includes(bedExp);
+
+                          if (compatible) {
+                            return <span className="text-xs text-green-600">✓ {bedExp} sun</span>;
+                          } else if (plantReq === 'full' && (bedExp === 'partial' || bedExp === 'shade')) {
+                            return <span className="text-xs text-red-600">❌ {bedExp} sun (needs full)</span>;
+                          } else {
+                            return <span className="text-xs text-yellow-600">⚠️ {bedExp} sun (prefers {plantReq})</span>;
+                          }
+                        })()}
+                      </span>
+                    )}
+                  </p>
+                </>
+              )}
+              {plantingDate && (
+                <p className="text-sm text-gray-600 mt-1">
+                  Planting for: <span className="font-medium text-green-700">{new Date(plantingDate).toLocaleDateString()}</span>
+                </p>
+              )}
               <div className="flex items-center gap-2 mt-1">
-                <label htmlFor="gridPosition" className="text-sm text-gray-600 whitespace-nowrap">
-                  Position:
-                </label>
-                <input
-                  id="gridPosition"
-                  type="text"
-                  value={gridLabelInput || currentGridLabel}
-                  onChange={(e) => handleGridLabelChange(e.target.value)}
-                  onBlur={() => {
-                    // Reset to current position if input is cleared
-                    if (!gridLabelInput.trim() && currentPosition) {
-                      setGridLabelInput('');
-                      setEditedPosition(null);
-                    }
-                  }}
-                  placeholder={currentGridLabel}
-                  className={`px-2 py-1 text-sm border rounded w-16 focus:outline-none focus:ring-1 ${
-                    positionError
-                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                      : 'border-gray-300 focus:ring-green-500 focus:border-green-500'
-                  }`}
-                  title="Edit grid position (e.g., A1, B2)"
-                />
-                <span className="text-xs text-gray-500">
-                  ({currentPosition?.x}, {currentPosition?.y})
-                </span>
-                {gridDimensions && (
-                  <span className="text-xs text-gray-400 ml-1">
-                    {getGridBoundsDescription(gridDimensions.gridWidth, gridDimensions.gridHeight)}
-                  </span>
+                {rowNumber !== undefined ? (
+                  // MIGardener row planting
+                  <>
+                    <span className="text-sm text-gray-600">Row:</span>
+                    <span className="px-2 py-1 text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded">
+                      Row {rowNumber}
+                    </span>
+                    <span className="text-xs text-gray-500">(entire row will be planted)</span>
+                  </>
+                ) : (
+                  // Grid-based planting (SFG)
+                  <>
+                    <label htmlFor="gridPosition" className="text-sm text-gray-600 whitespace-nowrap">
+                      Position:
+                    </label>
+                    <input
+                      id="gridPosition"
+                      type="text"
+                      value={gridLabelInput || currentGridLabel}
+                      onChange={(e) => handleGridLabelChange(e.target.value)}
+                      onBlur={() => {
+                        // Reset to current position if input is cleared
+                        if (!gridLabelInput.trim() && currentPosition) {
+                          setGridLabelInput('');
+                          setEditedPosition(null);
+                        }
+                      }}
+                      placeholder={currentGridLabel}
+                      className={`px-2 py-1 text-sm border rounded w-16 focus:outline-none focus:ring-1 ${
+                        positionError
+                          ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                          : 'border-gray-300 focus:ring-green-500 focus:border-green-500'
+                      }`}
+                      title="Edit grid position (e.g., A1, B2)"
+                    />
+                    <span className="text-xs text-gray-500">
+                      ({currentPosition?.x}, {currentPosition?.y})
+                    </span>
+                    {gridDimensions && (
+                      <span className="text-xs text-gray-400 ml-1">
+                        {getGridBoundsDescription(gridDimensions.gridWidth, gridDimensions.gridHeight)}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
-              {positionError && (
+              {positionError && !rowNumber && (
                 <p className="text-xs text-red-600 mt-1">{positionError}</p>
+              )}
+              {/* Fill Direction - Only show for grid planting with multiple squares */}
+              {!rowNumber && numberOfSquares > 1 && (
+                <div className="flex items-center gap-2 mt-2">
+                  <label htmlFor="fillDirection" className="text-sm text-gray-600 whitespace-nowrap">
+                    Fill direction:
+                  </label>
+                  <select
+                    id="fillDirection"
+                    value={fillDirection}
+                    onChange={(e) => setFillDirection(e.target.value as FillDirection)}
+                    className="px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                  >
+                    <option value="across">Across (left-to-right)</option>
+                    <option value="down">Down (top-to-bottom)</option>
+                  </select>
+                </div>
               )}
             </div>
           </div>
         </div>
 
+        {/* MIGardener Seed Density Information Panel */}
+        {planningMethod === 'migardener' && representativePlant.migardener && (seedDensityMetadata?.plantingMethod === 'seed_density' || seedDensityMetadata?.plantingMethod === 'seed_density_broadcast') && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
+            {seedDensityMetadata.plantingStyle === 'broadcast' ? (
+              // BROADCAST PLANTING DISPLAY
+              <>
+                <h4 className="font-semibold text-blue-900 mb-2">🌱 MIGardener Broadcast Seeding</h4>
+                <div className="text-sm text-blue-800 space-y-1">
+                  <p>
+                    <strong>Broadcast density:</strong> ~{seedDensityMetadata.seedDensityPerSqFt} seeds per square foot
+                  </p>
+                  <p className="text-xs text-blue-600">
+                    ({seedDensityMetadata.seedCount} seeds in this {Math.round(seedDensityMetadata.gridCellAreaInches || 9)} sq in cell)
+                  </p>
+                  <p>
+                    <strong>Germination rate:</strong> {((seedDensityMetadata.expectedGerminationRate || 0) * 100).toFixed(0)}%
+                  </p>
+                  <p>
+                    <strong>Typical survival estimate:</strong> ~{((seedDensityMetadata.expectedSurvivalRate || 0) * 100).toFixed(0)}%
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Actual survival varies with soil fertility, moisture, and temperature
+                  </p>
+                  <p className="font-semibold text-blue-900 mt-2">
+                    Expected final: ~{seedDensityMetadata.expectedFinalCount} plants per cell after self-thinning
+                  </p>
+                  <p className="text-xs mt-2 text-blue-700">
+                    <strong>Harvest method:</strong> {(seedDensityMetadata.harvestMethod || '').replace(/_/g, ' ')}
+                  </p>
+                  <p className="text-xs mt-2 text-blue-600 italic">
+                    MIGardener broadcast method covers area densely with no defined rows. Final plant density emerges through natural self-thinning.
+                  </p>
+                </div>
+              </>
+            ) : seedDensityMetadata.plantingStyle === 'plant_spacing' ? (
+              // PLANT-SPACING PLANTING DISPLAY
+              <>
+                <h4 className="font-semibold text-blue-900 mb-2">🌱 MIGardener Plant-Spacing Method</h4>
+                <div className="text-sm text-blue-800 space-y-1">
+                  {seedDensityMetadata.seedsPerSpot === 1 && seedDensityMetadata.plantsKeptPerSpot === 1 ? (
+                    // PERENNIAL / SINGLE PLANT CASE (e.g., bee balm)
+                    <>
+                      <p>
+                        <strong>Planting:</strong> 1 plant per spot (transplant or single seed)
+                      </p>
+                      <p className="bg-green-50 border border-green-200 rounded px-2 py-1 mt-2">
+                        <strong>🌿 No thinning needed</strong> - One plant per spot
+                      </p>
+                      {seedDensityMetadata.harvestMethod === 'perennial_cutback' && (
+                        <p className="bg-purple-50 border border-purple-200 rounded px-2 py-1 mt-2">
+                          <strong>🌸 Perennial</strong> - Spreads and establishes over time
+                        </p>
+                      )}
+                      <p className="text-xs text-blue-600 mt-2">
+                        Spacing represents mature clump size, not initial planting density
+                      </p>
+                    </>
+                  ) : (
+                    // MULTI-SEED THINNING CASE (e.g., beans, cucumbers)
+                    <>
+                      <p>
+                        <strong>Planting:</strong> {seedDensityMetadata.seedsPerSpot} seeds per spot
+                      </p>
+                      <p className="text-xs text-blue-600">
+                        Total: {seedDensityMetadata.seedCount} seeds for this planting
+                      </p>
+                      <p className="bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-2">
+                        <strong>📍 Thinning required:</strong> Thin to {seedDensityMetadata.plantsKeptPerSpot} healthiest plant{seedDensityMetadata.plantsKeptPerSpot === 1 ? '' : 's'} per spot
+                      </p>
+                      <p>
+                        <strong>Germination rate:</strong> {((seedDensityMetadata.expectedGerminationRate || 0) * 100).toFixed(0)}%
+                      </p>
+                      <p>
+                        <strong>Expected germination:</strong> ~{Math.round((seedDensityMetadata.seedCount || 0) * (seedDensityMetadata.expectedGerminationRate || 0))} seedlings
+                      </p>
+                      <p className="font-semibold text-blue-900 mt-2">
+                        Final plants after thinning: {seedDensityMetadata.expectedFinalCount}
+                      </p>
+                      <p className="text-xs mt-2 text-blue-600 italic">
+                        MIGardener plant-spacing method: Plant multiple seeds per spot for insurance, then thin to the healthiest plant.
+                      </p>
+                    </>
+                  )}
+                  <p className="text-xs mt-2 text-blue-700">
+                    <strong>Harvest method:</strong> {(seedDensityMetadata.harvestMethod || '').replace(/_/g, ' ')}
+                  </p>
+                </div>
+              </>
+            ) : (
+              // ROW-BASED PLANTING DISPLAY (original)
+              <>
+                <h4 className="font-semibold text-blue-900 mb-2">🌱 MIGardener Row Density</h4>
+                <div className="text-sm text-blue-800 space-y-1">
+                  <p>
+                    <strong>Seeds per {seedDensityMetadata.uiSegmentLengthInches}" segment:</strong> ~{seedDensityMetadata.seedCount}
+                  </p>
+                  <p className="text-xs text-blue-600">
+                    (UI segment; actual rows are continuous)
+                  </p>
+                  <p>
+                    <strong>Seed density:</strong> {seedDensityMetadata.seedDensity} seeds/inch along row
+                  </p>
+                  <p>
+                    <strong>Row spacing (for {representativePlant.name}):</strong>{' '}
+                    {representativePlant.migardener.rowSpacingInches === null ? (
+                      <span className="text-green-600 font-medium">Broadcast mode (no rows)</span>
+                    ) : (
+                      `${representativePlant.migardener.rowSpacingInches}"`
+                    )}
+                  </p>
+                  <p>
+                    <strong>Germination rate:</strong> {((seedDensityMetadata.expectedGerminationRate || 0) * 100).toFixed(0)}%
+                  </p>
+                  <p>
+                    <strong>Typical survival estimate:</strong> ~{((seedDensityMetadata.expectedSurvivalRate || 0) * 100).toFixed(0)}%
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Actual survival varies with soil fertility, moisture, and temperature
+                  </p>
+                  <p className="font-semibold text-blue-900 mt-2">
+                    Expected final: ~{seedDensityMetadata.expectedFinalCount} plants per {seedDensityMetadata.uiSegmentLengthInches}" segment
+                  </p>
+                  <p className="text-xs mt-2 text-blue-700">
+                    <strong>Harvest method:</strong> {(seedDensityMetadata.harvestMethod || '').replace(/_/g, ' ')}
+                  </p>
+                  <p className="text-xs mt-2 text-blue-600 italic">
+                    MIGardener method plants continuous dense rows (not grid-based). Grid is a UI convenience for planning.
+                  </p>
+                  <p className="text-xs text-blue-600 mt-2 italic">
+                    <strong>Note:</strong> Seeds are sown continuously at ¼″–½″ spacing. Final plant count emerges through natural self-thinning and is not predetermined.
+                  </p>
+                  {seedDensityMetadata.rowContinuityMessage && (
+                    <p className="text-sm mt-2 font-semibold text-green-700 bg-green-50 px-2 py-1 rounded">
+                      🔗 {seedDensityMetadata.rowContinuityMessage}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Companion Plants */}
+        {representativePlant && (representativePlant.companionPlants.length > 0 || representativePlant.incompatiblePlants.length > 0) && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="text-sm font-medium text-green-900 mb-2">🌿 Companion Planting</div>
+
+            {representativePlant.companionPlants.length > 0 && (
+              <div className="mb-2">
+                <div className="text-xs font-medium text-green-800 mb-1">✓ Good Companions:</div>
+                <div className="flex flex-wrap gap-1">
+                  {representativePlant.companionPlants.map((companionId) => {
+                    const companion = allPlants.find(p => p.id === companionId);
+                    if (!companion) return null;
+                    return (
+                      <span
+                        key={companionId}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white border border-green-300 text-green-700 rounded"
+                        title={`${extractCropName(companion.name)} - Plant nearby for mutual benefits`}
+                      >
+                        <span>{companion.icon || '🌱'}</span>
+                        <span>{extractCropName(companion.name)}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {representativePlant.incompatiblePlants.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-red-800 mb-1">✗ Avoid Planting Near:</div>
+                <div className="flex flex-wrap gap-1">
+                  {representativePlant.incompatiblePlants.map((incompatibleId) => {
+                    const incompatible = allPlants.find(p => p.id === incompatibleId);
+                    if (!incompatible) return null;
+                    return (
+                      <span
+                        key={incompatibleId}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white border border-red-300 text-red-700 rounded"
+                        title={`${extractCropName(incompatible.name)} - Keep away to avoid growth issues`}
+                      >
+                        <span>{incompatible.icon || '🌱'}</span>
+                        <span>{extractCropName(incompatible.name)}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-green-700 mt-2">
+              Companion planting can improve growth, deter pests, and increase yields.
+            </p>
+          </div>
+        )}
+
         {/* Variety Selection */}
         <div>
-          <label htmlFor="variety" className="block text-sm font-medium text-gray-700 mb-1">
-            Variety {varietyOptions.length > 1 ? '' : '(optional)'}
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label htmlFor="variety" className="text-sm font-medium text-gray-700">
+              Variety {varietyOptions.length >= 1 ? '' : '(optional)'}
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCatalogVarieties}
+                onChange={(e) => setShowCatalogVarieties(e.target.checked)}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span className="text-xs text-gray-600">Include catalog varieties</span>
+            </label>
+          </div>
 
-          {varietyOptions.length > 1 ? (
+          {varietyOptions.length >= 1 ? (
             <div>
               <select
                 id="variety"
@@ -561,7 +1307,9 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 ))}
               </select>
               <p className="mt-1 text-sm text-gray-500">
-                {varietyOptions.length} varieties available for {cropName}
+                {varietyOptions.length} {varietyOptions.length === 1 ? 'variety' : 'varieties'} available for {cropName}
+                {showCatalogVarieties && <span className="text-blue-600"> (including catalog)</span>}
+                {!showCatalogVarieties && <span className="text-green-600"> (personal seeds only)</span>}
               </p>
             </div>
           ) : (
@@ -575,7 +1323,11 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
               />
               <p className="mt-1 text-sm text-gray-500">
-                No specific varieties found. You can add a custom variety name.
+                {!showCatalogVarieties ? (
+                  <>No varieties in your personal inventory. <button type="button" onClick={() => setShowCatalogVarieties(true)} className="text-blue-600 hover:text-blue-700 underline">Check catalog</button> or add a custom variety name.</>
+                ) : (
+                  'No specific varieties found. You can add a custom variety name.'
+                )}
               </p>
             </div>
           )}
@@ -584,6 +1336,50 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             <p className="mt-1 text-sm text-amber-600">{error}</p>
           )}
         </div>
+
+        {/* Trellis Selection (for trellis-required plants) */}
+        {representativePlant?.migardener?.trellisRequired && (
+          <div>
+            <label htmlFor="trellis" className="block text-sm font-medium text-gray-700 mb-1">
+              Trellis Structure <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="trellis"
+              value={selectedTrellisId || ''}
+              onChange={(e) => setSelectedTrellisId(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              required
+            >
+              <option value="">-- Select a trellis --</option>
+              {availableTrellises.map((trellis) => (
+                <option key={trellis.id} value={trellis.id}>
+                  {trellis.name} ({trellis.totalLengthFeet}ft - {trellis.trellisType.replace('_', ' ')})
+                </option>
+              ))}
+            </select>
+
+            {availableTrellises.length === 0 && (
+              <p className="mt-2 text-sm text-orange-600">
+                No trellis structures available. Create one in the Property Designer first.
+              </p>
+            )}
+
+            {trellisCapacity && (
+              <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200">
+                <p className="text-sm font-medium text-gray-700">Capacity:</p>
+                <p className="text-sm text-gray-600">
+                  Available: {trellisCapacity.availableFeet.toFixed(1)} ft
+                  ({trellisCapacity.percentOccupied.toFixed(0)}% occupied)
+                </p>
+                {trellisCapacity.availableFeet < (representativePlant.migardener?.linearFeetPerPlant || 5) && (
+                  <p className="text-sm text-red-600 mt-1">
+                    ⚠️ Insufficient space. This plant requires {representativePlant.migardener?.linearFeetPerPlant || 5} ft.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Planting Method */}
         <div>
@@ -621,6 +1417,55 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           </p>
         </div>
 
+        {/* Planting Style Selector - Available for ALL methods */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Planting Style
+          </label>
+          <select
+            value={selectedPlantingStyle}
+            onChange={(e) => setSelectedPlantingStyle(e.target.value as PlantingStyle)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          >
+            {Object.values(PLANTING_STYLES).map(style => (
+              <option key={style.id} value={style.id}>
+                {style.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            {PLANTING_STYLES[selectedPlantingStyle]?.description}
+          </p>
+          <p className="text-xs text-blue-600 mt-1">
+            💡 Ideal for: {PLANTING_STYLES[selectedPlantingStyle]?.idealFor}
+          </p>
+        </div>
+
+        {/* Show broadcast density UI if needed */}
+        {requiresSeedDensity(selectedPlantingStyle) && selectedPlantingStyle === 'broadcast' && (
+          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Seed Density (seeds per square foot)
+            </label>
+            <input
+              type="number"
+              value={seedDensityMetadata?.seedDensityPerSqFt || 16}
+              onChange={(e) => setSeedDensityMetadata(prev => ({
+                ...prev,
+                plantingMethod: 'seed_density_broadcast',
+                plantingStyle: 'broadcast',
+                seedDensityPerSqFt: Number(e.target.value)
+              }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              min="1"
+              max="100"
+            />
+            <p className="text-xs text-gray-600 mt-1">
+              💡 Typical densities: Spinach 16-20, Lettuce 8-12, Mesclun 25-30, Carrots 30-40
+            </p>
+          </div>
+        )}
+
         {/* Planting Validation Warnings */}
         {validating && (
           <div className="flex items-center justify-center py-2 text-gray-500">
@@ -644,36 +1489,146 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           </div>
         )}
 
+        {/* Warnings - Only show after variety selection (if varieties available) */}
         {!validating && warnings.length > 0 && (variety !== '' || varietyOptions.length === 0) && (
           <WarningDisplay
             warnings={warnings}
-            suggestion={suggestion}
             onChangeDateClick={onDateChange}
+            currentPlantingDate={plantingDate}
           />
         )}
 
-        {/* Quantity */}
-        <div>
-          <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 mb-1">
-            {isDensePlanting ? 'Plants per Square' : 'Quantity'}
-          </label>
-          <input
-            type="number"
-            id="quantity"
-            min="1"
-            max="100"
-            value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+        {/* Planting Date Suggestions - Always show when available, independent of warnings or variety */}
+        {!validating && suggestion && (suggestion.optimal_range || suggestion.reason || suggestion.earliest_safe_date) && (
+          <WarningDisplay
+            warnings={[]}
+            suggestion={suggestion}
+            onChangeDateClick={onDateChange}
+            currentPlantingDate={plantingDate}
           />
-          <p className="mt-1 text-sm text-gray-500">
-            {isDensePlanting
-              ? quantity <= plantsPerSquare
-                ? `Based on ${representativePlant.spacing}" spacing, ${plantsPerSquare} plants fit per square foot. All will be placed at position (${position.x}, ${position.y}).`
-                : `Based on ${representativePlant.spacing}" spacing, ${plantsPerSquare} plants fit per square. Enter ${quantity} to place ${Math.ceil(quantity / plantsPerSquare)} squares. Click Preview to see placement.`
-              : `Number of ${cropName} plants to place at this position`
-            }
-          </p>
+        )}
+
+        {/* Quantity - Dual Input for SFG/MIGardener, Single for Others */}
+        <div>
+          {(planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive') && !rowNumber ? (
+            // Dual-input UI for succession planting (both dense and spread)
+            <>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Succession Planting
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="numberOfSquares" className="block text-xs font-medium text-gray-600 mb-1">
+                    Number of {quantityTerminology.unitLabel}
+                  </label>
+                  <input
+                    type="number"
+                    id="numberOfSquares"
+                    min="1"
+                    max="100"
+                    value={numberOfSquares}
+                    onChange={(e) => handleSquaresChange(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="totalPlants" className="block text-xs font-medium text-gray-600 mb-1">
+                    {quantityTerminology.totalLabel}
+                  </label>
+                  <input
+                    type="number"
+                    id="totalPlants"
+                    min="1"
+                    max="1600"
+                    value={quantity}
+                    onChange={(e) => handlePlantsChange(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-sm text-gray-500">
+                {quantityTerminology.helpText}
+                {plantsPerSquare >= 1 && selectedPlantingStyle !== 'broadcast'
+                  ? ` (${Math.floor(plantsPerSquare)} plants per ${quantityTerminology.unitLabel.toLowerCase().slice(0, -1)})`
+                  : ''}
+              </p>
+            </>
+          ) : (
+            // Single input for row planting or other methods
+            <>
+              <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 mb-1">
+                {rowNumber ? `Number of Rows (starting at Row ${rowNumber})` : 'Quantity'}
+              </label>
+              <input
+                type="number"
+                id="quantity"
+                min="1"
+                max="100"
+                value={quantity}
+                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+              <p className="mt-1 text-sm text-gray-500">
+                {rowNumber
+                  ? `Sow ~${Math.round((bed?.length || 8) * 12 * (representativePlant.migardener?.seedDensityPerInch || 1))} seeds at ~${representativePlant.migardener?.seedDensityPerInch || 1}″ spacing along this ${bed?.length || 8}' row. Final spacing emerges through self-thinning.`
+                  : `Number of ${cropName} plants to place at this position`
+                }
+              </p>
+
+              {/* Succession Planting - Show for MIGardener rows OR SFG multi-square */}
+              {((rowNumber && quantity > 1) || (numberOfSquares > 1)) && (
+                <div className="mt-4 space-y-3 border-t pt-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="successionPlanting"
+                      checked={successionPlanting}
+                      onChange={(e) => setSuccessionPlanting(e.target.checked)}
+                      className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="successionPlanting" className="text-sm font-medium text-gray-700">
+                      Succession Planting (stagger planting dates)
+                    </label>
+                  </div>
+
+                  {successionPlanting && (
+                    <div>
+                      <label htmlFor="weekInterval" className="block text-sm font-medium text-gray-700 mb-1">
+                        Week Interval
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          id="weekInterval"
+                          min="1"
+                          max="8"
+                          value={weekInterval}
+                          onChange={(e) => setWeekInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                        <span className="text-sm text-gray-600">week(s) between {quantityTerminology.unitLabel.toLowerCase()}</span>
+                      </div>
+                      {plantingDate && (
+                        <p className="mt-2 text-xs text-gray-500 bg-blue-50 p-2 rounded border border-blue-200">
+                          {rowNumber ? (
+                            <>
+                              📅 Row {rowNumber}: {new Date(plantingDate).toLocaleDateString()}<br/>
+                              📅 Row {rowNumber + quantity - 1}: {new Date(new Date(plantingDate).getTime() + (quantity - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                            </>
+                          ) : (
+                            <>
+                              📅 {quantityTerminology.unitLabel.slice(0, -1)} 1: {new Date(plantingDate).toLocaleDateString()}<br/>
+                              📅 {quantityTerminology.unitLabel.slice(0, -1)} {numberOfSquares}: {new Date(new Date(plantingDate).getTime() + (numberOfSquares - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                            </>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Notes */}
@@ -700,17 +1655,18 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             Cancel
           </button>
 
-          {/* Preview button - show for succession planting (dense or spread) */}
-          {quantity > 1 && !showingPreview && bed && (
-            // For dense planting, show preview when quantity > plantsPerSquare (succession planting)
-            // For spread planting, always show preview when quantity > 1
-            (isDensePlanting ? quantity > plantsPerSquare : true) && (
+          {/* Preview button - show for succession planting (dual-input mode) */}
+          {quantity > 1 && !showingPreview && bed && !rowNumber && (
+            // For dual-input mode (SFG/MIGardener), show preview when numberOfSquares > 1
+            // For single input mode, always show preview when quantity > 1
+            // Don't show preview for row planting (rowNumber is set)
+            (usesDualInput ? numberOfSquares > 1 : true) && (
               <button
                 onClick={handlePreviewPlacement}
                 className="px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
-                {isDensePlanting
-                  ? `Preview Placement (${Math.ceil(quantity / plantsPerSquare)} squares)`
+                {usesDualInput
+                  ? `Preview Placement (${numberOfSquares} squares)`
                   : `Preview Placement (${quantity} plants)`}
               </button>
             )
@@ -723,10 +1679,11 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               (quantity > 1 &&
                 !showingPreview &&
                 bed !== undefined &&
-                (!isDensePlanting || quantity > plantsPerSquare)) // Disable for succession planting without preview
+                !rowNumber && // Allow saving without preview for row planting
+                (usesDualInput && numberOfSquares > 1)) // Disable for succession planting without preview
             }
             className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center gap-2 ${
-              quantity > 1 && !showingPreview && bed !== undefined && (!isDensePlanting || quantity > plantsPerSquare)
+              quantity > 1 && !showingPreview && bed !== undefined && !rowNumber && (usesDualInput && numberOfSquares > 1)
                 ? 'bg-gray-400 cursor-not-allowed'
                 : warnings.some(w => w.severity === 'warning')
                 ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500'
@@ -738,14 +1695,15 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 {warnings.filter(w => w.severity === 'warning').length}
               </span>
             )}
-            {isDensePlanting && quantity > 1 && quantity <= plantsPerSquare
-              ? `Place ${quantity} Plants`
-              : showingPreview && quantity > 1
-                ? isDensePlanting
-                  ? `Place ${previewPositions.length} Squares (${previewPositions.length * plantsPerSquare} total)`
-                  : `Place ${previewPositions.length} Plants`
-                : `Place Plant${quantity > 1 ? 's' : ''}`}
-            {warnings.some(w => w.severity === 'warning') && !showingPreview ? ' Anyway' : ''}
+            {/* Dynamic button text based on planting style */}
+            {rowNumber
+              ? `Seed ${quantity} Row${quantity > 1 ? 's' : ''}`
+              : selectedPlantingStyle === 'broadcast'
+                ? 'Seed Coverage Area'
+                : showingPreview
+                  ? `Place ${previewPositions.length} ${quantityTerminology.unitLabel}`
+                  : `Place ${isDensePlanting ? numberOfSquares : quantity} ${quantityTerminology.unitLabel}`}
+            {warnings.some(w => w.severity === 'warning') && !showingPreview && !rowNumber ? ' Anyway' : ''}
           </button>
         </div>
       </div>

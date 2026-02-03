@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CompostPile, CompostIngredient, COMPOST_MATERIALS } from '../types';
 import { format, addDays, differenceInDays } from 'date-fns';
+import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 
 const CompostTracker: React.FC = () => {
   const [compostPiles, setCompostPiles] = useState<CompostPile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAddPile, setShowAddPile] = useState(false);
-  const [showIngredientForm, setShowIngredientForm] = useState<string | null>(null);
+  const [showIngredientForm, setShowIngredientForm] = useState<number | null>(null);
 
   const [newPile, setNewPile] = useState({
     name: '',
@@ -20,30 +23,85 @@ const CompostTracker: React.FC = () => {
     amount: 0,
   });
 
-  const addCompostPile = () => {
+  // Load compost piles from backend on mount
+  useEffect(() => {
+    loadCompostPiles();
+  }, []);
+
+  const loadCompostPiles = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await apiGet('/api/compost-piles');
+
+      if (!response.ok) {
+        throw new Error('Failed to load compost piles');
+      }
+
+      const data = await response.json();
+
+      // Convert ISO date strings to Date objects
+      const pilesWithDates = data.map((pile: any) => ({
+        ...pile,
+        startDate: new Date(pile.startDate),
+        lastTurned: pile.lastTurned ? new Date(pile.lastTurned) : undefined,
+        estimatedReadyDate: new Date(pile.estimatedReadyDate),
+        turnSchedule: generateTurnSchedule(), // Frontend-only feature
+        ingredients: pile.ingredients.map((ing: any) => ({
+          ...ing,
+          addedDate: new Date(ing.addedDate)
+        }))
+      }));
+
+      setCompostPiles(pilesWithDates);
+    } catch (err) {
+      console.error('Error loading compost piles:', err);
+      setError('Failed to load compost piles');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addCompostPile = async () => {
     if (!newPile.name || !newPile.location) return;
 
-    const pile: CompostPile = {
-      id: String(Date.now()),
-      name: newPile.name,
-      startDate: new Date(),
-      location: newPile.location,
-      size: {
-        width: newPile.width,
-        length: newPile.length,
-        height: newPile.height,
-      },
-      ingredients: [],
-      turnSchedule: generateTurnSchedule(),
-      estimatedReadyDate: addDays(new Date(), 90), // 3 months default
-      moisture: 'ideal',
-      carbonNitrogenRatio: 30,
-      status: 'building',
-    };
+    try {
+      setError(null);
 
-    setCompostPiles([...compostPiles, pile]);
-    setShowAddPile(false);
-    setNewPile({ name: '', location: '', width: 3, length: 3, height: 3 });
+      const response = await apiPost('/api/compost-piles', {
+        name: newPile.name,
+        location: newPile.location,
+        size: {
+          width: newPile.width,
+          length: newPile.length,
+          height: newPile.height
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create compost pile');
+      }
+
+      const savedPile = await response.json();
+
+      // Convert dates and add to local state
+      const pileWithDates = {
+        ...savedPile,
+        startDate: new Date(savedPile.startDate),
+        estimatedReadyDate: new Date(savedPile.estimatedReadyDate),
+        lastTurned: savedPile.lastTurned ? new Date(savedPile.lastTurned) : undefined,
+        turnSchedule: generateTurnSchedule(), // Frontend-only feature
+        ingredients: []
+      };
+
+      setCompostPiles([...compostPiles, pileWithDates]);
+      setShowAddPile(false);
+      setNewPile({ name: '', location: '', width: 3, length: 3, height: 3 });
+    } catch (err) {
+      console.error('Error creating compost pile:', err);
+      setError('Failed to create compost pile');
+    }
   };
 
   const generateTurnSchedule = (): Date[] => {
@@ -61,79 +119,173 @@ const CompostTracker: React.FC = () => {
     return schedule;
   };
 
-  const addIngredient = (pileId: string) => {
+  const addIngredient = async (pileId: string | number) => {
     if (!newIngredient.material || newIngredient.amount <= 0) return;
 
-    const material = COMPOST_MATERIALS[newIngredient.material];
-    if (!material) return;
+    try {
+      setError(null);
 
-    const ingredient: CompostIngredient = {
-      name: newIngredient.material,
-      amount: newIngredient.amount,
-      type: material.type,
-      addedDate: new Date(),
-      carbonNitrogenRatio: material.cnRatio,
-    };
+      // Backend recalculates C:N ratio automatically
+      const response = await apiPost(`/api/compost-piles/${pileId}/ingredients`, {
+        material: newIngredient.material,
+        amount: newIngredient.amount
+      });
 
-    const updatedPiles = compostPiles.map((pile) => {
-      if (pile.id === pileId) {
-        const updatedIngredients = [...pile.ingredients, ingredient];
-        const newCNRatio = calculateCNRatio(updatedIngredients);
-
-        return {
-          ...pile,
-          ingredients: updatedIngredients,
-          carbonNitrogenRatio: newCNRatio,
-        };
+      if (!response.ok) {
+        throw new Error('Failed to add ingredient');
       }
-      return pile;
-    });
 
-    setCompostPiles(updatedPiles);
-    setShowIngredientForm(null);
-    setNewIngredient({ material: '', amount: 0 });
+      const updatedPile = await response.json();
+
+      // Update local state with full pile returned from backend
+      setCompostPiles(
+        compostPiles.map((pile) =>
+          pile.id === pileId ? {
+            ...updatedPile,
+            startDate: new Date(updatedPile.startDate),
+            lastTurned: updatedPile.lastTurned ? new Date(updatedPile.lastTurned) : undefined,
+            estimatedReadyDate: new Date(updatedPile.estimatedReadyDate),
+            turnSchedule: pile.turnSchedule, // Preserve client-side schedule
+            ingredients: updatedPile.ingredients.map((ing: any) => ({
+              ...ing,
+              addedDate: new Date(ing.addedDate)
+            }))
+          } : pile
+        )
+      );
+
+      setShowIngredientForm(null);
+      setNewIngredient({ material: '', amount: 0 });
+    } catch (err) {
+      console.error('Error adding ingredient:', err);
+      setError('Failed to add ingredient');
+    }
   };
 
-  const calculateCNRatio = (ingredients: CompostIngredient[]): number => {
-    if (ingredients.length === 0) return 30;
+  const markPileTurned = async (pileId: string | number) => {
+    try {
+      setError(null);
 
-    let totalCarbon = 0;
-    let totalNitrogen = 0;
+      const response = await apiPut(`/api/compost-piles/${pileId}`, {
+        lastTurned: true  // Backend interprets this as "set to now"
+      });
 
-    ingredients.forEach((ingredient) => {
-      const carbon = (ingredient.carbonNitrogenRatio * ingredient.amount) / 31;
-      const nitrogen = ingredient.amount / 31;
-      totalCarbon += carbon;
-      totalNitrogen += nitrogen;
-    });
+      if (!response.ok) {
+        throw new Error('Failed to mark pile as turned');
+      }
 
-    return totalNitrogen === 0 ? 30 : totalCarbon / totalNitrogen;
+      const updatedPile = await response.json();
+
+      // Update local state
+      setCompostPiles(
+        compostPiles.map((pile) =>
+          pile.id === pileId ? {
+            ...updatedPile,
+            startDate: new Date(updatedPile.startDate),
+            lastTurned: new Date(updatedPile.lastTurned),
+            estimatedReadyDate: new Date(updatedPile.estimatedReadyDate),
+            turnSchedule: pile.turnSchedule, // Preserve client-side schedule
+            ingredients: updatedPile.ingredients.map((ing: any) => ({
+              ...ing,
+              addedDate: new Date(ing.addedDate)
+            }))
+          } : pile
+        )
+      );
+    } catch (err) {
+      console.error('Error marking pile as turned:', err);
+      setError('Failed to mark pile as turned');
+    }
   };
 
-  const markPileTurned = (pileId: string) => {
-    setCompostPiles(
-      compostPiles.map((pile) =>
-        pile.id === pileId ? { ...pile, lastTurned: new Date() } : pile
-      )
-    );
+  const updatePileStatus = async (pileId: string | number, status: CompostPile['status']) => {
+    try {
+      setError(null);
+
+      const response = await apiPut(`/api/compost-piles/${pileId}`, {
+        status
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update pile status');
+      }
+
+      const updatedPile = await response.json();
+
+      // Update local state
+      setCompostPiles(
+        compostPiles.map((pile) =>
+          pile.id === pileId ? {
+            ...updatedPile,
+            startDate: new Date(updatedPile.startDate),
+            lastTurned: updatedPile.lastTurned ? new Date(updatedPile.lastTurned) : undefined,
+            estimatedReadyDate: new Date(updatedPile.estimatedReadyDate),
+            turnSchedule: pile.turnSchedule, // Preserve client-side schedule
+            ingredients: updatedPile.ingredients.map((ing: any) => ({
+              ...ing,
+              addedDate: new Date(ing.addedDate)
+            }))
+          } : pile
+        )
+      );
+    } catch (err) {
+      console.error('Error updating pile status:', err);
+      setError('Failed to update pile status');
+    }
   };
 
-  const updatePileStatus = (pileId: string, status: CompostPile['status']) => {
-    setCompostPiles(
-      compostPiles.map((pile) => (pile.id === pileId ? { ...pile, status } : pile))
-    );
+  const updateMoisture = async (pileId: string | number, moisture: CompostPile['moisture']) => {
+    try {
+      setError(null);
+
+      const response = await apiPut(`/api/compost-piles/${pileId}`, {
+        moisture
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update moisture level');
+      }
+
+      const updatedPile = await response.json();
+
+      // Update local state
+      setCompostPiles(
+        compostPiles.map((pile) =>
+          pile.id === pileId ? {
+            ...updatedPile,
+            startDate: new Date(updatedPile.startDate),
+            lastTurned: updatedPile.lastTurned ? new Date(updatedPile.lastTurned) : undefined,
+            estimatedReadyDate: new Date(updatedPile.estimatedReadyDate),
+            turnSchedule: pile.turnSchedule, // Preserve client-side schedule
+            ingredients: updatedPile.ingredients.map((ing: any) => ({
+              ...ing,
+              addedDate: new Date(ing.addedDate)
+            }))
+          } : pile
+        )
+      );
+    } catch (err) {
+      console.error('Error updating moisture:', err);
+      setError('Failed to update moisture level');
+    }
   };
 
-  const updateMoisture = (pileId: string, moisture: CompostPile['moisture']) => {
-    setCompostPiles(
-      compostPiles.map((pile) =>
-        pile.id === pileId ? { ...pile, moisture } : pile
-      )
-    );
-  };
+  const deletePile = async (pileId: string | number) => {
+    try {
+      setError(null);
 
-  const deletePile = (pileId: string) => {
-    setCompostPiles(compostPiles.filter((pile) => pile.id !== pileId));
+      const response = await apiDelete(`/api/compost-piles/${pileId}`);
+
+      if (!response.ok) {
+        throw new Error('Failed to delete pile');
+      }
+
+      // Update local state
+      setCompostPiles(compostPiles.filter((pile) => pile.id !== pileId));
+    } catch (err) {
+      console.error('Error deleting pile:', err);
+      setError('Failed to delete pile');
+    }
   };
 
   const getCNRatioColor = (ratio: number) => {
@@ -149,6 +301,20 @@ const CompostTracker: React.FC = () => {
     return 'Too much carbon (slow)';
   };
 
+  // Loading state
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">
+            ♻️ Compost Tracker
+          </h2>
+          <p className="text-gray-600">Loading compost piles...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -161,6 +327,25 @@ const CompostTracker: React.FC = () => {
           carbon-to-nitrogen ratio for fast, efficient composting.
         </p>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <span className="text-red-800 font-semibold">Error:</span>
+            <span className="text-red-700">{error}</span>
+          </div>
+          <button
+            onClick={() => {
+              setError(null);
+              loadCompostPiles();
+            }}
+            className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Add Pile Button */}
       <div className="bg-white rounded-lg shadow-md p-6">

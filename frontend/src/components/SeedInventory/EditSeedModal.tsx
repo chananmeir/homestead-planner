@@ -49,7 +49,7 @@ export const EditSeedModal: React.FC<EditSeedModalProps> = ({ isOpen, onClose, o
 
   const fetchPlants = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/plants`);
+      const response = await fetch(`${API_BASE_URL}/api/plants`, { credentials: 'include' });
       const data = await response.json();
       setPlants(data);
     } catch (error) {
