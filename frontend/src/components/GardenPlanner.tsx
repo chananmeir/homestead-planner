@@ -15,7 +15,7 @@ import { FilterBar, FilterGroup } from './common/FilterBar';
 import { SortDropdown, SortOption, SortDirection } from './common/SortDropdown';
 import { PLANT_DATABASE } from '../data/plantDatabase';
 import { getPlantById, resolveAlias } from '../utils/plantIdResolver';
-import { calculateSpaceForQuantities, calculateSpacePerBed, calculateTrellisSpaceRequirement, isTrellisPlanting, getLinearFeetPerPlant, calculateSeedRowOptimization, SeedRowOptimization } from '../utils/gardenPlannerSpaceCalculator';
+import { calculateSpaceForQuantities, calculateSpacePerBed, calculateTrellisSpaceRequirement, isTrellisPlanting, getLinearFeetPerPlant, calculateSeedRowOptimization, SeedRowOptimization, refineBedSpaceWithDates } from '../utils/gardenPlannerSpaceCalculator';
 import { calculateSuggestedInterval } from './PlantingCalendar/utils/successionCalculations';
 import { PlanNutritionCard } from './GardenPlanner/PlanNutritionCard';
 
@@ -799,6 +799,20 @@ const GardenPlanner: React.FC = () => {
       allocationModes,
       DEFAULT_SUCCESSION
     );
+
+    // Tier 2: Refine with date-aware peak calculation when plan has been calculated
+    if (calculatedPlan?.items && calculatedPlan.items.length > 0) {
+      refineBedSpaceWithDates(
+        usage,
+        calculatedPlan,
+        seedInventory,
+        bedAssignments,
+        gardenBeds,
+        bedAllocations,
+        allocationModes
+      );
+    }
+
     setBedSpaceUsage(usage);
   };
 
@@ -808,7 +822,7 @@ const GardenPlanner: React.FC = () => {
     if (gardenBeds.length > 0 && manualQuantities.size > 0) {
       updateBedSpaceUsage();
     }
-  }, [manualQuantities, bedAssignments, gardenBeds, seedInventory, perSeedSuccession, bedAllocations, allocationModes]);
+  }, [manualQuantities, bedAssignments, gardenBeds, seedInventory, perSeedSuccession, bedAllocations, allocationModes, calculatedPlan]);
 
   // Update space breakdown summary when succession preferences change
   useEffect(() => {
@@ -2498,7 +2512,7 @@ const GardenPlanner: React.FC = () => {
                                     <div className="flex justify-between items-center mb-1">
                                       <span className="font-medium text-sm">{usage.bedName}</span>
                                       <span className={`text-sm text-${statusColor}-700 font-medium`}>
-                                        {usage.usedSpace.toFixed(1)} / {usage.totalSpace} sq ft ({Math.round(utilization)}%)
+                                        Peak: {usage.usedSpace.toFixed(1)} / {usage.totalSpace} sq ft ({Math.round(utilization)}%)
                                       </span>
                                     </div>
 
@@ -2510,11 +2524,18 @@ const GardenPlanner: React.FC = () => {
                                       />
                                     </div>
 
+                                    {/* Season total note (only when succession crops make it differ) */}
+                                    {usage.seasonTotalSpace > usage.usedSpace + 0.1 && (
+                                      <div className="text-xs text-purple-600 mb-1">
+                                        Season total: {usage.seasonTotalSpace.toFixed(1)} sq ft
+                                      </div>
+                                    )}
+
                                     {/* Crops in this bed */}
                                     <div className="text-xs text-gray-600">
                                       {usage.crops.map((crop, idx) => (
                                         <span key={idx}>
-                                          {crop.plantName} ({crop.spaceUsed.toFixed(1)} sq ft)
+                                          {crop.plantName} ({crop.spaceUsed.toFixed(1)} sq ft{crop.successionCount > 1 ? `/planting, ${crop.successionCount}x` : ''})
                                           {idx < usage.crops.length - 1 ? ', ' : ''}
                                         </span>
                                       ))}

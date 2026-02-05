@@ -9,11 +9,12 @@
  * EXCEPTION: Trellis crops use linear feet measurement instead of square feet.
  */
 
-import { SeedInventoryItem, GardenBed, Plant, SpaceBreakdown, BedSpaceUsage, SuccessionPreference, TrellisStructure, TrellisSpaceUsage, BedAssignment, AllocationMode } from '../types';
+import { SeedInventoryItem, GardenBed, Plant, SpaceBreakdown, BedSpaceUsage, SuccessionPreference, TrellisStructure, TrellisSpaceUsage, BedAssignment, AllocationMode, GardenPlanItem, CalculatePlanResponse } from '../types';
 import { PLANT_DATABASE } from '../data/plantDatabase';
 import { getSFGCellsRequired } from './sfgSpacing';
 import { getMIGardenerSpacing } from './migardenerSpacing';
 import { getIntensiveSpacing } from './intensiveSpacing';
+import { parseISO, addDays } from 'date-fns';
 
 /**
  * Convert succession preference to succession count
@@ -353,6 +354,7 @@ export function calculateSpacePerBed(
       bedName: bed.name,
       totalSpace: bed.width * bed.length,
       usedSpace: 0,
+      seasonTotalSpace: 0,
       crops: []
     });
   });
@@ -398,41 +400,32 @@ export function calculateSpacePerBed(
       // Skip if no quantity for this bed
       if (bedQuantity <= 0) return;
 
-      // The bedQuantity represents the SEASON TOTAL for this bed.
-      // For "Per-Bed Space Usage", we show the space based on season-total quantity.
-      // Succession planting reuses the same physical space across plantings,
-      // but for planning purposes we show how much space is "dedicated" to this crop.
-      //
-      // Example: 13 Kale with 4 successions in Bed A
-      // - Physical space at any time: 13/4 ≈ 3.25 plants worth
-      // - But for planning: show 13 sq ft (the season commitment to this bed)
-      //
-      // We do NOT divide by succession count here because:
-      // 1. bedQuantity is already the season-total for this bed
-      // 2. Dividing would show per-planting space (too small for planning view)
-      // 3. The user entered "13" meaning "13 plants worth of space for the season"
+      // Calculate space per planting (what's physically in the ground at one time)
+      // bedQuantity is the SEASON TOTAL; divide by successionCount for concurrent space
+      const quantityPerPlanting = bedQuantity / successionCount;
 
-      // Calculate space needed using dual-mode calculation
-      let spaceNeeded: number;
+      let spacePerPlanting: number;
+      let seasonSpace: number;
       if (isSeedDensityPlanting(plant, bed.planningMethod || 'square-foot')) {
         const seedsPerSqFt = calculateSeedsPerSqFt(plant);
-        spaceNeeded = bedQuantity / seedsPerSqFt;
+        spacePerPlanting = quantityPerPlanting / seedsPerSqFt;
+        seasonSpace = bedQuantity / seedsPerSqFt;
       } else {
         const gridSize = 12;
         const cellsPerPlant = calculateSpaceRequirement(plant, gridSize, bed.planningMethod || 'square-foot');
-        spaceNeeded = cellsPerPlant * bedQuantity;
+        spacePerPlanting = cellsPerPlant * quantityPerPlanting;
+        seasonSpace = cellsPerPlant * bedQuantity;
       }
 
-      // For display, show the per-planting quantity (what's planted at once)
-      const quantityPerPlanting = bedQuantity / successionCount;
-
-      usage.usedSpace += spaceNeeded;
+      usage.usedSpace += spacePerPlanting;
+      usage.seasonTotalSpace += seasonSpace;
       usage.crops.push({
         seedId,
         plantName: plant.name,
         variety: seed.variety,
         quantity: quantityPerPlanting,
-        spaceUsed: spaceNeeded
+        spaceUsed: spacePerPlanting,
+        successionCount
       });
     });
   });
@@ -622,4 +615,151 @@ export async function calculateSeedRowOptimization(
     requiredBedIds,
     extraBedIds
   };
+}
+
+/**
+ * Tier 2: Refine bed space usage with date-aware peak concurrent occupancy.
+ * Uses a sweep-line algorithm over succession planting dates to find the true
+ * peak space in use at any point in time for each bed.
+ *
+ * Only refines beds where calculatedPlan items provide date data. Falls back
+ * to Tier 1 (simple division by successionCount) for items without dates.
+ */
+export function refineBedSpaceWithDates(
+  bedUsage: Map<number, BedSpaceUsage>,
+  calculatedPlan: CalculatePlanResponse,
+  seeds: SeedInventoryItem[],
+  bedAssignments: Map<number, number[]>,
+  beds: GardenBed[],
+  bedAllocations?: Map<number, BedAssignment[]>,
+  allocationModes?: Map<number, AllocationMode>
+): Map<number, BedSpaceUsage> {
+  if (!calculatedPlan.items || calculatedPlan.items.length === 0) {
+    return bedUsage;
+  }
+
+  // Build a map of seedInventoryId → plan items for fast lookup
+  const planItemsBySeedId = new Map<number, GardenPlanItem[]>();
+  for (const item of calculatedPlan.items) {
+    if (item.seedInventoryId != null) {
+      const existing = planItemsBySeedId.get(item.seedInventoryId) || [];
+      existing.push(item);
+      planItemsBySeedId.set(item.seedInventoryId, existing);
+    }
+  }
+
+  // For each bed, collect time-based occupancy events
+  // Structure: bedId → array of { date, delta } events
+  const bedEvents = new Map<number, { date: Date; delta: number }[]>();
+
+  // Track which bed+seed combos we've handled with dates (so we can keep Tier 1 for the rest)
+  const handledBedSeeds = new Set<string>(); // "bedId:seedId"
+
+  bedAssignments.forEach((assignedBedIds, seedId) => {
+    const seed = seeds.find(s => s.id === seedId);
+    if (!seed) return;
+
+    const planItems = planItemsBySeedId.get(seedId);
+    if (!planItems || planItems.length === 0) return;
+
+    // Use the first matching plan item (there's typically one per seed)
+    const planItem = planItems[0];
+
+    // Need firstPlantDate and successionCount to compute dates
+    if (!planItem.firstPlantDate || planItem.successionCount <= 1) return;
+
+    const intervalDays = planItem.successionIntervalDays || 0;
+    if (intervalDays <= 0) return;
+
+    const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
+    if (!plant) return;
+
+    const dtm = plant.daysToMaturity || 60; // fallback
+    const firstDate = parseISO(planItem.firstPlantDate);
+
+    const allocationMode = allocationModes?.get(seedId) || 'even';
+    const allocations = bedAllocations?.get(seedId) || [];
+    const totalQuantity = planItem.plantEquivalent || planItem.targetValue || 0;
+
+    for (const bedId of assignedBedIds) {
+      const bed = beds.find(b => b.id === bedId);
+      if (!bed) continue;
+
+      // Determine bed quantity
+      let bedQuantity: number;
+      if (allocationMode === 'custom') {
+        const alloc = allocations.find(a => a.bedId === bedId);
+        bedQuantity = alloc?.quantity || 0;
+      } else {
+        bedQuantity = totalQuantity / assignedBedIds.length;
+      }
+      if (bedQuantity <= 0) continue;
+
+      const quantityPerPlanting = bedQuantity / planItem.successionCount;
+
+      // Compute space per planting for this bed's planning method
+      let spacePerPlanting: number;
+      if (isSeedDensityPlanting(plant, bed.planningMethod || 'square-foot')) {
+        const seedsPerSqFt = calculateSeedsPerSqFt(plant);
+        spacePerPlanting = quantityPerPlanting / seedsPerSqFt;
+      } else {
+        const gridSize = 12;
+        const cellsPerPlant = calculateSpaceRequirement(plant, gridSize, bed.planningMethod || 'square-foot');
+        spacePerPlanting = cellsPerPlant * quantityPerPlanting;
+      }
+
+      // Generate sweep-line events for each succession planting
+      if (!bedEvents.has(bedId)) {
+        bedEvents.set(bedId, []);
+      }
+      const events = bedEvents.get(bedId)!;
+
+      for (let i = 0; i < planItem.successionCount; i++) {
+        const startDate = addDays(firstDate, i * intervalDays);
+        const endDate = addDays(startDate, dtm);
+        events.push({ date: startDate, delta: +spacePerPlanting });
+        events.push({ date: endDate, delta: -spacePerPlanting });
+      }
+
+      handledBedSeeds.add(`${bedId}:${seedId}`);
+    }
+  });
+
+  // For each bed with events, compute peak and update usedSpace
+  bedEvents.forEach((events, bedId) => {
+    if (events.length === 0) return;
+
+    const usage = bedUsage.get(bedId);
+    if (!usage) return;
+
+    // Sort events by date (ties: removals before additions for conservative estimate)
+    events.sort((a, b) => {
+      const timeDiff = a.date.getTime() - b.date.getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return a.delta - b.delta; // negative (removals) first
+    });
+
+    // Sweep-line: find peak concurrent space for date-aware crops
+    let running = 0;
+    let peak = 0;
+    for (const event of events) {
+      running += event.delta;
+      if (running > peak) {
+        peak = running;
+      }
+    }
+
+    // Sum up Tier 1 space from crops NOT handled by date refinement
+    let tier1Space = 0;
+    for (const crop of usage.crops) {
+      if (!handledBedSeeds.has(`${bedId}:${crop.seedId}`)) {
+        tier1Space += crop.spaceUsed;
+      }
+    }
+
+    // Final usedSpace = date-aware peak + Tier 1 non-succession crops
+    usage.usedSpace = peak + tier1Space;
+  });
+
+  return bedUsage;
 }

@@ -640,13 +640,15 @@ export interface BedSpaceUsage {
   bedId: number;
   bedName: string;
   totalSpace: number;
-  usedSpace: number;
+  usedSpace: number;           // Peak concurrent space (what's in the ground at once)
+  seasonTotalSpace: number;    // Full season total (sum of all succession plantings)
   crops: {
     seedId: number;
     plantName: string;
     variety?: string;
     quantity: number;
     spaceUsed: number;
+    successionCount: number;   // 1 = no succession
   }[];
 }
 
