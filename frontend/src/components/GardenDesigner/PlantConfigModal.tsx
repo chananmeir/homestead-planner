@@ -18,8 +18,8 @@ import { getEffectivePlantingStyle, PlantingStyle, PLANTING_STYLES, requiresSeed
  * vs spread planting (one plant per cell)
  */
 function shouldUseDensePlanting(plant: Plant, planningMethod: string): boolean {
-  if (planningMethod !== 'square-foot' && planningMethod !== 'migardener' && planningMethod !== 'intensive') {
-    return false; // Only SFG, MIgardener, and Intensive support dense planting
+  if (planningMethod !== 'square-foot' && planningMethod !== 'migardener' && planningMethod !== 'intensive' && planningMethod !== 'permaculture') {
+    return false; // Only SFG, MIgardener, Intensive, and Permaculture support dense planting
   }
 
   // Get spacing based on method
@@ -58,6 +58,7 @@ interface PlantConfigModalProps {
   rowNumber?: number;  // For MIGardener row planting (if provided, planting entire row)
   sourcePlanItemId?: number;  // Link to GardenPlanItem when placing from planned panel
   initialVariety?: string;  // Pre-filled variety (from Season Planner drag)
+  activePlanId?: number;  // When set, shows seed-lot picker and enforces seed linkage
   onDateChange?: (newDate: string) => void;  // Callback to change the planting date
   onPreviewChange?: (positions: { x: number; y: number }[]) => void;  // Callback to show preview in grid
   onSave: (config: PlantConfig) => void;
@@ -71,10 +72,12 @@ export interface PlantConfig {
   plantingMethod: 'direct' | 'transplant';
   skipPost?: boolean; // If true, items already created via batch POST - parent should skip POST
   position?: { x: number; y: number }; // Updated position if user edited grid label
+  previewPositions?: { x: number; y: number }[]; // Preview positions from auto-placement (parent handles batch POST)
   successionPlanting?: boolean;  // Enable succession planting
   weekInterval?: number;          // Weeks between successive rows/squares
   positionDates?: { x: number; y: number; date: string }[];  // For SFG: date per position
   trellisStructureId?: number;   // For trellis-required plants
+  seedInventoryId?: number;      // Selected seed lot for plan linkage
 
   // NEW: Seed density metadata for MIGardener method
   seedDensityData?: {
@@ -117,6 +120,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   rowNumber,
   sourcePlanItemId,
   initialVariety,
+  activePlanId,
   onDateChange,
   onPreviewChange,
   onSave,
@@ -198,6 +202,9 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
   // Planting style selection state (NEW: Enable for ALL methods, not just MIGardener)
   const [selectedPlantingStyle, setSelectedPlantingStyle] = useState<PlantingStyle>('grid');
+
+  // Seed-lot selection state (for plan linkage)
+  const [selectedSeedId, setSelectedSeedId] = useState<number | undefined>();
 
   // Find representative plant for this crop
   const representativePlant = useMemo(() => {
@@ -289,18 +296,182 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     setSelectedPlantingStyle(effectiveStyle);
   }, [representativePlant, bed, isOpen]);
 
-  // Update seed density metadata when planting style changes
+  // Recalculate quantities when planting style changes (user selects different style from dropdown)
+  const prevPlantingStyleRef = useRef<PlantingStyle | null>(null);
   useEffect(() => {
-    if (!selectedPlantingStyle || !seedDensityMetadata) return;
+    // Skip initial render (handled by modal-open effect) and only react to user-driven changes
+    if (!selectedPlantingStyle || !representativePlant || !isOpen) return;
+    if (prevPlantingStyleRef.current === null) {
+      prevPlantingStyleRef.current = selectedPlantingStyle;
+      return;
+    }
+    if (prevPlantingStyleRef.current === selectedPlantingStyle) return;
+    prevPlantingStyleRef.current = selectedPlantingStyle;
 
-    // Update the planting style in metadata if it exists
-    if (seedDensityMetadata.plantingStyle !== selectedPlantingStyle) {
+    // Not a MIGardener bed - just update metadata label
+    if (planningMethod !== 'migardener') {
       setSeedDensityMetadata(prev => prev ? {
         ...prev,
         plantingStyle: selectedPlantingStyle as 'row_based' | 'broadcast' | 'dense_patch' | 'plant_spacing'
       } : null);
+      return;
     }
+
+    // MIGardener bed but no migardener metadata - use spacing override fallback
+    if (!representativePlant.migardener) {
+      const migardenerSpacing = getMIGardenerSpacing(representativePlant.id, representativePlant.spacing, representativePlant.rowSpacing);
+      let newPlantsPerSquare: number;
+      if (migardenerSpacing.rowSpacing === null || migardenerSpacing.rowSpacing === 0) {
+        const plantsPerFoot = 12 / migardenerSpacing.plantSpacing;
+        newPlantsPerSquare = plantsPerFoot * plantsPerFoot;
+      } else {
+        const rowsPerFoot = 12 / migardenerSpacing.rowSpacing;
+        const plantsPerFoot = 12 / migardenerSpacing.plantSpacing;
+        newPlantsPerSquare = rowsPerFoot * plantsPerFoot;
+      }
+      const newQuantity = Math.max(1, Math.floor(newPlantsPerSquare));
+      setPlantsPerSquare(newPlantsPerSquare);
+      setNumberOfSquares(1);
+      setQuantity(newQuantity);
+      setSeedDensityMetadata({
+        plantingMethod: 'individual_plants',
+        spacing: migardenerSpacing.plantSpacing,
+        plantingStyle: selectedPlantingStyle as 'row_based' | 'broadcast' | 'dense_patch' | 'plant_spacing'
+      });
+      return;
+    }
+
+    const mgData = representativePlant.migardener;
+    const gridSize = bed?.gridSize || 3;
+    let newQuantity = 1;
+    let newPlantsPerSquare = 1;
+
+    if (selectedPlantingStyle === 'broadcast' || selectedPlantingStyle === 'dense_patch') {
+      // BROADCAST / DENSE PATCH: area-based seed density
+      const gridCellAreaInches = gridSize * gridSize;
+      const seedsPerSqFt = mgData.seedDensityPerSqFt || 50;
+      const seedsPerSqInch = seedsPerSqFt / 144;
+      const seedCount = Math.round(gridCellAreaInches * seedsPerSqInch);
+      const expectedGermination = seedCount * mgData.germinationRate;
+      const expectedFinalCount = Math.round(expectedGermination * mgData.survivalRate);
+
+      setSeedDensityMetadata({
+        plantingMethod: 'seed_density_broadcast',
+        seedCount,
+        seedDensityPerSqFt: seedsPerSqFt,
+        gridCellAreaInches,
+        expectedGerminationRate: mgData.germinationRate,
+        expectedSurvivalRate: mgData.survivalRate,
+        expectedFinalCount,
+        harvestMethod: mgData.harvestMethod,
+        plantingStyle: selectedPlantingStyle as 'broadcast' | 'dense_patch'
+      });
+
+      newQuantity = expectedFinalCount;
+      newPlantsPerSquare = expectedFinalCount;
+
+    } else if (selectedPlantingStyle === 'row') {
+      // ROW-BASED: seed density along rows (matches 'row_based' agronomic style)
+      const uiSegmentLengthInches = gridSize;
+      const seedCount = Math.round(uiSegmentLengthInches * (mgData.seedDensityPerInch || 0));
+      const expectedGermination = seedCount * mgData.germinationRate;
+      const expectedFinalCount = Math.round(expectedGermination * mgData.survivalRate);
+
+      let rowContinuity;
+      if (position && activePlants && representativePlant.id) {
+        rowContinuity = determineRowContinuity(position, representativePlant.id, activePlants);
+      }
+      const rowContinuityMessage = rowContinuity
+        ? getRowContinuityMessage(rowContinuity.totalRowSegments, uiSegmentLengthInches, rowContinuity.isPartOfRow)
+        : null;
+
+      setSeedDensityMetadata({
+        plantingMethod: 'seed_density',
+        seedCount,
+        seedDensity: mgData.seedDensityPerInch,
+        uiSegmentLengthInches,
+        expectedGerminationRate: mgData.germinationRate,
+        expectedSurvivalRate: mgData.survivalRate,
+        expectedFinalCount,
+        harvestMethod: mgData.harvestMethod,
+        plantingStyle: 'row_based',
+        rowGroupId: rowContinuity?.rowGroupId,
+        rowSegmentIndex: rowContinuity?.rowSegmentIndex,
+        totalRowSegments: rowContinuity?.totalRowSegments,
+        rowContinuityMessage
+      });
+
+      newQuantity = seedCount;
+      newPlantsPerSquare = seedCount;
+
+    } else if (selectedPlantingStyle === 'plant_spacing') {
+      // PLANT-SPACING: multi-seed spots with thinning
+      const seedsPerSpot = mgData.seedsPerSpot || 3;
+      const plantsKeptPerSpot = mgData.plantsKeptPerSpot || 1;
+      const totalSeeds = seedsPerSpot;
+      const finalPlantsAfterThinning = plantsKeptPerSpot;
+
+      setSeedDensityMetadata({
+        plantingMethod: 'seed_density',
+        seedCount: totalSeeds,
+        seedsPerSpot,
+        plantsKeptPerSpot,
+        expectedGerminationRate: mgData.germinationRate,
+        expectedSurvivalRate: mgData.survivalRate,
+        expectedFinalCount: finalPlantsAfterThinning,
+        harvestMethod: mgData.harvestMethod,
+        plantingStyle: 'plant_spacing'
+      });
+
+      newQuantity = finalPlantsAfterThinning;
+      newPlantsPerSquare = finalPlantsAfterThinning;
+
+    } else {
+      // GRID or other: individual plants fallback
+      const migardenerSpacing = getMIGardenerSpacing(representativePlant.id, representativePlant.spacing, representativePlant.rowSpacing);
+
+      if (migardenerSpacing.rowSpacing === null || migardenerSpacing.rowSpacing === 0) {
+        const plantsPerFoot = 12 / migardenerSpacing.plantSpacing;
+        newPlantsPerSquare = plantsPerFoot * plantsPerFoot;
+      } else {
+        const rowsPerFoot = 12 / migardenerSpacing.rowSpacing;
+        const plantsPerFoot = 12 / migardenerSpacing.plantSpacing;
+        newPlantsPerSquare = rowsPerFoot * plantsPerFoot;
+      }
+      newQuantity = Math.max(1, Math.floor(newPlantsPerSquare));
+
+      setSeedDensityMetadata({
+        plantingMethod: 'individual_plants',
+        spacing: migardenerSpacing.plantSpacing,
+        plantingStyle: selectedPlantingStyle as 'row_based' | 'broadcast' | 'dense_patch' | 'plant_spacing'
+      });
+    }
+
+    setPlantsPerSquare(newPlantsPerSquare);
+    setNumberOfSquares(1);
+    setQuantity(newQuantity);
   }, [selectedPlantingStyle]);
+
+  // Matching seed lots for the currently selected variety (personal seeds only)
+  const matchingSeedLots = useMemo(() => {
+    if (!variety || !cropName) return [];
+    return userSeeds.filter(s => {
+      const plant = allPlants.find(p => p.id === s.plantId);
+      if (!plant) return false;
+      return extractCropName(plant.name).toLowerCase() === cropName.toLowerCase()
+        && (s.variety || '').toLowerCase() === variety.toLowerCase()
+        && !s.isGlobal;
+    });
+  }, [variety, cropName, userSeeds, allPlants]);
+
+  // Auto-select seed lot when exactly one match, clear when zero
+  useEffect(() => {
+    if (matchingSeedLots.length === 1) {
+      setSelectedSeedId(matchingSeedLots[0].id);
+    } else {
+      setSelectedSeedId(undefined);
+    }
+  }, [matchingSeedLots]);
 
   // Get variety options from user's personal seed inventory for this crop
   const varietyOptions = useMemo(() => {
@@ -352,7 +523,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
   // Determine if we should show dual-input UI (for SFG/MIGardener, both dense and spread)
   const usesDualInput = useMemo(() => {
-    return (planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive');
+    return (planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive' || planningMethod === 'permaculture');
   }, [planningMethod]);
 
   // Get context-appropriate labels based on selected planting style
@@ -631,8 +802,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               rowContinuityMessage
             });
 
-            defaultQuantity = expectedFinalCount;
-            calculatedPlantsPerSquare = expectedFinalCount;
+            defaultQuantity = seedCount;
+            calculatedPlantsPerSquare = seedCount;
 
           } else if (mgData.plantingStyle === 'plant_spacing') {
             // PLANT-SPACING: Multi-seed spots with thinning (e.g., beans)
@@ -695,6 +866,12 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         const plantsPerFoot = 12 / onCenterSpacing;
         calculatedPlantsPerSquare = rowsPerFoot * plantsPerFoot;
         defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+      } else if (planningMethod === 'permaculture' && representativePlant.spacing) {
+        // Permaculture: native plant spacing, equidistant in all directions
+        // Same formula concept as SFG but without the SFG lookup table override
+        const spacing = representativePlant.spacing;
+        calculatedPlantsPerSquare = Math.pow(12 / spacing, 2);
+        defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
       }
       // For other methods (row, raised-bed, etc.), default to 1
 
@@ -729,6 +906,9 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
       // Reset fill direction to default
       setFillDirection('across');
+
+      // Reset planting style ref so style-change effect skips initial render on next open
+      prevPlantingStyleRef.current = null;
     }
   }, [isOpen, representativePlant, planningMethod, initialVariety]);
 
@@ -819,6 +999,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           weekInterval: successionPlanting ? weekInterval : undefined,
           seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
           trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
+          seedInventoryId: selectedSeedId, // Seed lot for plan linkage
         };
         onSave(config); // Parent GardenDesigner handles API call
         return;
@@ -836,6 +1017,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           weekInterval: successionPlanting ? weekInterval : undefined,
           seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
           trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
+          seedInventoryId: selectedSeedId, // Seed lot for plan linkage
         };
         onSave(config);
         return;
@@ -876,57 +1058,25 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           positionDates: positionDates,
           seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
           trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
+          seedInventoryId: selectedSeedId, // Seed lot for plan linkage
         };
         onSave(config);
         return;
       }
 
-      // No succession: Do batch POST immediately (existing behavior)
-      // For dense planting, each position gets plantsPerSquare quantity
-      const quantityPerPosition = isDensePlanting ? plantsPerSquare : 1;
-
-      const response = await fetch(`${API_BASE_URL}/api/planted-items/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          gardenBedId: bedId,
-          plantId: representativePlant.id,
-          variety: variety.trim() || undefined,
-          plantedDate: plantingDate,
-          plantingMethod,
-          status: 'planned',
-          notes: notes.trim(),
-          positions: previewPositions.map((pos) => ({ x: pos.x, y: pos.y, quantity: quantityPerPosition })),
-          sourcePlanItemId,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const totalPlants = isDensePlanting ? data.created * plantsPerSquare : data.created;
-        const message = isDensePlanting
-          ? `Placed ${data.created} squares with ${plantsPerSquare} ${cropName} each (${totalPlants} total plants) in ${bed.name}`
-          : `Placed ${data.created} ${cropName} plants in ${bed.name}`;
-        showSuccess(message);
-
-        // Call onSave with skipPost=true to tell parent items already created
-        const config: PlantConfig = {
-          variety: variety.trim() || undefined,
-          quantity: data.created,
-          notes: notes.trim(),
-          plantingMethod,
-          skipPost: true, // Items already created via batch POST - parent should skip POST
-          successionPlanting: rowNumber ? successionPlanting : false,
-          weekInterval: successionPlanting ? weekInterval : undefined,
-          seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
-          trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
-        };
-        onSave(config);
-      } else {
-        const errorData = await response.json();
-        showError(errorData.error || 'Failed to place plants');
-      }
+      // No succession: Return preview positions to parent for batch creation
+      // Parent handles designer-sync (planner linkage) + batch POST with sourcePlanItemId
+      const config: PlantConfig = {
+        variety: variety.trim() || undefined,
+        quantity, // Total plants (e.g., 192 for 12 squares of 16 carrots)
+        notes: notes.trim(),
+        plantingMethod,
+        previewPositions: previewPositions, // Parent uses these instead of calculating its own
+        seedDensityData: seedDensityMetadata || undefined,
+        trellisStructureId: selectedTrellisId || undefined,
+        seedInventoryId: selectedSeedId,
+      };
+      onSave(config);
     } catch (error) {
       console.error('Error placing plants:', error);
       showError('Network error while placing plants');
@@ -943,6 +1093,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     setError('');
     setPreviewPositions([]);
     setShowingPreview(false);
+    setSelectedSeedId(undefined);
 
     // Clear preview in parent
     if (onPreviewChange) {
@@ -1337,6 +1488,37 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           )}
         </div>
 
+        {/* Seed Lot Selection (only when active plan and variety chosen) */}
+        {activePlanId && variety && (
+          <div>
+            {matchingSeedLots.length > 1 ? (
+              <>
+                <label htmlFor="seedLot" className="block text-sm font-medium text-gray-700 mb-1">
+                  Seed Lot
+                </label>
+                <select
+                  id="seedLot"
+                  value={selectedSeedId ?? ''}
+                  onChange={(e) => setSelectedSeedId(e.target.value ? parseInt(e.target.value) : undefined)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                >
+                  <option value="">-- Select seed lot --</option>
+                  {matchingSeedLots.map((seed) => (
+                    <option key={seed.id} value={seed.id}>
+                      {seed.brand ? `${seed.brand}` : `Lot #${seed.id}`}
+                      {seed.purchaseDate ? ` (purchased ${seed.purchaseDate.slice(0, 10)})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : matchingSeedLots.length === 0 ? (
+              <p className="text-sm text-amber-600">
+                No matching seed in your inventory for {variety}. Add this variety to My Seeds first.
+              </p>
+            ) : null}
+          </div>
+        )}
+
         {/* Trellis Selection (for trellis-required plants) */}
         {representativePlant?.migardener?.trellisRequired && (
           <div>
@@ -1510,7 +1692,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
         {/* Quantity - Dual Input for SFG/MIGardener, Single for Others */}
         <div>
-          {(planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive') && !rowNumber ? (
+          {(planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive' || planningMethod === 'permaculture') && !rowNumber ? (
             // Dual-input UI for succession planting (both dense and spread)
             <>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1552,6 +1734,12 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                   ? ` (${Math.floor(plantsPerSquare)} plants per ${quantityTerminology.unitLabel.toLowerCase().slice(0, -1)})`
                   : ''}
               </p>
+              {/* Capacity warning when manually-entered quantity exceeds spacing-based capacity */}
+              {quantity > Math.max(1, Math.floor(plantsPerSquare)) * numberOfSquares && plantsPerSquare >= 1 && (
+                <p className="mt-1 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  Warning: {quantity} plants exceeds the recommended capacity of {Math.max(1, Math.floor(plantsPerSquare)) * numberOfSquares} for {numberOfSquares} cell{numberOfSquares > 1 ? 's' : ''} based on plant spacing.
+                </p>
+              )}
             </>
           ) : (
             // Single input for row planting or other methods
@@ -1676,6 +1864,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             onClick={handleSave}
             disabled={
               isSubmitting ||
+              (activePlanId && variety && matchingSeedLots.length === 0) || // Block: no seed lot for variety
+              (activePlanId && variety && matchingSeedLots.length > 1 && !selectedSeedId) || // Block: multiple lots, none selected
               (quantity > 1 &&
                 !showingPreview &&
                 bed !== undefined &&
@@ -1683,7 +1873,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 (usesDualInput && numberOfSquares > 1)) // Disable for succession planting without preview
             }
             className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center gap-2 ${
-              quantity > 1 && !showingPreview && bed !== undefined && !rowNumber && (usesDualInput && numberOfSquares > 1)
+              (quantity > 1 && !showingPreview && bed !== undefined && !rowNumber && (usesDualInput && numberOfSquares > 1))
+                || (activePlanId && variety && (matchingSeedLots.length === 0 || (matchingSeedLots.length > 1 && !selectedSeedId)))
                 ? 'bg-gray-400 cursor-not-allowed'
                 : warnings.some(w => w.severity === 'warning')
                 ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500'

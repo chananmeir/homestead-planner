@@ -233,6 +233,13 @@ export function calculateSpaceRequirement(
     return sqInches / 144; // Convert to sq ft (SFG-cell equivalents)
   }
 
+  // PERMACULTURE METHOD: Uses native plant spacing (equidistant in all directions)
+  if (planningMethod === 'permaculture') {
+    const spacing = plant.spacing || 12;
+    const sqInches = spacing * spacing;
+    return sqInches / 144; // Convert to sq ft
+  }
+
   // ROW / TRADITIONAL METHOD (default)
   const spacing = plant.spacing || 12;
   const rowSpacingValue = plant.rowSpacing || spacing;
@@ -674,7 +681,7 @@ export function refineBedSpaceWithDates(
     const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
     if (!plant) return;
 
-    const dtm = plant.daysToMaturity || 60; // fallback
+    const dtm = seed.daysToMaturity ?? plant.daysToMaturity ?? 60; // seed override → plant default → fallback
     const firstDate = parseISO(planItem.firstPlantDate);
 
     const allocationMode = allocationModes?.get(seedId) || 'even';
