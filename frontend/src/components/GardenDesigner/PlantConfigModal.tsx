@@ -308,8 +308,28 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     if (prevPlantingStyleRef.current === selectedPlantingStyle) return;
     prevPlantingStyleRef.current = selectedPlantingStyle;
 
-    // Not a MIGardener bed - just update metadata label
+    // Not a MIGardener bed - recalculate for permaculture row/grid switch, otherwise just update label
     if (planningMethod !== 'migardener') {
+      if (planningMethod === 'permaculture' && representativePlant.spacing && bed) {
+        const spacing = representativePlant.spacing;
+        let newPlantsPerSquare: number;
+
+        if (selectedPlantingStyle === 'row') {
+          // Row placement: plants per row = bed width / plant spacing
+          // Rows run horizontally across the bed width (A→Q)
+          const bedWidthInches = bed.width * 12;
+          newPlantsPerSquare = Math.floor(bedWidthInches / spacing);
+        } else {
+          // Grid/other: equidistant formula
+          newPlantsPerSquare = Math.pow(12 / spacing, 2);
+        }
+
+        const newQuantity = Math.max(1, Math.floor(newPlantsPerSquare));
+        setPlantsPerSquare(newPlantsPerSquare);
+        setNumberOfSquares(1);
+        setQuantity(newQuantity);
+      }
+
       setSeedDensityMetadata(prev => prev ? {
         ...prev,
         plantingStyle: selectedPlantingStyle as 'row_based' | 'broadcast' | 'dense_patch' | 'plant_spacing'
@@ -867,11 +887,21 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         calculatedPlantsPerSquare = rowsPerFoot * plantsPerFoot;
         defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
       } else if (planningMethod === 'permaculture' && representativePlant.spacing) {
-        // Permaculture: native plant spacing, equidistant in all directions
-        // Same formula concept as SFG but without the SFG lookup table override
+        // Permaculture: depends on planting style
         const spacing = representativePlant.spacing;
-        calculatedPlantsPerSquare = Math.pow(12 / spacing, 2);
-        defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+        const effectiveStyle = getEffectivePlantingStyle(representativePlant, bed);
+
+        if (effectiveStyle === 'row' && bed) {
+          // Row placement: plants per row = bed width / plant spacing
+          // Rows run horizontally across the bed width (A→Q)
+          const bedWidthInches = bed.width * 12;
+          calculatedPlantsPerSquare = Math.floor(bedWidthInches / spacing);
+          defaultQuantity = Math.max(1, calculatedPlantsPerSquare);
+        } else {
+          // Grid placement: equidistant in all directions
+          calculatedPlantsPerSquare = Math.pow(12 / spacing, 2);
+          defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+        }
       }
       // For other methods (row, raised-bed, etc.), default to 1
 
@@ -907,8 +937,9 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       // Reset fill direction to default
       setFillDirection('across');
 
-      // Reset planting style ref so style-change effect skips initial render on next open
-      prevPlantingStyleRef.current = null;
+      // Set planting style ref to initial effective style so style-change effect
+      // can detect user-driven changes (null would cause first change to be skipped)
+      prevPlantingStyleRef.current = getEffectivePlantingStyle(representativePlant, bed);
     }
   }, [isOpen, representativePlant, planningMethod, initialVariety]);
 
@@ -934,21 +965,36 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     const gridWidth = Math.floor((bed.width * 12) / (bed.gridSize || 12));
     const gridHeight = Math.floor((bed.length * 12) / (bed.gridSize || 12));
 
-    // For dense planting, use numberOfSquares directly
-    const numSquares = isDensePlanting ? numberOfSquares : quantity;
+    // Determine mode and calculate quantity to pass to auto-placement
+    const isRowMode = selectedPlantingStyle === 'row';
+    const effectiveFillDirection: FillDirection = fillDirection;
+
+    // For row mode: find grid cells across all requested rows (batch handler distributes plants per cell)
+    // For dense planting: use numberOfSquares (each square holds plantsPerSquare)
+    // For spread planting: one plant per position
+    let numPositions: number;
+    if (isRowMode) {
+      // Row mode: one position per grid cell in the row; maxRows limits row count
+      // Rows always run horizontally in generateMIGardenerCandidates (x varies across width)
+      numPositions = gridWidth * numberOfSquares; // All cells across requested rows
+    } else {
+      numPositions = isDensePlanting ? numberOfSquares : quantity;
+    }
 
     // Run auto-placement algorithm
     // Use activePlants (date-filtered with planning mode) instead of all bed.plantedItems
     const result = autoPlacePlants({
       startPosition: currentPosition,
       plant: representativePlant,
-      quantity: numSquares, // Number of squares to find
+      quantity: numPositions, // Number of grid cell positions to find
       bedDimensions: { gridWidth, gridHeight },
       gridSize: bed.gridSize || 12,
       existingPlants: activePlants, // Only plants active on the planting date (respects planning mode)
       dateFilter: plantingDate,
       planningMethod: bed.planningMethod || planningMethod, // Pass planning method for row-based placement
-      fillDirection: fillDirection, // Pass fill direction for generic grid placement
+      plantingStyle: selectedPlantingStyle, // Pass planting style for row-based candidate generation
+      fillDirection: effectiveFillDirection, // Pass fill direction for generic grid placement
+      maxRows: isRowMode ? numberOfSquares : undefined, // Constrain to N rows when in row mode
     });
 
     setPreviewPositions(result.positions);
@@ -959,13 +1005,23 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       onPreviewChange(result.positions);
     }
 
-    // Show warning if partial placement
-    if (result.placed < numSquares) {
+    // Show warning if not enough cells for all plants
+    if (isRowMode) {
+      const plantsPerCell = result.placed > 0 ? Math.ceil(quantity / result.placed) : 0;
+      const fittablePlants = result.placed * plantsPerCell;
+      if (result.placed < numPositions) {
+        showWarning(
+          `Only ${result.placed} cells available in ${numberOfSquares} row(s) — fits ~${fittablePlants} of ${quantity} plants. Increase rows or reduce total plants.`
+        );
+      } else {
+        showSuccess(`Preview: ${result.placed} cells across ${numberOfSquares} row(s), ~${plantsPerCell} plants per cell (${quantity} total)`);
+      }
+    } else if (result.placed < numPositions) {
       showWarning(
-        `Placed ${result.placed} of ${numSquares} ${quantityTerminology.unitLabel.toLowerCase()} (bed boundary reached)`
+        `Placed ${result.placed} of ${numPositions} ${quantityTerminology.unitLabel.toLowerCase()} (bed boundary reached)`
       );
     } else {
-      const message = isDensePlanting
+      const message = isDensePlanting && !isRowMode
         ? `Preview: Will place ${result.placed} squares with ${plantsPerSquare} ${cropName} plants each (${result.placed * plantsPerSquare} total)`
         : `Preview: Will place ${result.placed} ${cropName} plants`;
       showSuccess(message);
@@ -987,8 +1043,46 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     setIsSubmitting(true);
 
     try {
+      // Track effective preview state (local variable since setState is async)
+      let effectiveShowingPreview = showingPreview;
+      let effectivePreviewPositions = previewPositions;
+
+      // ROW MODE BYPASS: If row mode without preview, auto-generate cell positions
+      // so the batch path is used instead of stacking all plants in one cell
+      if (selectedPlantingStyle === 'row' && !showingPreview && bed && representativePlant && quantity > 1) {
+        const gridWidth = Math.floor((bed.width * 12) / (bed.gridSize || 12));
+        const gridHeight = Math.floor((bed.length * 12) / (bed.gridSize || 12));
+
+        // Rows always run horizontally in generateMIGardenerCandidates (x varies, y is row index)
+        const cellsPerRow = gridWidth;
+        const numPositions = cellsPerRow * numberOfSquares;
+
+        const result = autoPlacePlants({
+          startPosition: currentPosition,
+          plant: representativePlant,
+          quantity: numPositions,
+          bedDimensions: { gridWidth, gridHeight },
+          gridSize: bed.gridSize || 12,
+          existingPlants: activePlants,
+          dateFilter: plantingDate,
+          planningMethod: bed.planningMethod || planningMethod,
+          plantingStyle: selectedPlantingStyle,
+          maxRows: numberOfSquares,
+        });
+
+        if (result.positions.length > 0) {
+          setPreviewPositions(result.positions);
+          setShowingPreview(true);
+          effectiveShowingPreview = true;
+          effectivePreviewPositions = result.positions;
+          if (onPreviewChange) {
+            onPreviewChange(result.positions);
+          }
+        }
+      }
+
       // PATH 1: DENSE PLANTING - Single item with quantity at one position
-      if (isDensePlanting && quantity >= 1 && !showingPreview) {
+      if (isDensePlanting && quantity >= 1 && !effectiveShowingPreview) {
         const config: PlantConfig = {
           variety: variety.trim() || undefined,
           quantity, // e.g., 4 for lettuce
@@ -1006,7 +1100,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       }
 
       // PATH 2: SPREAD PLANTING - Single plant or no preview - use existing logic
-      if (quantity === 1 || !showingPreview || previewPositions.length === 0) {
+      if (quantity === 1 || !effectiveShowingPreview || effectivePreviewPositions.length === 0) {
         const config: PlantConfig = {
           variety: variety.trim() || undefined,
           quantity,
@@ -1031,11 +1125,11 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       }
 
       // Check if SFG succession planting is enabled
-      const isSFGSuccession = successionPlanting && !rowNumber && previewPositions.length > 1;
+      const isSFGSuccession = successionPlanting && !rowNumber && effectivePreviewPositions.length > 1;
 
       if (isSFGSuccession) {
-        // SFG Succession: Calculate position-date pairs and let parent handle posting
-        const positionDates = previewPositions.map((pos, index) => {
+        // SFG/dual-input Succession: Calculate position-date pairs and let parent handle posting
+        const positionDates = effectivePreviewPositions.map((pos, index) => {
           const baseDate = new Date(plantingDate!);
           const offsetDays = index * weekInterval * 7;
           const squareDate = new Date(baseDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
@@ -1046,19 +1140,19 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           };
         });
 
-        // Return config with positionDates - parent will handle succession logic
+        // Return config with positionDates + previewPositions for multi-square batch path
         const config: PlantConfig = {
           variety: variety.trim() || undefined,
-          quantity: previewPositions.length,
+          quantity, // Total plants (e.g., 360 for 4 rows × 90 plants)
           notes: notes.trim(),
           plantingMethod,
-          skipPost: false, // Parent will handle posting with succession dates
+          previewPositions: effectivePreviewPositions, // Parent uses these for multi-square batch creation
           successionPlanting: true,
           weekInterval: weekInterval,
-          positionDates: positionDates,
-          seedDensityData: seedDensityMetadata || undefined, // NEW: Include seed density data
-          trellisStructureId: selectedTrellisId || undefined, // For trellis-required plants
-          seedInventoryId: selectedSeedId, // Seed lot for plan linkage
+          positionDates: positionDates, // Per-position staggered dates
+          seedDensityData: seedDensityMetadata || undefined,
+          trellisStructureId: selectedTrellisId || undefined,
+          seedInventoryId: selectedSeedId,
         };
         onSave(config);
         return;
@@ -1071,7 +1165,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         quantity, // Total plants (e.g., 192 for 12 squares of 16 carrots)
         notes: notes.trim(),
         plantingMethod,
-        previewPositions: previewPositions, // Parent uses these instead of calculating its own
+        previewPositions: effectivePreviewPositions, // Parent uses these instead of calculating its own
         seedDensityData: seedDensityMetadata || undefined,
         trellisStructureId: selectedTrellisId || undefined,
         seedInventoryId: selectedSeedId,
@@ -1740,6 +1834,50 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                   Warning: {quantity} plants exceeds the recommended capacity of {Math.max(1, Math.floor(plantsPerSquare)) * numberOfSquares} for {numberOfSquares} cell{numberOfSquares > 1 ? 's' : ''} based on plant spacing.
                 </p>
               )}
+
+              {/* Date staggering for dual-input methods (SFG, Intensive, Permaculture, MIGardener grid) */}
+              {numberOfSquares > 1 && (
+                <div className="mt-4 space-y-3 border-t pt-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="successionPlantingDual"
+                      checked={successionPlanting}
+                      onChange={(e) => setSuccessionPlanting(e.target.checked)}
+                      className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="successionPlantingDual" className="text-sm font-medium text-gray-700">
+                      Stagger planting dates
+                    </label>
+                  </div>
+
+                  {successionPlanting && (
+                    <div>
+                      <label htmlFor="weekIntervalDual" className="block text-sm font-medium text-gray-700 mb-1">
+                        Week Interval
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          id="weekIntervalDual"
+                          min="1"
+                          max="8"
+                          value={weekInterval}
+                          onChange={(e) => setWeekInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                        <span className="text-sm text-gray-600">week(s) between {quantityTerminology.unitLabel.toLowerCase()}</span>
+                      </div>
+                      {plantingDate && (
+                        <p className="mt-2 text-xs text-gray-500 bg-blue-50 p-2 rounded border border-blue-200">
+                          {quantityTerminology.unitLabel.slice(0, -1)} 1: {new Date(plantingDate).toLocaleDateString()}<br/>
+                          {quantityTerminology.unitLabel.slice(0, -1)} {numberOfSquares}: {new Date(new Date(plantingDate).getTime() + (numberOfSquares - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             // Single input for row planting or other methods
@@ -1853,9 +1991,11 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 onClick={handlePreviewPlacement}
                 className="px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
-                {usesDualInput
-                  ? `Preview Placement (${numberOfSquares} squares)`
-                  : `Preview Placement (${quantity} plants)`}
+                {selectedPlantingStyle === 'row'
+                  ? `Preview Placement (${quantity} plants, ${numberOfSquares} row${numberOfSquares > 1 ? 's' : ''})`
+                  : usesDualInput
+                    ? `Preview Placement (${quantity} plants, ${numberOfSquares} ${quantityTerminology.unitLabel.toLowerCase()})`
+                    : `Preview Placement (${quantity} plants)`}
               </button>
             )
           )}
@@ -1869,7 +2009,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               (quantity > 1 &&
                 !showingPreview &&
                 bed !== undefined &&
-                !rowNumber && // Allow saving without preview for row planting
+                !rowNumber && // Allow saving without preview for MIGardener row planting
+                selectedPlantingStyle !== 'row' && // Allow saving without preview for row planting style (auto-generates positions)
                 (usesDualInput && numberOfSquares > 1)) // Disable for succession planting without preview
             }
             className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center gap-2 ${
@@ -1891,9 +2032,13 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               ? `Seed ${quantity} Row${quantity > 1 ? 's' : ''}`
               : selectedPlantingStyle === 'broadcast'
                 ? 'Seed Coverage Area'
-                : showingPreview
-                  ? `Place ${previewPositions.length} ${quantityTerminology.unitLabel}`
-                  : `Place ${isDensePlanting ? numberOfSquares : quantity} ${quantityTerminology.unitLabel}`}
+                : selectedPlantingStyle === 'row'
+                  ? (showingPreview
+                    ? `Place ${previewPositions.length} Plants`
+                    : `Place ${quantity} Plants (${numberOfSquares} Row${numberOfSquares > 1 ? 's' : ''})`)
+                  : showingPreview
+                    ? `Place ${previewPositions.length} Plants`
+                    : `Place ${quantity} Plants${usesDualInput && numberOfSquares > 1 ? ` (${numberOfSquares} ${quantityTerminology.unitLabel})` : ''}`}
             {warnings.some(w => w.severity === 'warning') && !showingPreview && !rowNumber ? ' Anyway' : ''}
           </button>
         </div>
