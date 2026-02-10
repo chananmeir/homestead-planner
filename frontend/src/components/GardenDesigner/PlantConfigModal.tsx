@@ -2033,12 +2033,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               : selectedPlantingStyle === 'broadcast'
                 ? 'Seed Coverage Area'
                 : selectedPlantingStyle === 'row'
-                  ? (showingPreview
-                    ? `Place ${previewPositions.length} Plants`
-                    : `Place ${quantity} Plants (${numberOfSquares} Row${numberOfSquares > 1 ? 's' : ''})`)
-                  : showingPreview
-                    ? `Place ${previewPositions.length} Plants`
-                    : `Place ${quantity} Plants${usesDualInput && numberOfSquares > 1 ? ` (${numberOfSquares} ${quantityTerminology.unitLabel})` : ''}`}
+                  ? `Place ${quantity} Plants (${numberOfSquares} Row${numberOfSquares > 1 ? 's' : ''})`
+                  : `Place ${quantity} Plants${usesDualInput && numberOfSquares > 1 ? ` (${numberOfSquares} ${quantityTerminology.unitLabel})` : ''}`}
             {warnings.some(w => w.severity === 'warning') && !showingPreview && !rowNumber ? ' Anyway' : ''}
           </button>
         </div>
