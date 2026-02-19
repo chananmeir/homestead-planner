@@ -6,8 +6,9 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { API_BASE_URL } from '../config';
-import type { GardenPlan, SeedInventoryItem, PlanningStrategy, SuccessionPreference, CalculatePlanResponse, RotationWarning as RotationWarningType, GardenBed, SpaceBreakdown, BedSpaceUsage, TrellisStructure, TrellisSpaceUsage, BedAssignment, AllocationMode } from '../types';
+import type { GardenPlan, SeedInventoryItem, PlanningStrategy, SuccessionPreference, CalculatePlanResponse, RotationWarning as RotationWarningType, GardenBed, SpaceBreakdown, BedSpaceUsage, TrellisStructure, TrellisSpaceUsage, BedAssignment, AllocationMode, SeasonProgressResponse, Conflict } from '../types';
 import RotationWarning from './common/RotationWarning';
+import ConflictWarning from './common/ConflictWarning';
 import { Modal } from './common/Modal';
 import { ConfirmDialog, useToast } from './common';
 import { SearchBar } from './common/SearchBar';
@@ -18,6 +19,8 @@ import { getPlantById, resolveAlias } from '../utils/plantIdResolver';
 import { calculateSpaceForQuantities, calculateSpacePerBed, calculateTrellisSpaceRequirement, isTrellisPlanting, getLinearFeetPerPlant, calculateSeedRowOptimization, SeedRowOptimization, refineBedSpaceWithDates } from '../utils/gardenPlannerSpaceCalculator';
 import { calculateSuggestedInterval } from './PlantingCalendar/utils/successionCalculations';
 import { PlanNutritionCard } from './GardenPlanner/PlanNutritionCard';
+import GardenSnapshot from './GardenPlanner/GardenSnapshot';
+import { useActivePlan } from '../contexts/ActivePlanContext';
 
 // Debug flag for Season Planner diagnostics
 // To enable: In browser console, run: localStorage.setItem('DEBUG_SEASON_PLANNER', 'true')
@@ -25,7 +28,8 @@ import { PlanNutritionCard } from './GardenPlanner/PlanNutritionCard';
 const DEBUG_SEASON_PLANNER = typeof window !== 'undefined' && localStorage.getItem('DEBUG_SEASON_PLANNER') === 'true';
 
 const GardenPlanner: React.FC = () => {
-  const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
+  const { activePlanId, setActivePlan: setContextActivePlan, clearActivePlan } = useActivePlan();
+  const [view, setView] = useState<'list' | 'create' | 'detail' | 'snapshot'>('list');
   const [plans, setPlans] = useState<GardenPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<GardenPlan | null>(null);
   const [loading, setLoading] = useState(false);
@@ -84,6 +88,12 @@ const GardenPlanner: React.FC = () => {
   // Hide incompatible beds toggle - default ON
   const [hideIncompatibleBeds, setHideIncompatibleBeds] = useState(true);
 
+  // Detail view expand/collapse state
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+
+  // Season progress data for detail view (actual placed vs planned)
+  const [detailProgress, setDetailProgress] = useState<SeasonProgressResponse | null>(null);
+
   // Edit mode state
   const [editingPlanId, setEditingPlanId] = useState<number | null>(null);
   const [editingPlanName, setEditingPlanName] = useState<string>('');
@@ -94,6 +104,11 @@ const GardenPlanner: React.FC = () => {
     isOpen: false,
     planId: null,
   });
+
+  // Export conflict warning state
+  const [exportConflicts, setExportConflicts] = useState<Conflict[]>([]);
+  const [showExportConflictWarning, setShowExportConflictWarning] = useState(false);
+  const [pendingExportPlanId, setPendingExportPlanId] = useState<number | null>(null);
 
   // Toast notifications
   const { showSuccess, showError } = useToast();
@@ -192,6 +207,7 @@ const GardenPlanner: React.FC = () => {
 
   // Handle per-seed succession change
   const handleSeedSuccessionChange = (seedId: number, preference: SuccessionPreference) => {
+    setCalculatedPlan(null); // Invalidate stale Tier 2 data
     setPerSeedSuccession(prev => {
       const updated = new Map(prev);
       updated.set(seedId, preference);
@@ -209,6 +225,28 @@ const GardenPlanner: React.FC = () => {
     loadGardenBeds();
     loadTrellisStructures();
   }, []);
+
+  // Fetch season progress when detail view opens
+  useEffect(() => {
+    if (view === 'detail' && selectedPlan) {
+      const fetchProgress = async () => {
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/api/garden-planner/season-progress?year=${selectedPlan.year}`,
+            { credentials: 'include' }
+          );
+          if (response.ok) {
+            setDetailProgress(await response.json());
+          }
+        } catch (err) {
+          console.error('[GardenPlanner] Error fetching season progress:', err);
+        }
+      };
+      fetchProgress();
+    } else {
+      setDetailProgress(null);
+    }
+  }, [view, selectedPlan]);
 
   const loadPlans = async () => {
     try {
@@ -328,8 +366,10 @@ const GardenPlanner: React.FC = () => {
         bedAssignments.set(seedId, item.bedsAllocated);
       }
 
-      // TODO: Reconstruct trellis assignments when that data is available
-      // For now, trellisAssignments remains empty
+      // Reconstruct trellis assignments
+      if (item.trellisAssignments && item.trellisAssignments.length > 0) {
+        trellisAssignments.set(seedId, item.trellisAssignments);
+      }
     }
 
     return {
@@ -988,6 +1028,7 @@ const GardenPlanner: React.FC = () => {
       updated.delete(seedId);
     }
     setManualQuantities(updated);
+    setCalculatedPlan(null); // Invalidate stale Tier 2 data
 
     // Redistribute bed allocations when quantity changes
     const mode = allocationModes.get(seedId) || 'even';
@@ -1188,7 +1229,8 @@ const GardenPlanner: React.FC = () => {
             ...item,
             bedsAllocated: beds.length > 0 ? beds : undefined,
             bedAssignments: allocations.length > 0 ? allocations : undefined,
-            allocationMode: beds.length > 0 ? mode : undefined
+            allocationMode: beds.length > 0 ? mode : undefined,
+            trellisAssignments: trellisAssignments.get(seed.id) || undefined
           };
         }
 
@@ -1247,22 +1289,63 @@ const GardenPlanner: React.FC = () => {
     }
   };
 
-  const handleExportToCalendar = async (planId: number) => {
+  const handleExportToCalendar = async (planId: number, conflictOverride = false) => {
     setLoading(true);
+    setError(null);
     try {
       const response = await fetch(`${API_BASE_URL}/api/garden-plans/${planId}/export-to-calendar`, {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conflictOverride }),
       });
-      if (response.ok) {
+
+      if (response.status === 409) {
+        // Conflicts detected — show warning modal
+        const conflictResult = await response.json();
+        setExportConflicts(conflictResult.conflicts || []);
+        setPendingExportPlanId(planId);
+        setShowExportConflictWarning(true);
+      } else if (response.ok) {
         const result = await response.json();
-        alert(`Successfully exported ${result.totalEvents} events to calendar!`);
-      } else setError('Failed to export');
+        showSuccess(`Successfully exported ${result.totalEvents} events to calendar!`);
+        // Clear any previous conflict state
+        setExportConflicts([]);
+        setShowExportConflictWarning(false);
+        setPendingExportPlanId(null);
+
+        // Refresh plans list from server
+        await loadPlans();
+
+        // Update selectedPlan items to reflect exported status
+        setSelectedPlan(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            items: prev.items?.map(item => ({ ...item, status: 'exported' as const })) ?? []
+          };
+        });
+      } else {
+        setError('Failed to export');
+      }
     } catch (err) {
       setError('Error exporting');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleExportConflictOverride = () => {
+    if (pendingExportPlanId !== null) {
+      setShowExportConflictWarning(false);
+      handleExportToCalendar(pendingExportPlanId, true);
+    }
+  };
+
+  const handleExportConflictCancel = () => {
+    setShowExportConflictWarning(false);
+    setExportConflicts([]);
+    setPendingExportPlanId(null);
   };
 
   const resetWizard = () => {
@@ -1396,6 +1479,33 @@ const GardenPlanner: React.FC = () => {
     } catch (err) {
       console.error('[GardenPlanner] Error duplicating plan:', err);
       setError('Failed to duplicate plan. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecalculatePlan = async (plan: GardenPlan) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/garden-plans/${plan.id}/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({})
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to recalculate');
+      }
+
+      const updatedPlan: GardenPlan = await response.json();
+      setSelectedPlan(updatedPlan);
+      await loadPlans();
+    } catch (err: unknown) {
+      console.error('[GardenPlanner] Error recalculating plan:', err);
+      setError(err instanceof Error ? err.message : 'Failed to recalculate plan.');
     } finally {
       setLoading(false);
     }
@@ -1664,7 +1774,10 @@ const GardenPlanner: React.FC = () => {
           <div>
             <div className="flex justify-between mb-6">
               <h2 className="text-2xl font-bold">Plans</h2>
-              <button onClick={() => { setView('create'); resetWizard(); }} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Create Plan</button>
+              <div className="flex gap-2">
+                <button onClick={() => setView('snapshot')} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Garden Snapshot</button>
+                <button onClick={() => { setView('create'); resetWizard(); }} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Create Plan</button>
+              </div>
             </div>
             {plans.length === 0 ? (
               <div className="bg-gray-50 rounded p-8 text-center">
@@ -1681,6 +1794,23 @@ const GardenPlanner: React.FC = () => {
                         <div className="text-sm text-gray-600">Year: {plan.year} | Crops: {plan.items?.length || 0}</div>
                       </div>
                       <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (activePlanId === plan.id) {
+                              clearActivePlan();
+                            } else {
+                              setContextActivePlan(plan);
+                            }
+                          }}
+                          className={`px-4 py-2 rounded ${
+                            activePlanId === plan.id
+                              ? 'bg-green-700 text-white ring-2 ring-green-400'
+                              : 'bg-gray-200 text-gray-700 hover:bg-green-100'
+                          }`}
+                          title={activePlanId === plan.id ? 'This plan is active in the Designer' : 'Set as active plan for the Designer'}
+                        >
+                          {activePlanId === plan.id ? 'Active' : 'Set Active'}
+                        </button>
                         <button
                           onClick={() => handleEditPlan(plan)}
                           className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
@@ -2836,8 +2966,9 @@ const GardenPlanner: React.FC = () => {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-2 text-left">Crop</th>
-                          <th className="px-4 py-2 text-right">Plants</th>
+                          <th className="px-4 py-2 text-right">Season Total</th>
                           <th className="px-4 py-2 text-right">Succession</th>
+                          <th className="px-4 py-2 text-right">Per Planting</th>
                           <th className="px-4 py-2 text-right">Seeds</th>
                           <th className="px-4 py-2 text-center">Rotation</th>
                         </tr>
@@ -2852,6 +2983,11 @@ const GardenPlanner: React.FC = () => {
                                 <td className="px-4 py-2">{item.variety || item.plantId}</td>
                                 <td className="px-4 py-2 text-right">{item.plantEquivalent}</td>
                                 <td className="px-4 py-2 text-right">{item.successionEnabled ? `${item.successionCount}x` : 'None'}</td>
+                                <td className="px-4 py-2 text-right">
+                                  {item.successionEnabled && item.successionCount > 1
+                                    ? Math.round(item.plantEquivalent / item.successionCount)
+                                    : item.plantEquivalent}
+                                </td>
                                 <td className="px-4 py-2 text-right">
                                   <div>{item.seedsRequired || 0}</div>
                                   {item.rowSeedingInfo && (
@@ -2882,7 +3018,7 @@ const GardenPlanner: React.FC = () => {
                               </tr>
                               {sunWarning && (
                                 <tr>
-                                  <td colSpan={5} className="px-4 py-2 bg-red-50">
+                                  <td colSpan={6} className="px-4 py-2 bg-red-50">
                                     <div className="border-l-4 border-red-400 p-3 rounded">
                                       <div className="flex items-start">
                                         <span className="text-red-400 text-xl mr-2 flex-shrink-0">☀️</span>
@@ -2950,14 +3086,35 @@ const GardenPlanner: React.FC = () => {
 
         {view === 'detail' && selectedPlan && (
           <div>
-            <button onClick={() => { setView('list'); setSelectedPlan(null); }} className="mb-4 text-blue-600">← Back</button>
+            <button onClick={() => { setView('list'); setSelectedPlan(null); setExpandedItems(new Set()); }} className="mb-4 text-blue-600">← Back</button>
             <div className="bg-white rounded-lg shadow-lg p-8">
               <div className="flex justify-between mb-6">
                 <div>
-                  <h2 className="text-2xl font-bold mb-2">{selectedPlan.name}</h2>
+                  <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
+                    {selectedPlan.name}
+                    {activePlanId === selectedPlan.id && (
+                      <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-normal">Active</span>
+                    )}
+                  </h2>
                   <div className="text-gray-600 text-sm">Year: {selectedPlan.year} | Strategy: {selectedPlan.strategy}</div>
                 </div>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      if (activePlanId === selectedPlan.id) {
+                        clearActivePlan();
+                      } else {
+                        setContextActivePlan(selectedPlan);
+                      }
+                    }}
+                    className={`px-4 py-2 rounded ${
+                      activePlanId === selectedPlan.id
+                        ? 'bg-green-700 text-white ring-2 ring-green-400'
+                        : 'bg-gray-200 text-gray-700 hover:bg-green-100'
+                    }`}
+                  >
+                    {activePlanId === selectedPlan.id ? 'Active' : 'Set Active'}
+                  </button>
                   <button
                     onClick={() => handleEditPlan(selectedPlan)}
                     disabled={loading}
@@ -2966,38 +3123,154 @@ const GardenPlanner: React.FC = () => {
                     Edit Plan
                   </button>
                   <button
+                    onClick={() => handleRecalculatePlan(selectedPlan)}
+                    disabled={loading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
+                    title="Recalculate quantities using current garden beds and improved space allocation"
+                  >
+                    {loading ? 'Recalculating...' : 'Recalculate'}
+                  </button>
+                  <button
                     onClick={() => handleDuplicatePlan(selectedPlan)}
                     disabled={loading}
                     className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-300"
                   >
                     Duplicate
                   </button>
-                  <button
-                    onClick={() => handleExportToCalendar(selectedPlan.id)}
-                    disabled={loading}
-                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300"
-                  >
-                    {loading ? 'Exporting...' : 'Export to Calendar'}
-                  </button>
+                  {(() => {
+                    const allExported = (selectedPlan.items?.length ?? 0) > 0 &&
+                      selectedPlan.items!.every(item => item.status === 'exported');
+                    return (
+                      <button
+                        onClick={() => handleExportToCalendar(selectedPlan.id)}
+                        disabled={loading}
+                        className={`px-4 py-2 text-white rounded disabled:bg-gray-300 ${
+                          allExported ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'
+                        }`}
+                      >
+                        {loading ? 'Exporting...' : allExported ? 'Re-Export to Calendar' : 'Export to Calendar'}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
               {error && <div className="bg-red-50 border rounded p-3 mb-4 text-red-700">{error}</div>}
+
+              {/* Summary stats bar */}
+              {detailProgress && (
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                    <div className="text-2xl font-bold text-green-700">{detailProgress.summary.totalAdded}</div>
+                    <div className="text-sm text-green-600">In Garden</div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                    <div className="text-2xl font-bold text-blue-700">
+                      {selectedPlan.items?.filter((item) => {
+                        const p = item.id !== undefined && detailProgress.byPlanItemId
+                          ? detailProgress.byPlanItemId[String(item.id)]
+                          : undefined;
+                        return (p?.placedSeason ?? 0) > 0;
+                      }).length ?? 0}
+                    </div>
+                    <div className="text-sm text-blue-600">Crops Planted</div>
+                  </div>
+                </div>
+              )}
+
               <table className="w-full border rounded">
                 <thead className="bg-gray-50">
-                  <tr><th className="px-4 py-2 text-left">Crop</th><th className="px-4 py-2 text-right">Plants</th><th className="px-4 py-2 text-right">Succession</th><th className="px-4 py-2 text-right">Seeds</th><th className="px-4 py-2">Status</th></tr>
+                  <tr>
+                    <th className="px-4 py-2 text-left">Crop</th>
+                    <th className="px-4 py-2 text-right">In Garden</th>
+                    <th className="px-4 py-2 text-right">Succession</th>
+                    <th className="px-4 py-2">Status</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {selectedPlan.items?.map((item) => (
-                    <tr key={item.id} className="border-t">
-                      <td className="px-4 py-2">{item.variety || item.plantId}</td>
-                      <td className="px-4 py-2 text-right">{item.plantEquivalent}</td>
-                      <td className="px-4 py-2 text-right">{item.successionEnabled ? `${item.successionCount}x` : 'None'}</td>
-                      <td className="px-4 py-2 text-right">{item.seedsRequired || 0}</td>
-                      <td className="px-4 py-2 text-center">
-                        <span className={`px-2 py-1 rounded text-xs ${item.status === 'exported' ? 'bg-green-100 text-green-800' : 'bg-gray-100'}`}>{item.status}</span>
-                      </td>
-                    </tr>
-                  ))}
+                  {selectedPlan.items?.map((item) => {
+                    const isExpanded = item.id !== undefined && expandedItems.has(item.id);
+                    const progress = item.id !== undefined && detailProgress?.byPlanItemId
+                      ? detailProgress.byPlanItemId[String(item.id)]
+                      : undefined;
+                    const inGarden = progress?.placedSeason ?? 0;
+
+                    // Derive status from progress
+                    let statusLabel: string;
+                    let statusClass: string;
+                    if (inGarden > 0) {
+                      statusLabel = 'planted';
+                      statusClass = 'bg-green-100 text-green-800';
+                    } else if (item.status === 'exported') {
+                      statusLabel = 'exported';
+                      statusClass = 'bg-yellow-100 text-yellow-800';
+                    } else {
+                      statusLabel = 'planned';
+                      statusClass = 'bg-gray-100 text-gray-700';
+                    }
+
+                    return (
+                      <React.Fragment key={item.id}>
+                        <tr
+                          className="border-t cursor-pointer hover:bg-gray-50"
+                          onClick={() => {
+                            if (item.id === undefined) return;
+                            setExpandedItems(prev => {
+                              const next = new Set(prev);
+                              if (next.has(item.id!)) {
+                                next.delete(item.id!);
+                              } else {
+                                next.add(item.id!);
+                              }
+                              return next;
+                            });
+                          }}
+                        >
+                          <td className="px-4 py-2">
+                            <span className="inline-block w-4 text-gray-400 mr-1">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+                            {item.variety || item.plantId}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <span className="font-semibold">{inGarden}</span>
+                          </td>
+                          <td className="px-4 py-2 text-right">{item.successionEnabled ? `${item.successionCount}x` : 'None'}</td>
+                          <td className="px-4 py-2 text-center">
+                            <span className={`px-2 py-1 rounded text-xs ${statusClass}`}>{statusLabel}</span>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-gray-50">
+                            <td colSpan={4} className="px-4 py-3">
+                              <div className="ml-5">
+                                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Per-Bed Counts</span>
+                                {item.bedAssignments && item.bedAssignments.length > 0 ? (
+                                  <div className="mt-2 space-y-1">
+                                    {item.bedAssignments.map((ba) => {
+                                      const bedName = gardenBeds.find(b => b.id === ba.bedId)?.name || `Bed #${ba.bedId}`;
+                                      const bedPlaced = progress?.placedByBed?.[String(ba.bedId)] ?? 0;
+                                      return (
+                                        <div key={ba.bedId} className="flex items-center justify-between text-sm">
+                                          <span className="font-medium">{bedName}</span>
+                                          <span className="text-gray-600">
+                                            {bedPlaced > 0 ? (
+                                              <span className="text-green-700 font-semibold">{bedPlaced} planted</span>
+                                            ) : (
+                                              <span className="text-gray-400">{ba.quantity} assigned</span>
+                                            )}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 text-sm text-gray-400 italic">No beds assigned</div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -3009,6 +3282,26 @@ const GardenPlanner: React.FC = () => {
             </div>
           </div>
         )}
+
+        {view === 'snapshot' && (
+          <div>
+            <button onClick={() => setView('list')} className="mb-4 text-blue-600">&larr; Back to Plans</button>
+            <h2 className="text-2xl font-bold mb-4">Garden Snapshot</h2>
+            <p className="text-gray-600 mb-6">See what&apos;s in the ground on any date across all your beds.</p>
+            <GardenSnapshot />
+          </div>
+        )}
+
+        {/* Export Conflict Warning */}
+        <ConflictWarning
+          conflicts={exportConflicts}
+          onOverride={handleExportConflictOverride}
+          onCancel={handleExportConflictCancel}
+          isOpen={showExportConflictWarning}
+          title="Export Conflicts Detected"
+          warningMessage={`${exportConflicts.length} temporal conflict${exportConflicts.length !== 1 ? 's' : ''} found. Some plantings in this plan overlap with existing or other planned plantings in the same bed during the same time period.`}
+          overrideButtonText="Export Anyway"
+        />
 
         {/* Delete Confirmation Dialog */}
         <ConfirmDialog
