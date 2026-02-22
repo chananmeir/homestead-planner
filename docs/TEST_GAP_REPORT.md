@@ -714,7 +714,7 @@ def get_structures():       # No @login_required!
 | # | Issue | Effort | Files | Risk |
 |---|-------|--------|-------|------|
 | 8 | ~~Automated test suite: space calc sync~~ **DONE** | — | `backend/tests/test_space_calculation_sync.py` (94 tests), `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` (33 tests) | — |
-| 9 | Automated test suite: succession export | 3 hr | 1+ new test file | Low - additive |
+| 9 | ~~Automated test suite: succession export~~ **DONE** | — | `backend/tests/test_succession_export.py` (36 tests), `backend/tests/conftest.py` (shared fixtures) | — |
 | 10 | Automated test suite: auth + user isolation | 3 hr | 1+ new test file | Low - additive |
 | 11 | Clean up dual status system | 8+ hr | 5+ files | HIGH - behavioral change |
 | 12 | Add JSON schema for event_details | 4 hr | 2-3 files | Medium - validation layer |
@@ -755,7 +755,7 @@ def get_structures():       # No @login_required!
 | Backend pytest for space_calculator.py | **EXISTS** | `backend/tests/test_space_calculation_sync.py` — 94 tests covering all 5 methods (SFG, MIGardener, Intensive, Row, Permaculture) + lookup table sync checks |
 | Frontend jest for gardenPlannerSpaceCalculator.ts | **EXISTS** | `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` — 33 tests covering all 5 methods + lookup table sync checks |
 | Cross-check script comparing backend vs frontend plant counts | Missing | Sync drift goes undetected |
-| Integration test: export_to_calendar round-trip | Missing | Most complex business logic, zero test coverage |
+| Integration test: export_to_calendar round-trip | **EXISTS** | `backend/tests/test_succession_export.py` — 36 tests covering all 3 code paths (legacy, bed-allocated, trellis), idempotent re-export, DTM/harvest-date resolution, remainder distribution, and edge cases |
 | Auth isolation test hitting all endpoints | Missing | Data leakage would go undetected |
 
 ---
@@ -787,8 +787,11 @@ npm start                     # Start on port 3000
 ### Existing Test Commands
 
 ```bash
-# Backend (94 space calc tests + any additional)
+# Backend space calc tests (94 tests)
 cd backend && python -m pytest tests/test_space_calculation_sync.py -v
+
+# Backend succession export tests (36 tests)
+cd backend && python -m pytest tests/test_succession_export.py -v
 
 # Frontend space calc tests (33 tests)
 cd frontend && CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false
@@ -1368,4 +1371,4 @@ npx playwright test -g "MIGardener"
 
 ---
 
-*Report generated 2026-02-22. Updated 2026-02-22 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), and backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*
+*Report generated 2026-02-22. Updated 2026-02-22 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests), and backlog #9 (succession export integration tests — 36 tests covering all 3 export paths + DTM=0 falsy bug fix). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*

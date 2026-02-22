@@ -185,10 +185,13 @@ if self.days_to_maturity is not None:  # Explicit NULL check
 3. **UUID Linking**: All events in series share same `succession_group_id`
 4. **Idempotency**: Check for existing exports before creating new events
 
+**Test Coverage**: `backend/tests/test_succession_export.py` (36 tests) covers all 3 export paths (legacy, bed-allocated, trellis), idempotent re-export, DTM resolution, remainder distribution, and edge cases. Run with `cd backend && python -m pytest tests/test_succession_export.py -v`.
+
 **Before Modifying**:
 1. Understand succession flow: calculate → validate → export
 2. Test edge cases: 0, 1, 4, 8 succession counts
 3. Verify space doesn't over-allocate
+4. Run `python -m pytest tests/test_succession_export.py -v` after changes
 
 ### 🟡 HIGH RISK: Event Type Polymorphism
 
@@ -638,6 +641,7 @@ After making changes, verify:
   cd backend
   python -m pytest                    # All tests
   python -m pytest tests/test_space_calculation_sync.py -v  # Space calc tests (94 tests)
+  python -m pytest tests/test_succession_export.py -v       # Succession export tests (36 tests)
   ```
 
 - [ ] **Frontend Tests**: Run frontend tests
@@ -912,7 +916,7 @@ flask db downgrade -1              # Rollback one migration
 python migrations/custom/schema/add_position_fields.py
 
 # Run tests
-python -m pytest                   # All tests (94+ space calc tests)
+python -m pytest                   # All tests (130+ tests)
 ```
 
 ### Frontend
@@ -1052,4 +1056,4 @@ If unsure what to run, default to:
 
 ---
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-02-23
