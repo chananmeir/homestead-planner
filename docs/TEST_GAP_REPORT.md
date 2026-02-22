@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-22 (updated 2026-02-22)
 **Branch**: baseline-buildable-frontend
-**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-07.
+**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07.
 **Verification**: All bugs independently verified against source code.
 
 ---
@@ -363,7 +363,7 @@
 
 | ID | Test Case | Steps | Expected Result | Priority |
 |----|-----------|-------|-----------------|----------|
-| SYNC-01 | Plant count match | 1. Count backend PLANT_DATABASE entries 2. Count frontend PLANT_DATABASE entries | Backend: 113, Frontend: 118 (**5 extra in frontend**) | P1 |
+| SYNC-01 | Plant count match | 1. Count backend PLANT_DATABASE entries 2. Count frontend PLANT_DATABASE entries | Backend: 118, Frontend: 118 (**matched**) | P1 |
 | SYNC-02 | SFG table count match | 1. Count backend SFG_SPACING entries 2. Count frontend SFG_PLANTS_PER_CELL entries | Backend: 49 base plants, Frontend: 105 (base + variants) | P1 |
 | SYNC-03 | MIGardener count match | 1. Count backend MIGARDENER_SPACING_OVERRIDES 2. Count frontend | Backend: 54, Frontend: 31 (**23 missing from frontend**) | P0 |
 | SYNC-04 | Spot-check 10 plants | 1. For tomato, lettuce, carrot, watermelon, pepper, broccoli, bean, spinach, onion, radish: compare all fields between frontend and backend | Identical spacing, DTM, tolerance values | P0 |
@@ -640,20 +640,16 @@ def set_setting(key, value):
 
 #### BUG-06: Plant Database Count Mismatch (P2 - Data Sync)
 
-**Status:** VERIFIED
+**Status:** FIXED (2026-02-22)
 
 | Location | Count |
 |----------|-------|
-| Backend PLANT_DATABASE | **113** entries |
+| Backend PLANT_DATABASE | **118** entries |
 | Frontend PLANT_DATABASE | **118** entries |
 | Backend SFG_SPACING (garden_methods.py) | **49** base plant names |
 | Frontend SFG_PLANTS_PER_CELL | **105** entries (49 base + variants) |
 
-**Frontend has 5 extra plants** not present in backend. Some naming inconsistencies: backend `'collards'` vs frontend `'collard'`/`'collards'`; frontend has generic `'bean'`/`'bean-1'` entries not in backend.
-
-**Impact:** Plants that exist only in frontend will fail to resolve on backend. Space calculations may use default fallbacks.
-
-**Fix:** Identify the 5 extra frontend entries. Either add to backend or remove from frontend.
+**Resolution:** Added 5 missing plants to backend `plant_database.py`: `mache-1`, `claytonia-1`, `zucchini-1`, `clover-1`, `rye-1`. Values match frontend exactly. Added `'cover-crop'` to `validate_plant_database()` valid categories. Updated stale sync comment in `frontend/src/data/plantDatabase.ts`.
 
 ---
 
@@ -704,7 +700,7 @@ def get_structures():       # No @login_required!
 |---|-------|--------|-------|------|
 | 3 | ~~**BUG-03**: Sync MIGardener frontend <- backend (23 entries)~~ FIXED | — | — | — |
 | 4 | ~~**BUG-02**: Resolve potato spacing conflict~~ FIXED | — | — | — |
-| 5 | **BUG-06**: Verify plant DB count alignment (5 extras) | 1 hr | 2 files | Low - investigation + sync |
+| 5 | ~~**BUG-06**: Verify plant DB count alignment (5 extras)~~ FIXED | — | — | — |
 | 6 | ~~**BUG-05**: Remove str(bed_id) wrappers (5 locations)~~ FIXED | — | — | — |
 | 7 | Add trellis overlap validation | 2 hr | 1-2 files | Medium - new validation logic |
 
