@@ -8,12 +8,57 @@ and timeline optimization.
 
 import math
 import json
+import logging
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Tuple
 from models import db, GardenPlan, GardenPlanItem, SeedInventory, GardenBed, PlantingEvent, TrellisStructure
 from plant_database import get_plant_by_id
 from services.space_calculator import calculate_space_requirement
 from services.rotation_checker import get_rotation_status_for_plan_item
+from services.trellis_validation import validate_trellis_segment
+
+logger = logging.getLogger(__name__)
+
+
+def normalize_succession_preference(value: str) -> str:
+    """
+    Convert legacy succession preference values to numeric format.
+    Provides backward compatibility for existing data.
+
+    Args:
+        value: Succession preference ('none'/'light'/'moderate'/'heavy' or '0'-'8')
+
+    Returns:
+        Normalized numeric string ('0'-'8')
+    """
+    import logging
+
+    # Handle None/empty
+    if not value:
+        return '4'
+
+    # Legacy value mapping
+    legacy_map = {
+        'none': '0',
+        'light': '2',
+        'moderate': '4',
+        'heavy': '8'
+    }
+
+    # If it's a legacy value, convert it
+    normalized = legacy_map.get(value, value)
+
+    # Validate it's a valid numeric string
+    try:
+        count = int(normalized)
+        if 0 <= count <= 8:
+            return normalized
+    except (ValueError, TypeError):
+        pass
+
+    # Fallback to '4' (moderate)
+    logging.warning(f"Invalid succession preference '{value}', defaulting to '4'")
+    return '4'
 
 
 def calculate_plant_quantities(
@@ -93,6 +138,9 @@ def calculate_plant_quantities(
         # Get effective succession preference for this seed (per-seed override or global default)
         effective_succession = per_seed_succession.get(seed_inventory_id, succession_preference) \
             if per_seed_succession else succession_preference
+
+        # Normalize to handle legacy values
+        effective_succession = normalize_succession_preference(effective_succession)
 
         # Calculate succession info
         succession_info = _calculate_succession(
@@ -372,8 +420,8 @@ def _calculate_succession(
     dtm = plant.get('days_to_maturity', 60)
     succession_policy = plant.get('succession_policy', 'optional')
 
-    # Skip succession for long-season crops or if policy is 'never'
-    if dtm > 90 or succession_policy == 'never' or succession_preference == 'none':
+    # Skip succession for special cases
+    if dtm > 90 or succession_policy == 'never' or succession_preference == '0':
         first_date = _calculate_first_plant_date(plant, last_frost_date)
         harvest_start = first_date + timedelta(days=dtm) if first_date else None
 
@@ -387,13 +435,9 @@ def _calculate_succession(
             'harvestEnd': harvest_start.isoformat() if harvest_start else None
         }
 
-    # Determine succession count based on preference
-    succession_counts = {
-        'light': 2,
-        'moderate': 4,
-        'heavy': 8
-    }
-    succession_count = succession_counts.get(succession_preference, 1)
+    # Convert numeric preference to count
+    normalized_pref = normalize_succession_preference(succession_preference)
+    succession_count = int(normalized_pref) if normalized_pref != '0' else 1
 
     # Calculate optimal interval (at least 14 days, or DTM/2 for harvest overlap)
     interval_days = max(14, int(dtm / 2))
@@ -458,7 +502,7 @@ def _get_first_frost_date(user_id: int) -> date:
 
 def _calculate_first_plant_date(plant: Dict, last_frost_date: date) -> Optional[date]:
     """Calculate first safe planting date based on plant frost tolerance."""
-    frost_tolerance = plant.get('frost_tolerance', 'tender')
+    frost_tolerance = plant.get('frostTolerance') or plant.get('frost_tolerance', 'tender')
 
     # Adjust based on frost tolerance
     if frost_tolerance in ['very_hardy', 'hardy']:
@@ -623,13 +667,32 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
         if not item.first_plant_date:
             continue
 
-        # Parse bed allocations (JSON array of bed IDs)
-        beds_allocated = []
-        if item.beds_allocated:
+        # Parse bed allocations - prefer bed_assignments (new format with quantities)
+        # Fall back to beds_allocated (legacy format, just bed IDs)
+        bed_allocations = []  # List of {"bedId": int, "quantity": int}
+
+        if item.bed_assignments:
             try:
-                beds_allocated = json.loads(item.beds_allocated) if isinstance(item.beds_allocated, str) else item.beds_allocated
+                bed_allocations = json.loads(item.bed_assignments) if isinstance(item.bed_assignments, str) else item.bed_assignments
             except (json.JSONDecodeError, TypeError):
-                beds_allocated = []
+                bed_allocations = []
+
+        # Fall back to legacy beds_allocated with INTEGER even distribution
+        if not bed_allocations and item.beds_allocated:
+            try:
+                legacy_beds = json.loads(item.beds_allocated) if isinstance(item.beds_allocated, str) else item.beds_allocated
+                if legacy_beds:
+                    total = int(item.target_value)
+                    num_beds = len(legacy_beds)
+                    base = total // num_beds
+                    remainder = total % num_beds
+                    # First N beds get +1 to handle remainder (no float division)
+                    bed_allocations = [
+                        {"bedId": bid, "quantity": base + (1 if idx < remainder else 0)}
+                        for idx, bid in enumerate(legacy_beds)
+                    ]
+            except (json.JSONDecodeError, TypeError):
+                bed_allocations = []
 
         # Generate succession group ID for linking events
         import uuid
@@ -639,17 +702,158 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
         succession_count = item.succession_count or 1
         interval_days = item.succession_interval_days or 14
 
-        # If beds are allocated, create separate events for each bed
+        # Check for trellis crop with trellis assignments
+        trellis_ids = []
+        if item.trellis_assignments:
+            try:
+                trellis_ids = json.loads(item.trellis_assignments) if isinstance(item.trellis_assignments, str) else item.trellis_assignments
+            except (json.JSONDecodeError, TypeError):
+                trellis_ids = []
+
+        plant = get_plant_by_id(item.plant_id)
+
+        # Compute days-to-maturity for expected_harvest_date
+        dtm = None
+        if item.seed_inventory_id:
+            seed = SeedInventory.query.get(item.seed_inventory_id)
+            if seed and seed.days_to_maturity is not None:
+                dtm = seed.days_to_maturity
+        if dtm is None and plant:
+            dtm = plant.get('daysToMaturity')
+
+        if plant and _is_trellis_planting(plant) and trellis_ids:
+            # Trellis export path: distribute quantity across assigned trellises
+            total_qty = int(item.target_value)
+            num_trellises = len(trellis_ids)
+            linear_ft_per_plant = _get_linear_feet_per_plant(plant)
+
+            # Integer split across trellises
+            base_per_trellis = total_qty // num_trellises
+            remainder_trellises = total_qty % num_trellises
+
+            for t_idx, trellis_id in enumerate(trellis_ids):
+                trellis_qty = base_per_trellis + (1 if t_idx < remainder_trellises else 0)
+                if trellis_qty == 0:
+                    continue
+
+                # Query existing positioned allocations on this trellis to find next available position
+                existing_positioned = PlantingEvent.query.filter(
+                    PlantingEvent.trellis_structure_id == trellis_id,
+                    PlantingEvent.user_id == user_id,
+                    PlantingEvent.trellis_position_start_inches.isnot(None),
+                    PlantingEvent.trellis_position_end_inches.isnot(None),
+                ).order_by(PlantingEvent.trellis_position_start_inches).all()
+
+                # Find first available position after all existing allocations
+                next_available_position = 0.0
+                for alloc in existing_positioned:
+                    if alloc.trellis_position_end_inches > next_available_position:
+                        next_available_position = alloc.trellis_position_end_inches
+
+                trellis_obj = TrellisStructure.query.get(trellis_id)
+
+                # Integer split across successions
+                base_per_succession = trellis_qty // succession_count
+                remainder_successions = trellis_qty % succession_count
+
+                for i in range(succession_count):
+                    if isinstance(item.first_plant_date, str):
+                        plant_date = datetime.strptime(item.first_plant_date, '%Y-%m-%d').date() + timedelta(days=i * interval_days)
+                    else:
+                        plant_date = item.first_plant_date + timedelta(days=i * interval_days)
+
+                    export_key = f"{item.id}_trellis_{trellis_id}_{plant_date.isoformat()}_{i}"
+                    qty_this_succession = base_per_succession + (1 if i < remainder_successions else 0)
+                    linear_feet = qty_this_succession * linear_ft_per_plant
+                    expected_harvest = datetime.combine(plant_date + timedelta(days=dtm), datetime.min.time()) if dtm is not None else None
+
+                    # Compute position allocation for this event
+                    required_inches = linear_feet * 12
+                    pos_start = next_available_position
+                    pos_end = pos_start + required_inches
+
+                    # Validate segment; log warning if out of range but don't block export
+                    # (capacity was already checked at plan time)
+                    if trellis_obj:
+                        valid, error_msg = validate_trellis_segment(trellis_obj, pos_start, pos_end)
+                        if not valid:
+                            logger.warning(
+                                f"Trellis position out of range for export_key={export_key}: {error_msg}"
+                            )
+                            pos_start = None
+                            pos_end = None
+
+                    # Advance running position for next event
+                    if pos_end is not None:
+                        next_available_position = pos_end
+
+                    existing_event = PlantingEvent.query.filter_by(export_key=export_key).first()
+
+                    if existing_event:
+                        existing_event.plant_id = item.plant_id
+                        existing_event.variety = item.variety
+                        existing_event.garden_bed_id = None
+                        existing_event.trellis_structure_id = trellis_id
+                        existing_event.linear_feet_allocated = linear_feet
+                        existing_event.trellis_position_start_inches = pos_start
+                        existing_event.trellis_position_end_inches = pos_end
+                        existing_event.quantity = qty_this_succession
+                        existing_event.direct_seed_date = datetime.combine(plant_date, datetime.min.time())
+                        existing_event.expected_harvest_date = expected_harvest
+                        existing_event.succession_group_id = succession_group_id
+                        existing_event.succession_planting = succession_count > 1
+                        existing_event.succession_interval = interval_days if succession_count > 1 else None
+                        events_updated += 1
+                    else:
+                        new_event = PlantingEvent(
+                            user_id=user_id,
+                            plant_id=item.plant_id,
+                            variety=item.variety,
+                            garden_bed_id=None,
+                            trellis_structure_id=trellis_id,
+                            linear_feet_allocated=linear_feet,
+                            trellis_position_start_inches=pos_start,
+                            trellis_position_end_inches=pos_end,
+                            quantity=qty_this_succession,
+                            direct_seed_date=datetime.combine(plant_date, datetime.min.time()),
+                            expected_harvest_date=expected_harvest,
+                            succession_planting=succession_count > 1,
+                            succession_interval=interval_days if succession_count > 1 else None,
+                            succession_group_id=succession_group_id if succession_count > 1 else None,
+                            export_key=export_key
+                        )
+                        db.session.add(new_event)
+                        events_created += 1
+
+            # Mark item as exported and skip bed-based export
+            item.status = 'exported'
+            continue
+
+        # If beds are allocated, create separate events for each bed with per-bed quantities
         # Otherwise, create a single event without bed assignment (legacy behavior)
-        if beds_allocated:
-            # Create events for each bed
-            for bed_id in beds_allocated:
+        if bed_allocations:
+            # Create events for each bed using per-bed quantities
+            for allocation in bed_allocations:
+                bed_id = allocation['bedId']
+                bed_qty = int(allocation['quantity'])
+
+                # INTEGER split across successions (base + remainder, no truncation loss)
+                base_per_succession = bed_qty // succession_count
+                remainder_successions = bed_qty % succession_count
+
                 for i in range(succession_count):
                     # Calculate planting date for this succession
-                    plant_date = datetime.strptime(item.first_plant_date, '%Y-%m-%d').date() + timedelta(days=i * interval_days)
+                    if isinstance(item.first_plant_date, str):
+                        plant_date = datetime.strptime(item.first_plant_date, '%Y-%m-%d').date() + timedelta(days=i * interval_days)
+                    else:
+                        plant_date = item.first_plant_date + timedelta(days=i * interval_days)
 
                     # Generate export key for idempotency (include bed_id)
                     export_key = f"{item.id}_{bed_id}_{plant_date.isoformat()}_{i}"
+
+                    # First N successions get +1 to handle remainder (no truncation loss)
+                    qty_this_succession = base_per_succession + (1 if i < remainder_successions else 0)
+                    expected_harvest = datetime.combine(plant_date + timedelta(days=dtm), datetime.min.time()) if dtm is not None else None
 
                     # Check if event already exists
                     existing_event = PlantingEvent.query.filter_by(export_key=export_key).first()
@@ -659,10 +863,12 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         existing_event.plant_id = item.plant_id
                         existing_event.variety = item.variety
                         existing_event.garden_bed_id = bed_id
-                        existing_event.quantity = int(item.target_value / (succession_count * len(beds_allocated)))
+                        existing_event.quantity = qty_this_succession
                         existing_event.direct_seed_date = datetime.combine(plant_date, datetime.min.time())
+                        existing_event.expected_harvest_date = expected_harvest
                         existing_event.succession_group_id = succession_group_id
                         existing_event.succession_planting = succession_count > 1
+                        existing_event.succession_interval = interval_days if succession_count > 1 else None
                         events_updated += 1
                     else:
                         # Create new event
@@ -671,9 +877,11 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                             plant_id=item.plant_id,
                             variety=item.variety,
                             garden_bed_id=bed_id,
-                            quantity=int(item.target_value / (succession_count * len(beds_allocated))),
+                            quantity=qty_this_succession,
                             direct_seed_date=datetime.combine(plant_date, datetime.min.time()),
+                            expected_harvest_date=expected_harvest,
                             succession_planting=succession_count > 1,
+                            succession_interval=interval_days if succession_count > 1 else None,
                             succession_group_id=succession_group_id if succession_count > 1 else None,
                             export_key=export_key
                         )
@@ -681,12 +889,24 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         events_created += 1
         else:
             # Legacy: No bed assignments - create events without bed_id
+            # Use integer remainder handling for succession quantity split
+            total_qty = int(item.target_value)
+            base_per_succession = total_qty // succession_count
+            remainder_successions = total_qty % succession_count
+
             for i in range(succession_count):
                 # Calculate planting date for this succession
-                plant_date = datetime.strptime(item.first_plant_date, '%Y-%m-%d').date() + timedelta(days=i * interval_days)
+                if isinstance(item.first_plant_date, str):
+                    plant_date = datetime.strptime(item.first_plant_date, '%Y-%m-%d').date() + timedelta(days=i * interval_days)
+                else:
+                    plant_date = item.first_plant_date + timedelta(days=i * interval_days)
 
                 # Generate export key for idempotency
                 export_key = f"{item.id}_{plant_date.isoformat()}_{i}"
+
+                # First N successions get +1 to handle remainder (no truncation loss)
+                qty_this_succession = base_per_succession + (1 if i < remainder_successions else 0)
+                expected_harvest = datetime.combine(plant_date + timedelta(days=dtm), datetime.min.time()) if dtm is not None else None
 
                 # Check if event already exists
                 existing_event = PlantingEvent.query.filter_by(export_key=export_key).first()
@@ -695,10 +915,12 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     # Update existing event
                     existing_event.plant_id = item.plant_id
                     existing_event.variety = item.variety
-                    existing_event.quantity = int(item.target_value / succession_count)
+                    existing_event.quantity = qty_this_succession
                     existing_event.direct_seed_date = datetime.combine(plant_date, datetime.min.time())
+                    existing_event.expected_harvest_date = expected_harvest
                     existing_event.succession_group_id = succession_group_id
                     existing_event.succession_planting = succession_count > 1
+                    existing_event.succession_interval = interval_days if succession_count > 1 else None
                     events_updated += 1
                 else:
                     # Create new event
@@ -706,9 +928,11 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         user_id=user_id,
                         plant_id=item.plant_id,
                         variety=item.variety,
-                        quantity=int(item.target_value / succession_count),
+                        quantity=qty_this_succession,
                         direct_seed_date=datetime.combine(plant_date, datetime.min.time()),
+                        expected_harvest_date=expected_harvest,
                         succession_planting=succession_count > 1,
+                        succession_interval=interval_days if succession_count > 1 else None,
                         succession_group_id=succession_group_id if succession_count > 1 else None,
                         export_key=export_key
                     )
@@ -725,6 +949,190 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
         'eventsCreated': events_created,
         'eventsUpdated': events_updated,
         'totalEvents': events_created + events_updated
+    }
+
+
+def preview_export_conflicts(plan_id: int, user_id: int) -> Dict:
+    """
+    Preview temporal conflicts that would result from exporting a plan.
+    Builds prospective events (without writing to DB) and checks for overlaps
+    among new events and against existing PlantingEvents in the same beds.
+
+    Returns:
+        Dict with 'hasConflicts' (bool) and 'conflicts' (list of conflict dicts)
+    """
+    import logging
+
+    plan = GardenPlan.query.get(plan_id)
+    if not plan or plan.user_id != user_id:
+        return {'hasConflicts': False, 'conflicts': []}
+
+    # Build prospective events for each plan item
+    prospective = []  # list of dicts with bed_id, start, end, plant info, export_key
+
+    for item in plan.items:
+        if not item.first_plant_date:
+            continue
+
+        # Parse bed allocations (same logic as export_to_calendar)
+        bed_allocations = []
+        if item.bed_assignments:
+            try:
+                bed_allocations = json.loads(item.bed_assignments) if isinstance(item.bed_assignments, str) else item.bed_assignments
+            except (json.JSONDecodeError, TypeError):
+                bed_allocations = []
+
+        if not bed_allocations and item.beds_allocated:
+            try:
+                legacy_beds = json.loads(item.beds_allocated) if isinstance(item.beds_allocated, str) else item.beds_allocated
+                if legacy_beds:
+                    total = int(item.target_value)
+                    num_beds = len(legacy_beds)
+                    base = total // num_beds
+                    remainder = total % num_beds
+                    bed_allocations = [
+                        {"bedId": bid, "quantity": base + (1 if idx < remainder else 0)}
+                        for idx, bid in enumerate(legacy_beds)
+                    ]
+            except (json.JSONDecodeError, TypeError):
+                bed_allocations = []
+
+        succession_count = item.succession_count or 1
+        interval_days = item.succession_interval_days or 14
+
+        plant = get_plant_by_id(item.plant_id)
+
+        # Skip trellis-only items (no bed_id, separate concern)
+        trellis_ids = []
+        if item.trellis_assignments:
+            try:
+                trellis_ids = json.loads(item.trellis_assignments) if isinstance(item.trellis_assignments, str) else item.trellis_assignments
+            except (json.JSONDecodeError, TypeError):
+                trellis_ids = []
+        if plant and _is_trellis_planting(plant) and trellis_ids:
+            continue
+
+        # Compute DTM
+        dtm = None
+        if item.seed_inventory_id:
+            seed = SeedInventory.query.get(item.seed_inventory_id)
+            if seed and seed.days_to_maturity is not None:
+                dtm = seed.days_to_maturity
+        if dtm is None and plant:
+            dtm = plant.get('daysToMaturity')
+
+        if dtm is None:
+            continue  # Can't determine overlap without dates
+
+        plant_name = plant.get('name', item.plant_id) if plant else item.plant_id
+
+        # Build prospective events for bed-based allocations
+        if bed_allocations:
+            for allocation in bed_allocations:
+                bed_id = allocation['bedId']
+                for i in range(succession_count):
+                    plant_date = datetime.strptime(item.first_plant_date, '%Y-%m-%d').date() + timedelta(days=i * interval_days) \
+                        if isinstance(item.first_plant_date, str) \
+                        else item.first_plant_date + timedelta(days=i * interval_days)
+                    end_date = plant_date + timedelta(days=dtm)
+                    export_key = f"{item.id}_{bed_id}_{plant_date.isoformat()}_{i}"
+                    prospective.append({
+                        'itemId': item.id,
+                        'plantId': item.plant_id,
+                        'plantName': plant_name,
+                        'variety': item.variety,
+                        'bedId': bed_id,
+                        'startDate': plant_date,
+                        'endDate': end_date,
+                        'exportKey': export_key,
+                        'successionIndex': i,
+                    })
+        else:
+            # Legacy (no bed) - can't check bed-level conflicts
+            pass
+
+    if not prospective:
+        return {'hasConflicts': False, 'conflicts': []}
+
+    # Resolve bed names for display
+    bed_ids = set(p['bedId'] for p in prospective)
+    beds = {b.id: b.name for b in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all()}
+
+    conflicts = []
+
+    # Check new-vs-new: any two prospective events in the same bed with overlapping dates
+    from collections import defaultdict
+    by_bed = defaultdict(list)
+    for p in prospective:
+        by_bed[p['bedId']].append(p)
+
+    for bed_id, events in by_bed.items():
+        for a_idx in range(len(events)):
+            for b_idx in range(a_idx + 1, len(events)):
+                a = events[a_idx]
+                b = events[b_idx]
+                # Same plan item's own successions are expected to overlap when intended
+                # Only flag if different plan items overlap in the same bed
+                if a['itemId'] == b['itemId']:
+                    continue
+                if a['startDate'] <= b['endDate'] and b['startDate'] <= a['endDate']:
+                    conflicts.append({
+                        'eventId': f"preview_{a['itemId']}_{a['successionIndex']}",
+                        'plantName': a['plantName'],
+                        'variety': a['variety'],
+                        'dates': f"{a['startDate'].isoformat()} to {a['endDate'].isoformat()}",
+                        'type': 'temporal',
+                        'bedName': beds.get(bed_id, f'Bed {bed_id}'),
+                        'conflictWith': {
+                            'plantName': b['plantName'],
+                            'variety': b['variety'],
+                            'dates': f"{b['startDate'].isoformat()} to {b['endDate'].isoformat()}"
+                        }
+                    })
+
+    # Check new-vs-existing: prospective events vs existing PlantingEvents in same beds
+    # Collect all export keys from this plan to skip self-updates
+    plan_export_keys = set(p['exportKey'] for p in prospective)
+
+    for bed_id, new_events in by_bed.items():
+        existing_events = PlantingEvent.query.filter(
+            PlantingEvent.garden_bed_id == bed_id,
+            PlantingEvent.user_id == user_id,
+            PlantingEvent.event_type == 'planting',
+            PlantingEvent.direct_seed_date.isnot(None),
+            PlantingEvent.expected_harvest_date.isnot(None),
+        ).all()
+
+        for existing in existing_events:
+            # Skip events that would be updated by this export (same export_key)
+            if existing.export_key and existing.export_key in plan_export_keys:
+                continue
+
+            ex_start = existing.direct_seed_date.date() if isinstance(existing.direct_seed_date, datetime) else existing.direct_seed_date
+            ex_end = existing.expected_harvest_date.date() if isinstance(existing.expected_harvest_date, datetime) else existing.expected_harvest_date
+
+            ex_plant = get_plant_by_id(existing.plant_id)
+            ex_name = ex_plant.get('name', existing.plant_id) if ex_plant else (existing.plant_id or 'Unknown')
+
+            for new_ev in new_events:
+                if new_ev['startDate'] <= ex_end and ex_start <= new_ev['endDate']:
+                    conflicts.append({
+                        'eventId': f"preview_{new_ev['itemId']}_{new_ev['successionIndex']}",
+                        'plantName': new_ev['plantName'],
+                        'variety': new_ev['variety'],
+                        'dates': f"{new_ev['startDate'].isoformat()} to {new_ev['endDate'].isoformat()}",
+                        'type': 'temporal',
+                        'bedName': beds.get(bed_id, f'Bed {bed_id}'),
+                        'conflictWith': {
+                            'plantName': ex_name,
+                            'variety': existing.variety,
+                            'dates': f"{ex_start.isoformat()} to {ex_end.isoformat()}"
+                        }
+                    })
+
+    return {
+        'hasConflicts': len(conflicts) > 0,
+        'conflicts': conflicts
     }
 
 
