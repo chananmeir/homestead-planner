@@ -29,7 +29,7 @@
 | 1 | **Garden Season Planner** | `/garden-planner` tab | `GardenPlanner.tsx`, `PlanNutritionCard`, `GardenSnapshot.tsx` | `garden_planner_bp`: `/api/garden-plans/*`, `/api/garden-planner/*` | `GardenPlan`, `GardenPlanItem` | COMPLEX: succession, multi-bed allocation, nutrition estimation, export-to-calendar |
 | 2 | **Garden Visual Designer** | `/garden-designer` tab | `GardenDesigner.tsx` (2200+ lines), `PlantPalette`, `PlantConfigModal`, `BedFormModal`, `FootprintCalculator`, `FuturePlantingsOverlay`, `PlannedPlantsSection` | `gardens_bp`: `/api/garden-beds/*`, `/api/planted-items/*` | `GardenBed`, `PlantedItem` | COMPLEX: drag-drop (@dnd-kit), footprint buffer calc, date-aware progress, seed saving |
 | 3 | **Planting Calendar** | `/planting-calendar` tab | `PlantingCalendar.tsx`, `CropsSidebar`, `ListView/CalendarGrid/TimelineView`, `AddCropModal`, `SoilTemperatureCard` | `gardens_bp`: `/api/planting-events/*`; `utilities_bp`: `/api/soil-temperature`, `/api/validate-planting` | `PlantingEvent` | Event type polymorphism (planting/mulch/fertilizing/irrigation/maple-tapping) |
-| 4 | **Property Designer** | `/property-designer` tab | `PropertyDesigner.tsx`, `PropertyFormModal`, `StructureFormModal`, `TrellisManager` | `properties_bp`: `/api/properties/*`, `/api/placed-structures/*`; `trellis_bp`: `/api/trellis-structures/*` | `Property`, `PlacedStructure`, `TrellisStructure` | SVG canvas drag-drop, trellis capacity has no DB overlap constraints |
+| 4 | **Property Designer** | `/property-designer` tab | `PropertyDesigner.tsx`, `PropertyFormModal`, `StructureFormModal`, `TrellisManager` | `properties_bp`: `/api/properties/*`, `/api/placed-structures/*`; `trellis_bp`: `/api/trellis-structures/*` | `Property`, `PlacedStructure`, `TrellisStructure` | SVG canvas drag-drop, trellis has app-level overlap validation (no DB constraints — backlog #13) |
 | 5 | **Indoor Seed Starts** | `/indoor-seed-starts` tab | `IndoorSeedStarts.tsx`, `ImportFromGardenModal` | `utilities_bp`: `/api/indoor-seed-starts/*` | `IndoorSeedStart` | Links to GardenPlanItem for needed-vs-started sync |
 | 6 | **Seed Inventory** | `/seed-inventory` tab | `MySeedInventory.tsx`, `AddSeedModal`, `EditSeedModal`, `CSVImportModal` | `seeds_bp`: `/api/seeds/*` | `SeedInventory` (14 agronomic override fields) | NULL vs falsy critical on override fields |
 | 7 | **Seed Catalog** | `/seed-catalog` tab | `SeedCatalog.tsx`, `AddFromCatalogModal` | `seeds_bp`: `/api/seed-catalog/*`, `/api/my-seeds/*` | `SeedInventory` (is_global=True) | Read-only browse + clone to personal |
@@ -135,7 +135,7 @@
 |--------|------|---------|-------|
 | GET, POST | `/api/trellis-structures` | `trellis_structures` | CRUD |
 | GET, PUT, DELETE | `/api/trellis-structures/:id` | `trellis_structure_detail` | Single ops |
-| GET | `/api/trellis-structures/:id/capacity` | `trellis_capacity` | No overlap validation |
+| GET | `/api/trellis-structures/:id/capacity` | `trellis_capacity` | Reports occupied segments; overlap validation in `trellis_validation.py` |
 
 ### 2.7 Livestock (`livestock_bp`)
 
@@ -333,7 +333,7 @@
 | CAL-04 | Space division per succession | 100 plants, 4 successions | 1. Export | Each event has quantity=25 | P0 |
 | CAL-05 | Re-export same plan | Already exported | 1. Export again | No new events created (export_key prevents), appropriate response | P0 |
 | CAL-06 | Multi-bed export | Plan item with 3 bed assignments | 1. Export | Events created per-bed with correct per-bed quantities | P0 |
-| CAL-07 | Trellis export | Plan item with trellis assignment | 1. Export | Event created with trellis_structure_id, position_start/end_inches | P1 |
+| CAL-07 | Trellis export | Plan item with trellis assignment | 1. Export | Event created with trellis_structure_id, linear_feet_allocated, AND position_start/end_inches (positions assigned sequentially) | P1 |
 | CAL-08 | Non-planting event types | - | 1. Create event with eventType:"mulch", event_details JSON | Event saved, event_details parsed on retrieval | P1 |
 | CAL-09 | Maple tapping event | - | 1. Create eventType:"maple-tapping" with tap_count in event_details | Event created, details preserved | P2 |
 | CAL-10 | Delete single event | Events exist | 1. DELETE one event | Only that event removed, succession chain still valid | P1 |
@@ -365,7 +365,7 @@
 |----|-----------|-------|-----------------|----------|
 | SYNC-01 | Plant count match | 1. Count backend PLANT_DATABASE entries 2. Count frontend PLANT_DATABASE entries | Backend: 118, Frontend: 118 (**matched**) | P1 |
 | SYNC-02 | SFG table count match | 1. Count backend SFG_SPACING entries 2. Count frontend SFG_PLANTS_PER_CELL entries | Backend: 49 base plants, Frontend: 105 (base + variants) | P1 |
-| SYNC-03 | MIGardener count match | 1. Count backend MIGARDENER_SPACING_OVERRIDES 2. Count frontend | Backend: 54, Frontend: 31 (**23 missing from frontend**) | P0 |
+| SYNC-03 | MIGardener count match | 1. Count backend MIGARDENER_SPACING_OVERRIDES 2. Count frontend | Backend: 54, Frontend: 54 (**synced**) — verified by automated tests | P0 |
 | SYNC-04 | Spot-check 10 plants | 1. For tomato, lettuce, carrot, watermelon, pepper, broccoli, bean, spinach, onion, radish: compare all fields between frontend and backend | Identical spacing, DTM, tolerance values | P0 |
 
 ### 3.10 Livestock CRUD
@@ -460,9 +460,9 @@
 
 | ID | Scenario | Input | Risk | Priority |
 |----|----------|-------|------|----------|
-| EC-TREL-01 | Overlapping segments | Event A: 0-12", Event B: 6-18" | **No DB constraint** - must validate in app | P1 |
-| EC-TREL-02 | Position > trellis length | Trellis=10ft, position_end=15ft | No constraint prevents | P1 |
-| EC-TREL-03 | Start > end | position_start=12, position_end=6 | Invalid range, no constraint | P1 |
+| EC-TREL-01 | Overlapping segments | Event A: 0-12", Event B: 6-18" | App-level validation added (`check_trellis_overlaps` returns 409). No DB constraint (backlog #13). | P1 |
+| EC-TREL-02 | Position > trellis length | Trellis=10ft, position_end=15ft | App-level validation added (`validate_trellis_segment` returns 400). Export path logs warning but doesn't block. | P1 |
+| EC-TREL-03 | Start > end | position_start=12, position_end=6 | App-level validation added (`validate_trellis_segment` rejects end <= start). | P1 |
 | EC-TREL-04 | Zero-length trellis | total_length_feet=0 | Division by zero in capacity calc | P2 |
 
 ### 4.6 Agronomic Override Edge Cases
@@ -538,9 +538,14 @@
 
 ### 5.5 MEDIUM: Trellis Capacity
 
-**No DB constraints for:** overlapping segments, out-of-range positions, start > end
+**No DB constraints for:** overlapping segments, out-of-range positions, start > end (DB CHECK constraints remain backlog #13).
 
-**Verify:** Application-level validation exists in trellis assignment logic.
+**Application-level validation added (2026-02-22):**
+- `backend/services/trellis_validation.py` — `validate_trellis_segment()` rejects negative starts, end <= start, and out-of-range ends; `check_trellis_overlaps()` detects overlapping segments via DB query (always filtered by user_id)
+- **Path A** (`gardens_bp.py`): Direct placement greedy algorithm now filters out NULL-position events and has a validation safety net (returns 400/409 on invalid/overlapping segments)
+- **Path B** (`garden_planner_service.py`): Export-to-calendar now assigns `trellis_position_start_inches` / `trellis_position_end_inches` on exported events (previously only set `linear_feet_allocated`). Logs warnings for out-of-range but doesn't block export.
+
+**Verify:** Both paths produce positioned events. Manual placement after export should correctly find gaps via the greedy algorithm.
 
 ### 5.6 MEDIUM: UUID Linking Without FK
 
@@ -702,13 +707,13 @@ def get_structures():       # No @login_required!
 | 4 | ~~**BUG-02**: Resolve potato spacing conflict~~ FIXED | — | — | — |
 | 5 | ~~**BUG-06**: Verify plant DB count alignment (5 extras)~~ FIXED | — | — | — |
 | 6 | ~~**BUG-05**: Remove str(bed_id) wrappers (5 locations)~~ FIXED | — | — | — |
-| 7 | Add trellis overlap validation | 2 hr | 1-2 files | Medium - new validation logic |
+| 7 | ~~Add trellis overlap validation~~ FIXED | — | — | — |
 
 ### P2 - Needs Planning Mode (Multi-file, Architectural)
 
 | # | Issue | Effort | Files | Risk |
 |---|-------|--------|-------|------|
-| 8 | Automated test suite: space calc sync | 4 hr | 2+ new test files | Low - additive |
+| 8 | ~~Automated test suite: space calc sync~~ **DONE** | — | `backend/tests/test_space_calculation_sync.py` (94 tests), `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` (33 tests) | — |
 | 9 | Automated test suite: succession export | 3 hr | 1+ new test file | Low - additive |
 | 10 | Automated test suite: auth + user isolation | 3 hr | 1+ new test file | Low - additive |
 | 11 | Clean up dual status system | 8+ hr | 5+ files | HIGH - behavioral change |
@@ -743,15 +748,15 @@ def get_structures():       # No @login_required!
 | `conflict_checker.py` | Spatial/temporal overlap detection used by multiple features. False positives block users. |
 | `types.ts` | Frontend type definitions. Type mismatch causes silent data loss. |
 
-**Automated verification that should exist but doesn't:**
+**Automated verification status:**
 
-| What | Why It Matters |
-|------|----------------|
-| Backend pytest for space_calculator.py | No way to detect backend-only calculation regressions |
-| Frontend jest for gardenPlannerSpaceCalculator.ts | No way to detect frontend-only calculation regressions |
-| Cross-check script comparing backend vs frontend plant counts | Sync drift goes undetected |
-| Integration test: export_to_calendar round-trip | Most complex business logic, zero test coverage |
-| Auth isolation test hitting all endpoints | Data leakage would go undetected |
+| What | Status | Details |
+|------|--------|---------|
+| Backend pytest for space_calculator.py | **EXISTS** | `backend/tests/test_space_calculation_sync.py` — 94 tests covering all 5 methods (SFG, MIGardener, Intensive, Row, Permaculture) + lookup table sync checks |
+| Frontend jest for gardenPlannerSpaceCalculator.ts | **EXISTS** | `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` — 33 tests covering all 5 methods + lookup table sync checks |
+| Cross-check script comparing backend vs frontend plant counts | Missing | Sync drift goes undetected |
+| Integration test: export_to_calendar round-trip | Missing | Most complex business logic, zero test coverage |
+| Auth isolation test hitting all endpoints | Missing | Data leakage would go undetected |
 
 ---
 
@@ -782,12 +787,14 @@ npm start                     # Start on port 3000
 ### Existing Test Commands
 
 ```bash
-# Backend
-cd backend && python -m pytest       # Run if tests/ exists
+# Backend (94 space calc tests + any additional)
+cd backend && python -m pytest tests/test_space_calculation_sync.py -v
 
-# Frontend
-cd frontend && npm test              # Run if tests exist
-cd frontend && npm run build         # TypeScript compilation check (always available)
+# Frontend space calc tests (33 tests)
+cd frontend && CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false
+
+# Frontend build (TypeScript compilation check)
+cd frontend && npm run build
 ```
 
 ### Minimal Smoke Checklist
@@ -1271,8 +1278,8 @@ Suite: Space Calculation Frontend-Backend Parity
   test: SFG - carrot (16 per cell) -> Both return 0.0625
   test: SFG - watermelon (2 cells per plant) -> Both return 2.0
   test: MIGardener - tomato (24, 18) -> Both agree
-  test: MIGardener - potato (KNOWN BUG) -> Document discrepancy, expect failure
-  test: MIGardener - pepper (KNOWN BUG - missing from frontend) -> expect failure
+  test: MIGardener - potato (20,9) -> Both agree (FIXED)
+  test: MIGardener - pepper (21,18) -> Both agree (FIXED)
   test: Row - standard calculation
   test: Intensive - hexagonal packing
   test: Trellis linear - feet per plant
@@ -1361,4 +1368,4 @@ npx playwright test -g "MIGardener"
 
 ---
 
-*Report generated 2026-02-22. Updated 2026-02-22 with BUG-01/BUG-04/BUG-07 fixes. All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*
+*Report generated 2026-02-22. Updated 2026-02-22 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), and backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*
