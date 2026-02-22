@@ -9,6 +9,7 @@ import {
   calculateDuration,
 } from './utils';
 import { ConflictDetailsModal } from './ConflictDetailsModal';
+import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 
 interface TimelineBarProps {
   event: PlantingCalendar;
@@ -183,7 +184,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
               {/* Position information (if exists) */}
               {event.positionX !== undefined && event.positionY !== undefined && (
                 <div className="text-blue-300 mb-1">
-                  📍 Position: ({event.positionX}, {event.positionY})
+                  📍 Position: {coordinateToGridLabel(event.positionX!, event.positionY!)}
                   {spaceInCells && (
                     <span className="ml-1">• {spaceInCells} cells</span>
                   )}

@@ -7,6 +7,7 @@ import { calculatePlantingDates } from '../utils/dateCalculations';
 import { calculateSuggestedInterval, formatSuggestion, getSuggestedCount } from '../utils/successionCalculations';
 import { apiGet } from '../../../utils/api';
 import PlantIcon from '../../common/PlantIcon';
+import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 
 interface SuccessionWizardProps {
   isOpen: boolean;
@@ -543,7 +544,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                               {position ? (
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm font-medium text-gray-700">
-                                    Position: ({position.x}, {position.y})
+                                    Position: {coordinateToGridLabel(position.x, position.y)}
                                   </span>
                                   <button
                                     onClick={() => {
@@ -757,7 +758,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                                 {position && (
                                   <p>
                                     <span className="font-medium">Position:</span>{' '}
-                                    ({position.x}, {position.y})
+                                    {coordinateToGridLabel(position.x, position.y)}
                                   </p>
                                 )}
                                 {hasConflict && (

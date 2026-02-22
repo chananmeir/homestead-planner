@@ -5,6 +5,7 @@ import { PlantingCalendar } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { GroupedDateMarker, getEventLabel } from './utils';
 import { API_BASE_URL } from '../../../config';
+import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 
 interface GroupedEventsModalProps {
   isOpen: boolean;
@@ -195,7 +196,7 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
                         {/* Existing position display */}
                         {event.positionX !== undefined && event.positionY !== undefined && (
                           <div className="text-sm text-gray-700">
-                            📍 Position: ({event.positionX}, {event.positionY})
+                            📍 Position: {coordinateToGridLabel(event.positionX!, event.positionY!)}
                             {event.spaceRequired && (
                               <span className="ml-2">• {event.spaceRequired} cells</span>
                             )}

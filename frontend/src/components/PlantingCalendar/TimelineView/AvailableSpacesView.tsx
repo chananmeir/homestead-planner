@@ -425,7 +425,7 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50">
           <div className="text-sm text-gray-600">
             {selectedPosition
-              ? `Selected position: (${selectedPosition.x}, ${selectedPosition.y})`
+              ? `Selected position: ${coordinateToGridLabel(selectedPosition.x, selectedPosition.y)}`
               : 'Click a green cell to select a position'}
           </div>
           <div className="flex gap-3">

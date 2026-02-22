@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plant, ConflictCheck } from '../../../types';
 import { apiGet, apiPost } from '../../../utils/api';
+import { PlantIconSVG } from '../../common/PlantIcon';
+import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 
 interface GardenBed {
   id: number;
@@ -219,7 +221,7 @@ const PositionSelector: React.FC<PositionSelectorProps> = ({
                           className="select-none"
                           style={{ opacity: 0.5 }}
                         >
-                          {String.fromCharCode(65 + x)}{y + 1}
+                          {coordinateToGridLabel(x, y)}
                         </text>
                       )}
 
@@ -249,16 +251,14 @@ const PositionSelector: React.FC<PositionSelectorProps> = ({
                             pointerEvents="none"
                             className="animate-pulse"
                           />
-                          <text
-                            x={x * cellSize + cellSize / 2}
-                            y={y * cellSize + cellSize / 2}
-                            fontSize={cellSize / 2}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            pointerEvents="none"
-                          >
-                            {selectedPlant.icon || '🌱'}
-                          </text>
+                          <PlantIconSVG
+                            plantId={selectedPlant.id}
+                            plantIcon={selectedPlant.icon || '🌱'}
+                            x={x * cellSize + cellSize / 4}
+                            y={y * cellSize + cellSize / 4}
+                            width={cellSize / 2}
+                            height={cellSize / 2}
+                          />
                         </g>
                       )}
                     </g>
@@ -297,7 +297,7 @@ const PositionSelector: React.FC<PositionSelectorProps> = ({
           {selectedPosition && (
             <div className="mt-3 text-sm text-gray-700">
               Selected position: <span className="font-medium">
-                {String.fromCharCode(65 + selectedPosition.x)}{selectedPosition.y + 1}
+                {coordinateToGridLabel(selectedPosition.x, selectedPosition.y)}
               </span>
             </div>
           )}

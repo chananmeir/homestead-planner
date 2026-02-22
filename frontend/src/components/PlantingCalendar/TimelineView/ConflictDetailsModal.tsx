@@ -4,6 +4,7 @@ import { addWeeks } from 'date-fns';
 import { PlantingCalendar, Plant, GardenBed, ConflictCheck } from '../../../types';
 import { apiPost } from '../../../utils/api';
 import { getPrimaryPlantingDate } from './utils';
+import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 
 interface ConflictDetailsModalProps {
   isOpen: boolean;
@@ -145,7 +146,7 @@ export const ConflictDetailsModal: React.FC<ConflictDetailsModalProps> = ({
                 <div>
                   <span className="font-medium text-gray-700">Position:</span>{' '}
                   <span className="text-blue-600">
-                    ({event.positionX}, {event.positionY})
+                    {coordinateToGridLabel(event.positionX!, event.positionY!)}
                   </span>
                   {event.spaceRequired && (
                     <span className="text-gray-500 ml-1">
@@ -245,9 +246,11 @@ export const ConflictDetailsModal: React.FC<ConflictDetailsModalProps> = ({
                                 <div className="text-sm text-gray-600 mt-1">
                                   {conflict.dates}
                                 </div>
+                                {conflict.position && (
                                 <div className="text-sm text-blue-600 mt-1">
-                                  Position: ({conflict.position.x}, {conflict.position.y})
+                                  Position: {coordinateToGridLabel(conflict.position.x, conflict.position.y)}
                                 </div>
+                                )}
                               </div>
                               <span
                                 className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
