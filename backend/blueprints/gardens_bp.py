@@ -587,7 +587,7 @@ def clear_bed_by_date(bed_id, date_str):
     # Query PlantingEvents active on the target date using the same logic as the planting events endpoint
     # An event is active if: planted before/on target_date AND (not harvested OR harvested after/on target_date)
     query = PlantingEvent.query.filter_by(
-        garden_bed_id=str(bed_id),
+        garden_bed_id=bed_id,
         user_id=current_user.id
     ).filter(
         # Must have started by target_date (any plant date <= target_date)
@@ -718,7 +718,7 @@ def remove_all_by_plant(bed_id, plant_id):
     # Delete IndoorSeedStarts linked to matching PlantingEvents
     for pos_x, pos_y in positions:
         events = PlantingEvent.query.filter_by(
-            garden_bed_id=str(bed_id),
+            garden_bed_id=bed_id,
             plant_id=plant_id,
             position_x=pos_x,
             position_y=pos_y,
@@ -734,7 +734,7 @@ def remove_all_by_plant(bed_id, plant_id):
     # Delete matching PlantingEvents
     for pos_x, pos_y in positions:
         pe_filter = PlantingEvent.query.filter_by(
-            garden_bed_id=str(bed_id),
+            garden_bed_id=bed_id,
             plant_id=plant_id,
             position_x=pos_x,
             position_y=pos_y,
@@ -804,7 +804,7 @@ def clear_bed(bed_id):
     # BUGFIX: Delete related indoor seed starts FIRST (before deleting PlantingEvents)
     # Get all PlantingEvents for this bed to find their IDs
     planting_events = PlantingEvent.query.filter_by(
-        garden_bed_id=str(bed_id),
+        garden_bed_id=bed_id,
         user_id=current_user.id
     ).all()
 
@@ -817,7 +817,7 @@ def clear_bed(bed_id):
         ).delete(synchronize_session=False)
 
     # Delete all PlantingEvents for this bed
-    PlantingEvent.query.filter_by(garden_bed_id=str(bed_id), user_id=current_user.id).delete()
+    PlantingEvent.query.filter_by(garden_bed_id=bed_id, user_id=current_user.id).delete()
 
     # Delete all planted items for this bed
     PlantedItem.query.filter_by(garden_bed_id=bed_id, user_id=current_user.id).delete()

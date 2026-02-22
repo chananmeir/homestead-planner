@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-22 (updated 2026-02-22)
 **Branch**: baseline-buildable-frontend
-**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-07.
+**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-07.
 **Verification**: All bugs independently verified against source code.
 
 ---
@@ -101,7 +101,7 @@
 | GET | `/api/planting-events/needs-indoor-starts` | `get_planting_events_needing_indoor_starts` | Events needing ISS |
 | GET | `/api/planting-events/audit-conflicts` | `audit_conflicts` | Audit all conflicts |
 
-**Foot-guns**: `str(bed_id)` used in 5 PlantingEvent queries (BUG-05). `daysToMaturity` falsy check at 3 locations (BUG-01).
+**Foot-guns**: ~~`str(bed_id)` used in 5 PlantingEvent queries (BUG-05)~~ FIXED. ~~`daysToMaturity` falsy check at 3 locations (BUG-01)~~ FIXED.
 
 ### 2.4 Seeds (`seeds_bp`)
 
@@ -630,23 +630,11 @@ def set_setting(key, value):
 
 #### BUG-05: str(bed_id) Type Mismatch (P2 - Potential Query Failure)
 
-**Status:** VERIFIED at lines 590, 721, 737, 807, 820
+**Status:** FIXED (2026-02-22)
 
-**Location:** `backend/blueprints/gardens_bp.py`
+**Location:** `backend/blueprints/gardens_bp.py` (formerly at lines 590, 721, 737, 807, 820)
 
-**Code pattern (all 5 instances):**
-```python
-PlantingEvent.query.filter_by(garden_bed_id=str(bed_id), ...)
-```
-
-**Additional finding:** Line 823 does NOT use `str()` for the same field on PlantedItem:
-```python
-PlantedItem.query.filter_by(garden_bed_id=bed_id, ...)  # No str() - correct
-```
-
-**Issue:** `garden_bed_id` is `db.Column(db.Integer, db.ForeignKey('garden_bed.id'))` but PlantingEvent queries pass `str(bed_id)`. SQLite's loose typing masks this; would break on PostgreSQL.
-
-**Fix:** Remove `str()` wrapper from all 5 locations.
+**Resolution:** Removed `str()` wrapper from all 5 `PlantingEvent.query.filter_by(garden_bed_id=str(bed_id))` calls. The column is `db.Integer`, so passing a string was only working due to SQLite's loose typing and would break on PostgreSQL.
 
 ---
 
@@ -692,7 +680,7 @@ def get_structures():       # No @login_required!
 
 | ID | Location | Concern | Severity |
 |----|----------|---------|----------|
-| SUS-01 | `gardens_bp.py` clear-bed endpoint | Deletes PlantingEvents with `str(bed_id)` - see BUG-05 | Low |
+| SUS-01 | `gardens_bp.py` clear-bed endpoint | ~~Deletes PlantingEvents with `str(bed_id)`~~ - FIXED with BUG-05 | Resolved |
 | SUS-02 | `IndoorSeedStart.get_current_garden_plan_count()` | Potential N+1 query when checking all plans | Low |
 | SUS-03 | Frontend `migardenerSpacing.ts:154` | Comment `\ Traditional row-based crops` has backslash instead of `//` | Low (syntax) |
 | SUS-04 | `/api/plants` returns raw dicts with mixed casing | `daysToMaturity` (camelCase) but `days_to_seed` (snake_case) | Medium |
@@ -717,7 +705,7 @@ def get_structures():       # No @login_required!
 | 3 | ~~**BUG-03**: Sync MIGardener frontend <- backend (23 entries)~~ FIXED | — | — | — |
 | 4 | ~~**BUG-02**: Resolve potato spacing conflict~~ FIXED | — | — | — |
 | 5 | **BUG-06**: Verify plant DB count alignment (5 extras) | 1 hr | 2 files | Low - investigation + sync |
-| 6 | **BUG-05**: Remove str(bed_id) wrappers (5 locations) | 15 min | 1 file | Low - type correction |
+| 6 | ~~**BUG-05**: Remove str(bed_id) wrappers (5 locations)~~ FIXED | — | — | — |
 | 7 | Add trellis overlap validation | 2 hr | 1-2 files | Medium - new validation logic |
 
 ### P2 - Needs Planning Mode (Multi-file, Architectural)
