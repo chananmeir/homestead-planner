@@ -43,19 +43,60 @@ export const MIGARDENER_SPACING_OVERRIDES: Record<string, [number | null, number
   'onion-1': [4, 4],        // 3-4" on center for medium bulbs, weed suppression
   'scallion-1': [4, 2],     // Green onions can be denser
   // Tubers - High-density spacing
-  'potato-1': [12, 12],     // ~12" between rows, ~12" in-row (Luke: "about a foot" each direction)
+  'potato-1': [20, 9],      // 20" rows (7 per 12' bed), 9" in-row - Luke Marion reference
+
+  // Nightshade Family
+  'tomato-1': [24, 18],      // 18" between plants, 24" rows - tighter than traditional but needs airflow
+  'pepper-1': [21, 18],      // 18" minimum spacing (Luke Marion rule), ~21" rows
+  'eggplant-1': [18, 15],    // 15" standard spacing (12-18" range), 18" rows
+
+  // Cucumber Family
+  'cucumber-1': [18, 12],             // Generic cucumber: bush spacing as safe default
+  'cucumber-wisconsin-smr-pickling': [18, 12],  // Pickling variety: bush spacing
+  'cucumber-bush-1': [18, 12],        // Bush: 12" spacing, compact varieties
+  'cucumber-vining-trellised-1': [24, 18],  // Trellised: 18" minimum, airflow critical
+  'cucumber-vining-ground-1': [48, 36],     // Ground: 36" (3 ft) MINIMUM - airflow for disease prevention
+
+  // Melons & Large Crops
+  'watermelon-1': [72, 60],  // 60" (5 ft) NON-NEGOTIABLE - "garden hog" (25 sq ft per plant)
+  'okra-1': [18, 10],        // 10" spacing, tall/spindly, minimal horizontal spread
+
+  // Grains & Block Crops
+  'corn-1': [12, 6],         // 6" spacing, requires 4×4 ft minimum block for pollination
+  'sunflower-single-headed-1': [18, 15],  // 15" spacing (12-18" range), giant varieties
+  'peanut-1': [24, 18],      // 18" minimum, wide spacing for stem sprawl
+
+  // Leafy Discretes & Root Vegetables
+  'swiss-chard-1': [12, 9],  // 9" spacing (8-10" range), discrete plants not row-based
+  'celery-1': [18, 12],      // 12" spacing, transplants only
 
   // Legumes - Closer than traditional methods
   'pea-1': [60, 1.5],       // Can sow 1-2" apart in 3" band at trellis base; 48-72" between rows
   'bean-1': [18, 5.5],      // Bush beans: 4-7" between plants, 18" row gap for airflow
+  'bean-bush-1': [18, 6],   // Bush beans: 6" final spacing, 18" row spacing for airflow
+  'bean-pole-1': [18, 6],   // Pole beans: 6" final spacing, 18" row spacing for airflow
+  'pole-beans-1': [36, 6],  // Pole beans: 6" spacing on trellis, 36" row spacing
+
+  // Perennial & Long-Cycle Crops
+  'asparagus-1': [12, 8],    // 8" spacing (7-8" range), crown at soil line
+  'artichoke-1': [48, 36],   // 36" spacing, large perennial, 2.5-3 ft wide
+  'ginger-1': [30, 24],      // 24" spacing (18-24" range), spreads sideways not down
+  'grape-1': [72, 60],       // 60" (5 ft) linear trellis allocation per vine
+  'blackberry-1': [96, 36],  // 36" between canes, 96" between rows for access
+  'raspberry-1': [72, 24],   // 24" between canes, 72" between rows
+  'fig-1': [78, 66],         // 66" spacing (5-6 ft range), very wide canopy
+  'goji-berry-1': [36, 30],  // 30" spacing (2-3 ft range), tall/floppy/wide
+
+  // Shallots
+  'shallot-from-sets': [12, 10],  // 10" spacing (8-10" range), cluster bulb formation
+  'shallot-from-seed': [6, 3],    // 3" spacing (2-3" range), single bulb production
 
   // Herbs - Varies by use (microgreens vs. mature plants)
   'cilantro-1': [4, 2],     // Dense for microgreens/baby leaves
   'basil-1': [12, 8],       // Needs air circulation, 6-10" spacing
   'parsley-1': [8, 4],      // Moderate density
   'dill-1': [12, 6],        // Needs space for feathery growth
-
-  // Add more crops as needed based on MIGardener guidelines
+  'bee-balm-1': [30, 24],   // 24" spacing, spreads over time (mint family)
 };
 
 /**
