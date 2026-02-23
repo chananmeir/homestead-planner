@@ -1,6 +1,6 @@
 # Homestead Planner: Comprehensive Test & Gap Report
 
-**Date**: 2026-02-22 (updated 2026-02-25)
+**Date**: 2026-02-22 (updated 2026-02-23)
 **Branch**: baseline-buildable-frontend
 **Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`).
 **Verification**: All bugs independently verified against source code.
@@ -232,7 +232,7 @@
 
 | Method | Path | Handler | Notes |
 |--------|------|---------|-------|
-| GET | `/api/plants` | (data endpoint) | Read-only reference data, **mixed casing** |
+| GET | `/api/plants` | (data endpoint) | Read-only reference data, camelCase normalized |
 | GET | `/api/garden-methods` | (data endpoint) | Planning method metadata |
 | GET | `/api/bed-templates` | (data endpoint) | Bed template definitions |
 | GET | `/api/structures` | (data endpoint) | Structure definitions + user's garden beds. **@login_required**, filtered by user_id (BUG-07 fix) |
@@ -728,7 +728,7 @@ def export_garden_plan(bed_id):
 | SUS-01 | `gardens_bp.py` clear-bed endpoint | ~~Deletes PlantingEvents with `str(bed_id)`~~ - FIXED with BUG-05 | Resolved |
 | SUS-02 | `IndoorSeedStart.get_current_garden_plan_count()` | Potential N+1 query when checking all plans | Low |
 | SUS-03 | Frontend `migardenerSpacing.ts:154` | Comment `\ Traditional row-based crops` has backslash instead of `//` | Low (syntax) |
-| SUS-04 | `/api/plants` returns raw dicts with mixed casing | `daysToMaturity` (camelCase) but `days_to_seed` (snake_case) | Medium |
+| SUS-04 | ~~`/api/plants` returns raw dicts with mixed casing~~ | RESOLVED: `_normalize_plant_keys()` in `data_bp.py` converts to camelCase | Resolved |
 | SUS-05 | Livestock sub-resource endpoints are top-level | `/api/egg-production` instead of `/api/chickens/:id/egg-production` | Low (design) |
 
 ---
@@ -764,7 +764,7 @@ def export_garden_plan(bed_id):
 | 12 | ~~Add JSON schema for event_details~~ **DONE** | — | `backend/services/event_details_validator.py` (validator), `backend/blueprints/gardens_bp.py` (2 call sites), `backend/tests/test_event_details_validator.py` (~40 tests) | — |
 | 13 | ~~Add DB CHECK constraints for trellis positions~~ **DONE** | — | `backend/models.py` (4 CheckConstraints), `migrations/versions/8b2eca933349_...py`, `backend/tests/test_trellis_check_constraints.py` (10 tests) | — |
 | 14 | ~~Intensive spacing frontend/backend sync audit~~ **DONE** | — | Backend `intensive_spacing.py` formula harmonized to `onCenter²/144` (matching frontend). 20 new backend + 22 new frontend tests added. | — |
-| 15 | Fix mixed casing in /api/plants response | 4 hr | 1 backend + all frontend consumers | HIGH - breaking change |
+| 15 | ~~Fix mixed casing in /api/plants response~~ **DONE** | — | `backend/blueprints/data_bp.py` (`_normalize_plant_keys()`), `frontend/src/types.ts`, `frontend/src/data/plantDatabase.ts`, 6 component files updated. CLAUDE.md exception removed. | — |
 
 ---
 

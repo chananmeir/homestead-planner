@@ -33,6 +33,23 @@ from models import GardenBed
 
 data_bp = Blueprint('data', __name__, url_prefix='/api')
 
+# Snake_case keys in PLANT_DATABASE that need camelCase conversion for API responses
+_SNAKE_TO_CAMEL = {
+    'days_to_seed': 'daysToSeed',
+    'soil_temp_min': 'soilTempMin',
+    'germination_days': 'germinationDays',
+    'ideal_seasons': 'idealSeasons',
+    'heat_tolerance': 'heatTolerance',
+}
+
+
+def _normalize_plant_keys(plant_dict):
+    """Convert snake_case plant fields to camelCase for API response."""
+    result = {}
+    for key, value in plant_dict.items():
+        result[_SNAKE_TO_CAMEL.get(key, key)] = value
+    return result
+
 
 # ==================== PLANT DATA ====================
 
@@ -41,7 +58,7 @@ def get_plants():
     """Get all plants (excluding fruit/nut trees which are now in Property Designer)"""
     # Filter out fruit and nut category plants - they belong in Property Designer now
     garden_plants = [plant for plant in PLANT_DATABASE if plant.get('category') not in ['fruit', 'nut']]
-    return jsonify(garden_plants)
+    return jsonify([_normalize_plant_keys(p) for p in garden_plants])
 
 
 @data_bp.route('/plants/<plant_id>')
@@ -49,7 +66,7 @@ def get_plant(plant_id):
     """Get specific plant"""
     plant = get_plant_by_id(plant_id)
     if plant:
-        return jsonify(plant)
+        return jsonify(_normalize_plant_keys(plant))
     return jsonify({'error': 'Plant not found'}), 404
 
 

@@ -87,7 +87,7 @@ Backend and frontend have tightly coupled type contracts:
 - Frontend uses **camelCase** (e.g., `seedStartDate`)
 - Every backend `to_dict()` method converts case
 - Every frontend API call expects camelCase
-- **EXCEPTION**: `/api/plants` returns raw `PLANT_DATABASE` dicts (NOT a model with `to_dict()`). These have **mixed casing**: `daysToMaturity` (camelCase) but `days_to_seed` (snake_case). Frontend code accessing plant data from this endpoint must check both casings for snake_case fields.
+- **Note**: `/api/plants` returns `PLANT_DATABASE` dicts normalized to camelCase by `_normalize_plant_keys()` in `data_bp.py`. Backend `PLANT_DATABASE` still uses snake_case internally — only the HTTP response is transformed.
 
 **Rule**: When adding a new field to a model:
 1. Add to backend model (snake_case)
@@ -339,10 +339,6 @@ except (json.JSONDecodeError, AttributeError) as e:
 - Toggle ON: `expected_harvest_date` = `seed_maturity_date` (extends time in ground)
 - Toggle OFF: `expected_harvest_date` restored from `in_ground_date + daysToMaturity`
 - **WARNING**: PlantingEvent has NO `status` column and NO `planted_date` column. Do not attempt to set these.
-
-**Plant Database Casing Issue**:
-- `days_to_seed` is snake_case in `PLANT_DATABASE`, but frontend `Plant` type declares `daysToSeed` (camelCase)
-- Since `/api/plants` returns raw dicts, frontend must use: `plant?.daysToSeed ?? (plant as any)?.days_to_seed`
 
 ---
 
@@ -640,7 +636,7 @@ After making changes, verify:
   ```bash
   cd backend
   python -m pytest                    # All tests
-  python -m pytest tests/test_space_calculation_sync.py -v  # Space calc tests (94 tests)
+  python -m pytest tests/test_space_calculation_sync.py -v  # Space calc tests (114 tests)
   python -m pytest tests/test_succession_export.py -v       # Succession export tests (36 tests)
   ```
 
@@ -648,7 +644,7 @@ After making changes, verify:
   ```bash
   cd frontend
   CI=true npx react-scripts test --watchAll=false  # All tests
-  CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false  # Space calc tests (33 tests)
+  CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false  # Space calc tests (55 tests)
   ```
 
 - [ ] **Manual Testing**: Test the feature manually

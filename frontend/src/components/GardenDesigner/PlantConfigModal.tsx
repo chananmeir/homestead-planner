@@ -604,7 +604,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               planting_date: plantingDate,
               zipcode: zipcode,
               current_soil_temp: representativePlant.germinationTemp?.min || 40,
-              min_soil_temp: representativePlant.soil_temp_min || representativePlant.germinationTemp?.min || 40,
+              min_soil_temp: representativePlant.soilTempMin || representativePlant.germinationTemp?.min || 40,
               days_to_maturity: representativePlant.daysToMaturity || 60
             })
           })
@@ -1124,14 +1124,24 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         return;
       }
 
-      // Check if SFG succession planting is enabled
-      const isSFGSuccession = successionPlanting && !rowNumber && effectivePreviewPositions.length > 1;
+      // Check if dual-input succession planting is enabled (SFG grid or row-based stagger)
+      const isDualInputSuccession = successionPlanting && !rowNumber && effectivePreviewPositions.length > 1;
 
-      if (isSFGSuccession) {
-        // SFG/dual-input Succession: Calculate position-date pairs and let parent handle posting
+      if (isDualInputSuccession) {
+        // For row-based styles, all cells in the same row share one stagger date.
+        // For grid/SFG styles, each cell gets its own staggered date.
+        const isRowStagger = selectedPlantingStyle === 'row';
+
+        let rowIndexMap: Map<number, number> | null = null;
+        if (isRowStagger) {
+          const uniqueYs = Array.from(new Set(effectivePreviewPositions.map(p => p.y))).sort((a, b) => a - b);
+          rowIndexMap = new Map(uniqueYs.map((y, idx) => [y, idx]));
+        }
+
         const positionDates = effectivePreviewPositions.map((pos, index) => {
           const baseDate = new Date(plantingDate!);
-          const offsetDays = index * weekInterval * 7;
+          const staggerIndex = rowIndexMap ? (rowIndexMap.get(pos.y) ?? index) : index;
+          const offsetDays = staggerIndex * weekInterval * 7;
           const squareDate = new Date(baseDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
           return {
             x: pos.x,

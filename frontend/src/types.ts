@@ -30,6 +30,9 @@ export interface SeedInventoryItem {
   isGlobal?: boolean;
   catalogSeedId?: number | null;  // Reference to catalog seed if cloned from catalog
   lastSyncedAt?: string | null;  // Last time agronomic data was synced from catalog
+  // Seed provenance
+  sourcePlantedItemId?: number;
+  isHomegrown?: boolean;
   // Variety-specific agronomic overrides
   daysToMaturity?: number;
   germinationDays?: number;
@@ -72,13 +75,14 @@ export interface Plant {
   soilPH: { min: number; max: number };
   plantingDepth: number; // inches
   germinationTemp: { min: number; max: number }; // Fahrenheit
-  soil_temp_min?: number; // Minimum soil temperature for germination (Fahrenheit)
+  soilTempMin?: number; // Minimum soil temperature for germination (Fahrenheit)
   transplantWeeksBefore: number; // weeks before last frost
   weeksIndoors?: number; // weeks to start indoors before transplanting (0 = direct seed)
-  germination_days?: number; // Days from planting to emergence
-  ideal_seasons?: ('spring' | 'summer' | 'fall' | 'winter')[]; // Best planting seasons
-  heat_tolerance?: 'low' | 'medium' | 'high' | 'excellent'; // General heat tolerance
+  germinationDays?: number; // Days from planting to emergence
+  idealSeasons?: ('spring' | 'summer' | 'fall' | 'winter')[]; // Best planting seasons
+  heatTolerance?: 'low' | 'medium' | 'high' | 'excellent'; // General heat tolerance
   lifecycle?: 'annual' | 'biennial' | 'perennial'; // Plant lifecycle type
+  daysToSeed?: number; // Extra days past harvest for seed maturity
   matureSpacing?: number; // inches between mature plants (for perennials)
   matureRowSpacing?: number; // inches between rows at maturity (for perennials)
   yearsToMaturity?: number; // years until full production (for perennials)
@@ -161,8 +165,14 @@ export interface PlantedItem {
   harvestDate?: Date;
   position: { x: number; y: number }; // grid position
   quantity: number;
-  status: 'planned' | 'seeded' | 'transplanted' | 'growing' | 'harvested';
+  status: 'planned' | 'seeded' | 'transplanted' | 'growing' | 'harvested' | 'saving-seed';
   notes?: string;
+
+  // Seed saving fields
+  saveForSeed?: boolean;
+  seedMaturityDate?: string;
+  seedsCollected?: boolean;
+  seedsCollectedDate?: string;
 
   // NEW: Planting method determines which fields are used
   plantingMethod?: 'individual_plants' | 'seed_density' | 'seed_density_broadcast';
@@ -196,6 +206,11 @@ export interface SeasonExtension {
   layers: number;
   material?: string;
   notes?: string;
+  // Heat protection
+  shadeCloth?: {
+    installed: boolean;
+    shadeFactor: number; // 30, 40, 50, 60, 70, 80
+  };
 }
 
 export interface PlantingCalendar {
@@ -351,6 +366,10 @@ export interface PlantingEvent {
   trellisPositionStartInches?: number;   // Start position along trellis (inches from start)
   trellisPositionEndInches?: number;     // End position along trellis (inches from start)
   linearFeetAllocated?: number;          // Linear feet used on trellis
+
+  // Export key for linking PlantingEvent back to GardenPlanItem succession
+  // Format: "{planItemId}_{date}_{index}" or "{planItemId}_trellis_{trellisId}_{date}_{index}"
+  exportKey?: string;
 }
 
 // Trellis structure for linear vine crop allocation
@@ -401,8 +420,10 @@ export interface Conflict {
   plantName: string;
   variety?: string;
   dates: string; // Formatted date range
-  position: { x: number; y: number };
+  position?: { x: number; y: number };
   type: 'spatial' | 'temporal' | 'both';
+  bedName?: string;
+  conflictWith?: { plantName: string; variety?: string; dates: string };
 }
 
 // Auto-adjustment types for conflict resolution
@@ -473,7 +494,7 @@ export interface Location {
 
 // Planting Validation Types
 export interface ValidationWarning {
-  type: 'frost_risk' | 'frost_risk_protected' | 'soil_temp_low' | 'soil_temp_protected' | 'soil_temp_marginal' | 'no_location' | 'future_cold_danger' | 'sun_exposure_mismatch';
+  type: 'frost_risk' | 'frost_risk_protected' | 'soil_temp_low' | 'soil_temp_protected' | 'soil_temp_marginal' | 'soil_temp_high' | 'heat_risk' | 'heat_risk_protected' | 'no_location' | 'future_cold_danger' | 'sun_exposure_mismatch';
   message: string;
   severity: 'warning' | 'info' | 'error';
 }
@@ -562,6 +583,7 @@ export interface GardenPlanItem {
   allocationMode?: AllocationMode; // NEW: 'even' or 'custom'
   clientKey?: string; // Stable key for unsaved items (generated from plantId:variety:seedInventoryId)
   spaceRequiredCells?: number;
+  trellisAssignments?: number[];
   status: 'planned' | 'exported' | 'completed';
   exportKey?: string;
   createdAt?: string;
@@ -845,6 +867,28 @@ export interface NutritionSummary {
   year: number;
 }
 
+// ==================== GARDEN SNAPSHOT TYPES ====================
+
+export interface GardenSnapshotBedDetail {
+  bedId: number;
+  bedName: string;
+  quantity: number;
+}
+
+export interface GardenSnapshotPlantEntry {
+  plantId: string;
+  plantName: string;
+  variety: string | null;
+  totalQuantity: number;
+  beds: GardenSnapshotBedDetail[];
+}
+
+export interface GardenSnapshotResponse {
+  date: string;
+  summary: { totalPlants: number; uniqueVarieties: number; bedsWithPlants: number };
+  byPlant: Record<string, GardenSnapshotPlantEntry>;
+}
+
 // ==================== PLANNED PLANTS FOR BED ====================
 
 /**
@@ -861,6 +905,12 @@ export interface PlannedBedItem {
   totalQuantity: number;
   successionCount: number | null;
   notes: string | null;
+  // Succession timeline fields for date-aware planned counts
+  firstPlantDate?: string | null;
+  successionIntervalDays?: number | null;
+  harvestWindowStart?: string | null;
+  harvestWindowEnd?: string | null;
+  daysToMaturity?: number | null;
 }
 
 /**
