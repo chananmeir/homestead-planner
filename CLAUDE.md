@@ -251,7 +251,7 @@ except (json.JSONDecodeError, AttributeError) as e:
 3. Treat `status` as informational only
 4. If modifying status logic, document ambiguities
 
-**Known Issue**: This needs architectural cleanup but is low priority.
+**Known Issue**: Reviewed Feb 2026 (backlog #11) and **intentionally deferred**. No user-facing bugs today. Cleanup would touch seed saving, calendar export, harvest marking, and designer placement — all without status-transition test coverage as a safety net. Leave as-is until dedicated test coverage exists.
 
 ### 🟠 MEDIUM RISK: Trellis Capacity Tracking
 
@@ -647,6 +647,14 @@ After making changes, verify:
   CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false  # Space calc tests (55 tests)
   ```
 
+- [ ] **E2E Tests**: Run Playwright E2E tests (requires both servers running)
+  ```bash
+  cd frontend
+  npx playwright test                                    # All E2E suites (~38 tests)
+  npx playwright test tests/garden-planner.spec.ts       # Garden Planner lifecycle (13 tests)
+  npx playwright test tests/e2e-core.spec.ts             # Core user journeys (3 tests)
+  ```
+
 - [ ] **Manual Testing**: Test the feature manually
   - Create sample data
   - Test edge cases (0, 1, max values)
@@ -930,6 +938,9 @@ npm run build
 
 # Run tests
 CI=true npx react-scripts test --watchAll=false  # All tests (33+ space calc tests)
+
+# E2E tests (requires both servers running on ports 3000/5000)
+npx playwright test                          # All E2E suites (~38 tests)
 ```
 
 ### Common Tasks
@@ -1028,6 +1039,7 @@ If unsure what to run, default to:
 - Backend: `cd backend && python -m pytest`
 - Frontend: `cd frontend && npm run build`
 - Frontend tests: `cd frontend && CI=true npx react-scripts test --watchAll=false`
+- E2E tests: `cd frontend && npx playwright test` (requires both servers running)
 ---
 
 ## Final Notes
@@ -1052,4 +1064,4 @@ If unsure what to run, default to:
 
 ---
 
-**Last Updated**: 2026-02-23
+**Last Updated**: 2026-02-26
