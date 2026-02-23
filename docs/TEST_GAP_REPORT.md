@@ -1,8 +1,8 @@
 # Homestead Planner: Comprehensive Test & Gap Report
 
-**Date**: 2026-02-22 (updated 2026-02-22)
+**Date**: 2026-02-22 (updated 2026-02-25)
 **Branch**: baseline-buildable-frontend
-**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07.
+**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`).
 **Verification**: All bugs independently verified against source code.
 
 ---
@@ -29,7 +29,7 @@
 | 1 | **Garden Season Planner** | `/garden-planner` tab | `GardenPlanner.tsx`, `PlanNutritionCard`, `GardenSnapshot.tsx` | `garden_planner_bp`: `/api/garden-plans/*`, `/api/garden-planner/*` | `GardenPlan`, `GardenPlanItem` | COMPLEX: succession, multi-bed allocation, nutrition estimation, export-to-calendar |
 | 2 | **Garden Visual Designer** | `/garden-designer` tab | `GardenDesigner.tsx` (2200+ lines), `PlantPalette`, `PlantConfigModal`, `BedFormModal`, `FootprintCalculator`, `FuturePlantingsOverlay`, `PlannedPlantsSection` | `gardens_bp`: `/api/garden-beds/*`, `/api/planted-items/*` | `GardenBed`, `PlantedItem` | COMPLEX: drag-drop (@dnd-kit), footprint buffer calc, date-aware progress, seed saving |
 | 3 | **Planting Calendar** | `/planting-calendar` tab | `PlantingCalendar.tsx`, `CropsSidebar`, `ListView/CalendarGrid/TimelineView`, `AddCropModal`, `SoilTemperatureCard` | `gardens_bp`: `/api/planting-events/*`; `utilities_bp`: `/api/soil-temperature`, `/api/validate-planting` | `PlantingEvent` | Event type polymorphism (planting/mulch/fertilizing/irrigation/maple-tapping) |
-| 4 | **Property Designer** | `/property-designer` tab | `PropertyDesigner.tsx`, `PropertyFormModal`, `StructureFormModal`, `TrellisManager` | `properties_bp`: `/api/properties/*`, `/api/placed-structures/*`; `trellis_bp`: `/api/trellis-structures/*` | `Property`, `PlacedStructure`, `TrellisStructure` | SVG canvas drag-drop, trellis has app-level overlap validation (no DB constraints — backlog #13) |
+| 4 | **Property Designer** | `/property-designer` tab | `PropertyDesigner.tsx`, `PropertyFormModal`, `StructureFormModal`, `TrellisManager` | `properties_bp`: `/api/properties/*`, `/api/placed-structures/*`; `trellis_bp`: `/api/trellis-structures/*` | `Property`, `PlacedStructure`, `TrellisStructure` | SVG canvas drag-drop, trellis has app-level overlap validation + 4 DB CHECK constraints (backlog #13 DONE) |
 | 5 | **Indoor Seed Starts** | `/indoor-seed-starts` tab | `IndoorSeedStarts.tsx`, `ImportFromGardenModal` | `utilities_bp`: `/api/indoor-seed-starts/*` | `IndoorSeedStart` | Links to GardenPlanItem for needed-vs-started sync |
 | 6 | **Seed Inventory** | `/seed-inventory` tab | `MySeedInventory.tsx`, `AddSeedModal`, `EditSeedModal`, `CSVImportModal` | `seeds_bp`: `/api/seeds/*` | `SeedInventory` (14 agronomic override fields) | NULL vs falsy critical on override fields |
 | 7 | **Seed Catalog** | `/seed-catalog` tab | `SeedCatalog.tsx`, `AddFromCatalogModal` | `seeds_bp`: `/api/seed-catalog/*`, `/api/my-seeds/*` | `SeedInventory` (is_global=True) | Read-only browse + clone to personal |
@@ -460,7 +460,7 @@
 
 | ID | Scenario | Input | Risk | Priority |
 |----|----------|-------|------|----------|
-| EC-TREL-01 | Overlapping segments | Event A: 0-12", Event B: 6-18" | App-level validation added (`check_trellis_overlaps` returns 409). No DB constraint (backlog #13). | P1 |
+| EC-TREL-01 | Overlapping segments | Event A: 0-12", Event B: 6-18" | App-level validation (`check_trellis_overlaps` returns 409) + DB CHECK constraints (backlog #13 DONE). Cross-row overlap stays app-level only. | P1 |
 | EC-TREL-02 | Position > trellis length | Trellis=10ft, position_end=15ft | App-level validation added (`validate_trellis_segment` returns 400). Export path logs warning but doesn't block. | P1 |
 | EC-TREL-03 | Start > end | position_start=12, position_end=6 | App-level validation added (`validate_trellis_segment` rejects end <= start). | P1 |
 | EC-TREL-04 | Zero-length trellis | total_length_feet=0 | Division by zero in capacity calc | P2 |
@@ -502,8 +502,8 @@
 
 | 5 | `backend/migardener_spacing.py` | Backend MIGardener overrides (**54 entries**) |
 | 6 | `frontend/src/utils/migardenerSpacing.ts` | Frontend MIGardener overrides (**54 entries**) - synced with backend |
-| 7 | `backend/intensive_spacing.py` | Backend intensive overrides |
-| 8 | `frontend/src/utils/intensiveSpacing.ts` | Frontend intensive overrides |
+| 7 | `backend/intensive_spacing.py` | Backend intensive overrides (formula harmonized: `onCenter²/144`) |
+| 8 | `frontend/src/utils/intensiveSpacing.ts` | Frontend intensive overrides (formula harmonized: `onCenter²/144`) |
 
 **What to verify:** Run space calculations for 10 representative plants across all 4 methods on both backend and frontend. Compare results. BUG-02 (potato spacing) and BUG-03 (23 missing MIGardener overrides) are both FIXED.
 
@@ -522,9 +522,9 @@
 
 **Model:** `PlantingEvent.event_type` discriminates: planting | mulch | fertilizing | irrigation | maple-tapping
 
-**Risk:** event_details is TEXT, no JSON schema validation. Each type expects different keys.
+**Risk:** event_details is TEXT. Write-path validation added (backlog #12 DONE) via `backend/services/event_details_validator.py` for mulch and maple-tapping event types. Read paths remain defensive (try-except + `.get()` defaults).
 
-**Verify:** Query events of each type, ensure event_details parsing uses try/except and get() with defaults. Check that non-planting events (plant_id=null) don't break queries that assume plant_id exists.
+**Verify:** Query events of each type, ensure event_details parsing uses try/except and get() with defaults. Check that non-planting events (plant_id=null) don't break queries that assume plant_id exists. Write-path validation tested in `backend/tests/test_event_details_validator.py` (~40 tests).
 
 ### 5.4 HIGH: Dual Status System
 
@@ -538,12 +538,20 @@
 
 ### 5.5 MEDIUM: Trellis Capacity
 
-**No DB constraints for:** overlapping segments, out-of-range positions, start > end (DB CHECK constraints remain backlog #13).
+**DB CHECK constraints added (backlog #13 DONE):**
+- `ck_pe_trellis_start_nonneg` — `trellis_position_start_inches >= 0`
+- `ck_pe_trellis_end_gt_start` — `trellis_position_end_inches > trellis_position_start_inches`
+- `ck_pe_linear_feet_nonneg` — `linear_feet_allocated >= 0`
+- `ck_pe_trellis_fields_together` — start and end must both be NULL or both non-NULL
 
-**Application-level validation added (2026-02-22):**
+**Remaining app-level only (cannot express in SQLite CHECK):** overlapping segments (cross-row), out-of-range positions (end > trellis length, requires cross-table check).
+
+**Application-level validation (2026-02-22):**
 - `backend/services/trellis_validation.py` — `validate_trellis_segment()` rejects negative starts, end <= start, and out-of-range ends; `check_trellis_overlaps()` detects overlapping segments via DB query (always filtered by user_id)
 - **Path A** (`gardens_bp.py`): Direct placement greedy algorithm now filters out NULL-position events and has a validation safety net (returns 400/409 on invalid/overlapping segments)
 - **Path B** (`garden_planner_service.py`): Export-to-calendar now assigns `trellis_position_start_inches` / `trellis_position_end_inches` on exported events (previously only set `linear_feet_allocated`). Logs warnings for out-of-range but doesn't block export.
+
+**Test coverage:** `backend/tests/test_trellis_check_constraints.py` — 10 tests (4 positive + 6 negative) verifying all 4 CHECK constraints.
 
 **Verify:** Both paths produce positioned events. Manual placement after export should correctly find gaps via the greedy algorithm.
 
@@ -677,6 +685,42 @@ def get_structures():       # No @login_required!
 
 ---
 
+#### BUG-08: `/api/health-records` GET Returns All Users' Records (P0 - Data Leakage)
+
+**Status:** FIXED (2026-02-24)
+
+**Location:** `backend/blueprints/livestock_bp.py` line 447
+
+**Code (before fix):**
+```python
+records = HealthRecord.query.order_by(HealthRecord.date.desc()).limit(50).all()
+```
+
+**Impact:** Any authenticated user could see all users' health records. `HealthRecord` has no direct `user_id` column — must join through `Livestock` to enforce isolation.
+
+**Fix:** Changed to `HealthRecord.query.join(Livestock).filter(Livestock.user_id == current_user.id).order_by(...)`.
+
+---
+
+#### BUG-09: `/api/export-garden-plan/<id>` Missing @login_required (P0 - Auth Bypass)
+
+**Status:** FIXED (2026-02-24)
+
+**Location:** `backend/blueprints/utilities_bp.py` line 198
+
+**Code (before fix):**
+```python
+@utilities_bp.route('/export-garden-plan/<int:bed_id>')
+def export_garden_plan(bed_id):
+    bed = GardenBed.query.get_or_404(bed_id)
+```
+
+**Impact:** Unauthenticated users could export any garden plan PDF by guessing bed IDs.
+
+**Fix:** Added `@login_required` decorator and ownership check (`bed.user_id != current_user.id` → 404).
+
+---
+
 ### Suspicious Patterns (Not Confirmed Bugs)
 
 | ID | Location | Concern | Severity |
@@ -713,13 +757,13 @@ def get_structures():       # No @login_required!
 
 | # | Issue | Effort | Files | Risk |
 |---|-------|--------|-------|------|
-| 8 | ~~Automated test suite: space calc sync~~ **DONE** | — | `backend/tests/test_space_calculation_sync.py` (94 tests), `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` (33 tests) | — |
+| 8 | ~~Automated test suite: space calc sync~~ **DONE** | — | `backend/tests/test_space_calculation_sync.py` (114 tests), `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` (55 tests) | — |
 | 9 | ~~Automated test suite: succession export~~ **DONE** | — | `backend/tests/test_succession_export.py` (36 tests), `backend/tests/conftest.py` (shared fixtures) | — |
-| 10 | Automated test suite: auth + user isolation | 3 hr | 1+ new test file | Low - additive |
+| 10 | ~~Automated test suite: auth + user isolation~~ **DONE** | — | `backend/tests/test_auth_isolation.py` (51 tests, 0 xfail), `backend/tests/conftest.py` (auth fixtures) | — |
 | 11 | Clean up dual status system | 8+ hr | 5+ files | HIGH - behavioral change |
-| 12 | Add JSON schema for event_details | 4 hr | 2-3 files | Medium - validation layer |
-| 13 | Add DB CHECK constraints for trellis positions | 2 hr | migration + model | Low - additive |
-| 14 | Intensive spacing frontend/backend sync audit | 2 hr | 2 files | Low - data alignment |
+| 12 | ~~Add JSON schema for event_details~~ **DONE** | — | `backend/services/event_details_validator.py` (validator), `backend/blueprints/gardens_bp.py` (2 call sites), `backend/tests/test_event_details_validator.py` (~40 tests) | — |
+| 13 | ~~Add DB CHECK constraints for trellis positions~~ **DONE** | — | `backend/models.py` (4 CheckConstraints), `migrations/versions/8b2eca933349_...py`, `backend/tests/test_trellis_check_constraints.py` (10 tests) | — |
+| 14 | ~~Intensive spacing frontend/backend sync audit~~ **DONE** | — | Backend `intensive_spacing.py` formula harmonized to `onCenter²/144` (matching frontend). 20 new backend + 22 new frontend tests added. | — |
 | 15 | Fix mixed casing in /api/plants response | 4 hr | 1 backend + all frontend consumers | HIGH - breaking change |
 
 ---
@@ -752,11 +796,11 @@ def get_structures():       # No @login_required!
 
 | What | Status | Details |
 |------|--------|---------|
-| Backend pytest for space_calculator.py | **EXISTS** | `backend/tests/test_space_calculation_sync.py` — 94 tests covering all 5 methods (SFG, MIGardener, Intensive, Row, Permaculture) + lookup table sync checks |
-| Frontend jest for gardenPlannerSpaceCalculator.ts | **EXISTS** | `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` — 33 tests covering all 5 methods + lookup table sync checks |
+| Backend pytest for space_calculator.py | **EXISTS** | `backend/tests/test_space_calculation_sync.py` — 114 tests covering all 5 methods (SFG, MIGardener, Intensive, Row, Permaculture) + lookup table sync checks + intensive formula parity |
+| Frontend jest for gardenPlannerSpaceCalculator.ts | **EXISTS** | `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` — 55 tests covering all 5 methods + lookup table sync checks + intensive formula parity |
 | Cross-check script comparing backend vs frontend plant counts | Missing | Sync drift goes undetected |
 | Integration test: export_to_calendar round-trip | **EXISTS** | `backend/tests/test_succession_export.py` — 36 tests covering all 3 code paths (legacy, bed-allocated, trellis), idempotent re-export, DTM/harvest-date resolution, remainder distribution, and edge cases |
-| Auth isolation test hitting all endpoints | Missing | Data leakage would go undetected |
+| Auth isolation test hitting all endpoints | **EXISTS** | `backend/tests/test_auth_isolation.py` — 51 tests (all passing): 5 auth flow, 22 auth-required (17 protected + 3 public + 1 export-garden-plan + 1 structures), 12 user isolation (including health-records), 8 ownership protection, 5 admin access |
 
 ---
 
@@ -787,13 +831,13 @@ npm start                     # Start on port 3000
 ### Existing Test Commands
 
 ```bash
-# Backend space calc tests (94 tests)
+# Backend space calc tests (114 tests)
 cd backend && python -m pytest tests/test_space_calculation_sync.py -v
 
 # Backend succession export tests (36 tests)
 cd backend && python -m pytest tests/test_succession_export.py -v
 
-# Frontend space calc tests (33 tests)
+# Frontend space calc tests (55 tests)
 cd frontend && CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false
 
 # Frontend build (TypeScript compilation check)
@@ -1371,4 +1415,4 @@ npx playwright test -g "MIGardener"
 
 ---
 
-*Report generated 2026-02-22. Updated 2026-02-22 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests), and backlog #9 (succession export integration tests — 36 tests covering all 3 export paths + DTM=0 falsy bug fix). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*
+*Report generated 2026-02-22. Updated 2026-02-23 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests), backlog #9 (succession export integration tests — 36 tests covering all 3 export paths + DTM=0 falsy bug fix), and backlog #10 (auth + user isolation tests — 51 tests covering auth flow, 401 enforcement on 17 protected endpoints, user data isolation across 11 resource types, ownership protection on 8 CRUD operations, and admin access control). Updated 2026-02-24: BUG-08 (health-records user isolation) and BUG-09 (export-garden-plan auth gate) fixed — 2 former xfail tests now pass normally (51 passed, 0 xfail). Updated 2026-02-25: backlog #14 (intensive spacing formula harmonization — backend `onCenter²/144` now matches frontend; 20 new backend + 22 new frontend tests; totals: 114 backend + 55 frontend space calc tests). Updated 2026-02-23: backlog #13 (4 DB CHECK constraints on trellis position fields — migration `8b2eca933349`, 10 tests in `test_trellis_check_constraints.py`). Updated 2026-02-26: backlog #12 (event_details JSON validation — `event_details_validator.py` validates mulch + maple-tapping write paths; ~40 unit tests in `test_event_details_validator.py`; 2 call sites in `gardens_bp.py`). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*

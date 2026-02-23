@@ -1177,10 +1177,12 @@ def planting_events():
                     plant = get_plant_by_id(data['plantId'])
                     linear_feet_per_plant = plant.get('migardener', {}).get('linearFeetPerPlant', 5.0) if plant else 5.0
 
-                    # Get all existing allocations on this trellis, ordered by position
-                    existing_allocations = PlantingEvent.query.filter_by(
-                        trellis_structure_id=trellis_structure_id,
-                        user_id=current_user.id
+                    # Get all existing allocations on this trellis that have positions, ordered by position
+                    existing_allocations = PlantingEvent.query.filter(
+                        PlantingEvent.trellis_structure_id == trellis_structure_id,
+                        PlantingEvent.user_id == current_user.id,
+                        PlantingEvent.trellis_position_start_inches.isnot(None),
+                        PlantingEvent.trellis_position_end_inches.isnot(None),
                     ).order_by(PlantingEvent.trellis_position_start_inches).all()
 
                     # Find first available gap (greedy algorithm)
@@ -1203,6 +1205,23 @@ def planting_events():
                         return jsonify({
                             'error': f'Trellis at capacity. Available: {(total_length_inches - position_start_inches) / 12:.1f}ft, Required: {linear_feet_per_plant}ft'
                         }), 400
+
+                    # Validate segment range and check for overlaps (safety net)
+                    from services.trellis_validation import validate_trellis_segment, check_trellis_overlaps
+
+                    valid, error_msg = validate_trellis_segment(trellis, position_start_inches, position_end_inches)
+                    if not valid:
+                        return jsonify({'error': f'Invalid trellis segment: {error_msg}'}), 400
+
+                    overlapping_ids = check_trellis_overlaps(
+                        trellis_structure_id, current_user.id,
+                        position_start_inches, position_end_inches
+                    )
+                    if overlapping_ids:
+                        return jsonify({
+                            'error': 'Trellis segment overlaps existing allocation(s)',
+                            'details': {'overlapping_event_ids': overlapping_ids}
+                        }), 409
 
                     # Allocate space on trellis
                     event.trellis_structure_id = trellis_structure_id
@@ -1245,6 +1264,11 @@ def planting_events():
                     'coverage': data.get('coverage', 'full')
                 }
 
+                from services.event_details_validator import validate_event_details
+                valid, errors = validate_event_details('mulch', mulch_details)
+                if not valid:
+                    return jsonify({'error': 'Invalid mulch event details', 'details': errors}), 400
+
                 event = PlantingEvent(
                     user_id=current_user.id,
                     event_type='mulch',
@@ -1270,6 +1294,11 @@ def planting_events():
                     'syrup_yield': data.get('syrupYield'),
                     'tree_health': data.get('treeHealth'),
                 }
+
+                from services.event_details_validator import validate_event_details
+                valid, errors = validate_event_details('maple-tapping', tapping_details)
+                if not valid:
+                    return jsonify({'error': 'Invalid maple-tapping event details', 'details': errors}), 400
 
                 event = PlantingEvent(
                     user_id=current_user.id,
