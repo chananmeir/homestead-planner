@@ -283,7 +283,7 @@ const HarvestTracker: React.FC = () => {
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
-            <div className="text-3xl font-bold text-green-700 mb-2">{harvests.length}</div>
+            <div data-testid="harvest-count" className="text-3xl font-bold text-green-700 mb-2">{harvests.length}</div>
             <div className="text-sm text-green-600 font-medium">Total Harvests</div>
           </div>
 
@@ -301,6 +301,7 @@ const HarvestTracker: React.FC = () => {
         {/* Add New Harvest Button */}
         <div className="mb-6">
           <button
+            data-testid="btn-log-harvest"
             className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
             onClick={() => setIsLogModalOpen(true)}
           >
@@ -392,7 +393,7 @@ const HarvestTracker: React.FC = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredAndSortedHarvests.map((harvest) => (
-                  <tr key={harvest.id} className="hover:bg-gray-50">
+                  <tr key={harvest.id} data-testid={`harvest-row-${harvest.id}`} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(harvest.harvestDate).toLocaleDateString()}
                     </td>
@@ -415,6 +416,7 @@ const HarvestTracker: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex gap-2">
                         <button
+                          data-testid={`btn-edit-harvest-${harvest.id}`}
                           onClick={() => handleEditClick(harvest)}
                           className="text-blue-600 hover:text-blue-900"
                           title="Edit harvest"
@@ -424,6 +426,7 @@ const HarvestTracker: React.FC = () => {
                           </svg>
                         </button>
                         <button
+                          data-testid={`btn-delete-harvest-${harvest.id}`}
                           onClick={() => handleDeleteClick(harvest.id)}
                           className="text-red-600 hover:text-red-900"
                           title="Delete harvest"

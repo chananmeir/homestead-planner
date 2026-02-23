@@ -191,7 +191,7 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
         <Button variant="ghost" onClick={onClose} disabled={loading}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleSubmit} loading={loading}>
+        <Button variant="primary" onClick={handleSubmit} loading={loading} data-testid="log-harvest-submit">
           Log Harvest
         </Button>
       </div>
