@@ -9,7 +9,7 @@ import math
 from plant_database import PLANT_DATABASE
 from sfg_spacing import get_sfg_cells_required
 from migardener_spacing import get_migardener_spacing
-from intensive_spacing import get_intensive_spacing, calculate_intensive_cells_required
+from intensive_spacing import get_intensive_spacing
 
 
 def is_seed_density_planting(plant, planning_method):
@@ -69,7 +69,7 @@ def calculate_space_requirement(plant_id, grid_size=12, planning_method='row'):
             - Other values default to row calculation
 
     Returns:
-        int: Number of grid cells needed (1, 4, 9, etc.)
+        float: Space requirement (cells for SFG, sq ft for intensive/permaculture, cells for row/migardener)
 
     Examples:
         >>> calculate_space_requirement('tomato-1', 12, 'square-foot')
@@ -115,12 +115,13 @@ def calculate_space_requirement(plant_id, grid_size=12, planning_method='row'):
                 return plant_cells * row_cells
         return 1  # Fallback for unknown plants
 
-    # INTENSIVE METHOD: Hexagonal packing with bio-intensive spacing
+    # INTENSIVE METHOD: Bio-intensive spacing (onCenter² / 144 sq ft)
     elif planning_method == 'intensive':
         if plant:
             spacing = plant.get('spacing', 12)
             on_center = get_intensive_spacing(plant_id, spacing)
-            return calculate_intensive_cells_required(on_center, grid_size)
+            sq_inches = on_center * on_center
+            return sq_inches / 144.0
         return 1  # Fallback for unknown plants
 
     # PERMACULTURE METHOD: Uses native plant spacing (equidistant in all directions)

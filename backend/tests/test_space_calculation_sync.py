@@ -311,56 +311,169 @@ class TestIntensiveSpaceCalculation:
     """
     Test Intensive/Bio-intensive method space calculations.
 
-    Backend uses hex-efficient ceil: ceil(ceil(onCenter/grid)² × (1/1.15))
-    This intentionally diverges from the frontend which returns onCenter²/144.
+    Backend now uses the same formula as frontend: onCenter² / 144 (sq ft).
+    This was harmonized in backlog #14 to eliminate divergence.
     """
 
+    # --- Fruiting crops ---
+
     def test_intensive_tomato(self):
-        """tomato-1: on_center=18, ceil(18/12)=2, 2²=4, ceil(4×0.87)=4"""
+        """tomato-1: on_center=18, 18²/144 = 2.25"""
         result = calculate_space_requirement('tomato-1', 12, 'intensive')
-        assert result == 4, f"Expected 4, got {result}"
+        assert result == 2.25, f"Expected 2.25, got {result}"
 
     def test_intensive_pepper(self):
-        """pepper-1: on_center=12, ceil(12/12)=1, 1²=1, max(1,ceil(0.87))=1"""
+        """pepper-1: on_center=12, 12²/144 = 1.0"""
         result = calculate_space_requirement('pepper-1', 12, 'intensive')
-        assert result == 1, f"Expected 1, got {result}"
+        assert result == 1.0, f"Expected 1.0, got {result}"
 
-    def test_intensive_carrot(self):
-        """carrot-1: on_center=3, ceil(3/12)=1, 1²=1 → 1"""
-        result = calculate_space_requirement('carrot-1', 12, 'intensive')
-        assert result == 1, f"Expected 1, got {result}"
+    def test_intensive_eggplant(self):
+        """eggplant-1: on_center=18, 18²/144 = 2.25"""
+        result = calculate_space_requirement('eggplant-1', 12, 'intensive')
+        assert result == 2.25, f"Expected 2.25, got {result}"
 
-    def test_intensive_squash(self):
-        """squash-1: on_center=24, ceil(24/12)=2, 2²=4, ceil(4×0.87)=4"""
-        result = calculate_space_requirement('squash-1', 12, 'intensive')
-        assert result == 4, f"Expected 4, got {result}"
+    # --- Brassicas ---
+
+    def test_intensive_broccoli(self):
+        """broccoli-1: on_center=15, 15²/144 = 1.5625"""
+        result = calculate_space_requirement('broccoli-1', 12, 'intensive')
+        assert result == 1.5625, f"Expected 1.5625, got {result}"
+
+    def test_intensive_cauliflower(self):
+        """cauliflower-1: on_center=15, 15²/144 = 1.5625"""
+        result = calculate_space_requirement('cauliflower-1', 12, 'intensive')
+        assert result == 1.5625, f"Expected 1.5625, got {result}"
+
+    def test_intensive_cabbage(self):
+        """cabbage-1: on_center=15, 15²/144 = 1.5625"""
+        result = calculate_space_requirement('cabbage-1', 12, 'intensive')
+        assert result == 1.5625, f"Expected 1.5625, got {result}"
+
+    def test_intensive_kale(self):
+        """kale-1: on_center=12, 12²/144 = 1.0"""
+        result = calculate_space_requirement('kale-1', 12, 'intensive')
+        assert result == 1.0, f"Expected 1.0, got {result}"
+
+    # --- Leafy greens ---
 
     def test_intensive_lettuce(self):
-        """lettuce-1: on_center=8, ceil(8/12)=1, 1²=1 → 1"""
+        """lettuce-1: on_center=8, 8²/144 ≈ 0.4444"""
         result = calculate_space_requirement('lettuce-1', 12, 'intensive')
-        assert result == 1, f"Expected 1, got {result}"
+        assert result == pytest.approx(64 / 144.0), f"Expected ~0.4444, got {result}"
 
     def test_intensive_spinach(self):
-        """spinach-1: on_center=6, ceil(6/12)=1, 1²=1 → 1"""
+        """spinach-1: on_center=6, 6²/144 = 0.25"""
         result = calculate_space_requirement('spinach-1', 12, 'intensive')
-        assert result == 1, f"Expected 1, got {result}"
+        assert result == 0.25, f"Expected 0.25, got {result}"
+
+    def test_intensive_chard(self):
+        """chard-1: on_center=8, 8²/144 ≈ 0.4444"""
+        result = calculate_space_requirement('chard-1', 12, 'intensive')
+        assert result == pytest.approx(64 / 144.0), f"Expected ~0.4444, got {result}"
+
+    def test_intensive_arugula(self):
+        """arugula-1: on_center=4, 4²/144 ≈ 0.1111"""
+        result = calculate_space_requirement('arugula-1', 12, 'intensive')
+        assert result == pytest.approx(16 / 144.0), f"Expected ~0.1111, got {result}"
+
+    # --- Root vegetables ---
+
+    def test_intensive_carrot(self):
+        """carrot-1: on_center=3, 3²/144 = 0.0625"""
+        result = calculate_space_requirement('carrot-1', 12, 'intensive')
+        assert result == 0.0625, f"Expected 0.0625, got {result}"
+
+    def test_intensive_beet(self):
+        """beet-1: on_center=4, 4²/144 ≈ 0.1111"""
+        result = calculate_space_requirement('beet-1', 12, 'intensive')
+        assert result == pytest.approx(16 / 144.0), f"Expected ~0.1111, got {result}"
+
+    def test_intensive_radish(self):
+        """radish-1: on_center=2, 2²/144 ≈ 0.0278"""
+        result = calculate_space_requirement('radish-1', 12, 'intensive')
+        assert result == pytest.approx(4 / 144.0), f"Expected ~0.0278, got {result}"
+
+    def test_intensive_onion(self):
+        """onion-1: on_center=4, 4²/144 ≈ 0.1111"""
+        result = calculate_space_requirement('onion-1', 12, 'intensive')
+        assert result == pytest.approx(16 / 144.0), f"Expected ~0.1111, got {result}"
+
+    def test_intensive_garlic(self):
+        """garlic-1: on_center=6, 6²/144 = 0.25"""
+        result = calculate_space_requirement('garlic-1', 12, 'intensive')
+        assert result == 0.25, f"Expected 0.25, got {result}"
+
+    def test_intensive_potato(self):
+        """potato-1: on_center=10, 10²/144 ≈ 0.6944"""
+        result = calculate_space_requirement('potato-1', 12, 'intensive')
+        assert result == pytest.approx(100 / 144.0), f"Expected ~0.6944, got {result}"
+
+    # --- Legumes ---
+
+    def test_intensive_bean(self):
+        """bean-1: on_center=6, 6²/144 = 0.25"""
+        result = calculate_space_requirement('bean-1', 12, 'intensive')
+        assert result == 0.25, f"Expected 0.25, got {result}"
+
+    def test_intensive_pea(self):
+        """pea-1: on_center=4, 4²/144 ≈ 0.1111"""
+        result = calculate_space_requirement('pea-1', 12, 'intensive')
+        assert result == pytest.approx(16 / 144.0), f"Expected ~0.1111, got {result}"
+
+    # --- Cucurbits ---
+
+    def test_intensive_squash(self):
+        """squash-1: on_center=24, 24²/144 = 4.0"""
+        result = calculate_space_requirement('squash-1', 12, 'intensive')
+        assert result == 4.0, f"Expected 4.0, got {result}"
+
+    def test_intensive_cucumber(self):
+        """cucumber-1: on_center=12, 12²/144 = 1.0"""
+        result = calculate_space_requirement('cucumber-1', 12, 'intensive')
+        assert result == 1.0, f"Expected 1.0, got {result}"
+
+    def test_intensive_melon(self):
+        """melon-1: on_center=18, 18²/144 = 2.25"""
+        result = calculate_space_requirement('melon-1', 12, 'intensive')
+        assert result == 2.25, f"Expected 2.25, got {result}"
+
+    # --- Grains ---
+
+    def test_intensive_corn(self):
+        """corn-1: on_center=15, 15²/144 = 1.5625"""
+        result = calculate_space_requirement('corn-1', 12, 'intensive')
+        assert result == 1.5625, f"Expected 1.5625, got {result}"
+
+    # --- Herbs ---
+
+    def test_intensive_basil(self):
+        """basil-1: on_center=8, 8²/144 ≈ 0.4444"""
+        result = calculate_space_requirement('basil-1', 12, 'intensive')
+        assert result == pytest.approx(64 / 144.0), f"Expected ~0.4444, got {result}"
+
+    def test_intensive_parsley(self):
+        """parsley-1: on_center=6, 6²/144 = 0.25"""
+        result = calculate_space_requirement('parsley-1', 12, 'intensive')
+        assert result == 0.25, f"Expected 0.25, got {result}"
+
+    # --- Flowers ---
+
+    def test_intensive_marigold(self):
+        """marigold-1: on_center=8, 8²/144 ≈ 0.4444"""
+        result = calculate_space_requirement('marigold-1', 12, 'intensive')
+        assert result == pytest.approx(64 / 144.0), f"Expected ~0.4444, got {result}"
+
+    def test_intensive_nasturtium(self):
+        """nasturtium-1: on_center=10, 10²/144 ≈ 0.6944"""
+        result = calculate_space_requirement('nasturtium-1', 12, 'intensive')
+        assert result == pytest.approx(100 / 144.0), f"Expected ~0.6944, got {result}"
+
+    # --- Edge cases ---
 
     def test_intensive_unknown_plant(self):
         """Unknown plant not in database → fallback to 1"""
         result = calculate_space_requirement('unknown-plant-999', 12, 'intensive')
         assert result == 1, f"Expected 1, got {result}"
-
-    def test_intensive_hex_efficiency_factor(self):
-        """Verify hex efficiency reduces cell count for large plants.
-
-        squash-1 on_center=24: without hex efficiency → 4 cells
-        With hex efficiency: ceil(4 × 0.87) = 4 (still 4 due to ceiling)
-        But for on_center=36: ceil(36/12)=3, 3²=9, ceil(9×0.87)=ceil(7.83)=8
-        """
-        # Use a plant with on_center spacing that demonstrates hex savings
-        # corn-1 has on_center=15 → ceil(15/12)=2, 2²=4, ceil(4×0.87)=4
-        result = calculate_space_requirement('corn-1', 12, 'intensive')
-        assert result == 4, f"corn-1 intensive expected 4, got {result}"
 
 
 # ============================================================================

@@ -4,10 +4,10 @@
  * Tests that the frontend calculateSpaceRequirement() function returns expected
  * values for all 5 planning methods: SFG, MIGardener, Intensive, Row, Permaculture.
  *
- * NOTE: Backend and frontend use DIFFERENT formulas for non-SFG methods.
- * - Backend: ceil(spacing/gridSize) integer grid cells
- * - Frontend: continuous square footage (spacing_product / 144)
- * This divergence is intentional/legacy. Tests document each side independently.
+ * NOTE: Backend and frontend use DIFFERENT formulas for Row method only.
+ * - Backend Row: ceil(spacing/gridSize) integer grid cells
+ * - Frontend Row: continuous square footage (rowSpacing × spacing / 144)
+ * Intensive method is now SYNCED: both use onCenter² / 144.
  *
  * Run with: cd frontend && CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false
  */
@@ -145,7 +145,10 @@ describe('MIGardener method', () => {
 // ============================================================================
 
 describe('Intensive method', () => {
-  // Frontend formula: onCenter² / 144
+  // Formula (synced with backend): onCenter² / 144
+  // All 27 override plants tested below
+
+  // --- Fruiting crops ---
 
   test('tomato-1 → 2.25 (override=18, 18²/144)', () => {
     const plant = mockPlant({ id: 'tomato-1', spacing: 24, rowSpacing: 36 });
@@ -157,10 +160,34 @@ describe('Intensive method', () => {
     expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(1.0);
   });
 
-  test('carrot-1 → 0.0625 (override=3, 3²/144)', () => {
-    const plant = mockPlant({ id: 'carrot-1', spacing: 2, rowSpacing: 12 });
-    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(0.0625);
+  test('eggplant-1 → 2.25 (override=18, 18²/144)', () => {
+    const plant = mockPlant({ id: 'eggplant-1', spacing: 18, rowSpacing: 30 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(2.25);
   });
+
+  // --- Brassicas ---
+
+  test('broccoli-1 → 1.5625 (override=15, 15²/144)', () => {
+    const plant = mockPlant({ id: 'broccoli-1', spacing: 18, rowSpacing: 24 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(1.5625);
+  });
+
+  test('cauliflower-1 → 1.5625 (override=15, 15²/144)', () => {
+    const plant = mockPlant({ id: 'cauliflower-1', spacing: 12, rowSpacing: 24 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(1.5625);
+  });
+
+  test('cabbage-1 → 1.5625 (override=15, 15²/144)', () => {
+    const plant = mockPlant({ id: 'cabbage-1', spacing: 18, rowSpacing: 24 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(1.5625);
+  });
+
+  test('kale-1 → 1.0 (override=12, 12²/144)', () => {
+    const plant = mockPlant({ id: 'kale-1', spacing: 12, rowSpacing: 18 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(1.0);
+  });
+
+  // --- Leafy greens ---
 
   test('lettuce-1 → 0.4444 (override=8, 8²/144)', () => {
     const plant = mockPlant({ id: 'lettuce-1', spacing: 6, rowSpacing: 12 });
@@ -168,10 +195,124 @@ describe('Intensive method', () => {
     expect(result).toBeCloseTo(64 / 144, 4);
   });
 
+  test('spinach-1 → 0.25 (override=6, 6²/144)', () => {
+    const plant = mockPlant({ id: 'spinach-1', spacing: 4, rowSpacing: 12 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(0.25);
+  });
+
+  test('chard-1 → 0.4444 (override=8, 8²/144)', () => {
+    const plant = mockPlant({ id: 'chard-1', spacing: 6, rowSpacing: 18 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(64 / 144, 4);
+  });
+
+  test('arugula-1 → 0.1111 (override=4, 4²/144)', () => {
+    const plant = mockPlant({ id: 'arugula-1', spacing: 3, rowSpacing: 6 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(16 / 144, 4);
+  });
+
+  // --- Root vegetables ---
+
+  test('carrot-1 → 0.0625 (override=3, 3²/144)', () => {
+    const plant = mockPlant({ id: 'carrot-1', spacing: 2, rowSpacing: 12 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(0.0625);
+  });
+
+  test('beet-1 → 0.1111 (override=4, 4²/144)', () => {
+    const plant = mockPlant({ id: 'beet-1', spacing: 3, rowSpacing: 12 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(16 / 144, 4);
+  });
+
+  test('radish-1 → 0.0278 (override=2, 2²/144)', () => {
+    const plant = mockPlant({ id: 'radish-1', spacing: 2, rowSpacing: 6 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(4 / 144, 4);
+  });
+
+  test('onion-1 → 0.1111 (override=4, 4²/144)', () => {
+    const plant = mockPlant({ id: 'onion-1', spacing: 4, rowSpacing: 12 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(16 / 144, 4);
+  });
+
+  test('garlic-1 → 0.25 (override=6, 6²/144)', () => {
+    const plant = mockPlant({ id: 'garlic-1', spacing: 6, rowSpacing: 12 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(0.25);
+  });
+
+  test('potato-1 → 0.6944 (override=10, 10²/144)', () => {
+    const plant = mockPlant({ id: 'potato-1', spacing: 12, rowSpacing: 30 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(100 / 144, 4);
+  });
+
+  // --- Legumes ---
+
+  test('bean-1 → 0.25 (override=6, 6²/144)', () => {
+    const plant = mockPlant({ id: 'bean-1', spacing: 4, rowSpacing: 21 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(0.25);
+  });
+
+  test('pea-1 → 0.1111 (override=4, 4²/144)', () => {
+    const plant = mockPlant({ id: 'pea-1', spacing: 2, rowSpacing: 18 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(16 / 144, 4);
+  });
+
+  // --- Cucurbits ---
+
   test('squash-1 → 4.0 (override=24, 24²/144)', () => {
     const plant = mockPlant({ id: 'squash-1', spacing: 16, rowSpacing: 56 });
     expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(4.0);
   });
+
+  test('cucumber-1 → 1.0 (override=12, 12²/144)', () => {
+    const plant = mockPlant({ id: 'cucumber-1', spacing: 12, rowSpacing: 36 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(1.0);
+  });
+
+  test('melon-1 → 2.25 (override=18, 18²/144)', () => {
+    const plant = mockPlant({ id: 'melon-1', spacing: 21, rowSpacing: 66 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(2.25);
+  });
+
+  // --- Grains ---
+
+  test('corn-1 → 1.5625 (override=15, 15²/144)', () => {
+    const plant = mockPlant({ id: 'corn-1', spacing: 12, rowSpacing: 36 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(1.5625);
+  });
+
+  // --- Herbs ---
+
+  test('basil-1 → 0.4444 (override=8, 8²/144)', () => {
+    const plant = mockPlant({ id: 'basil-1', spacing: 10, rowSpacing: 12 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(64 / 144, 4);
+  });
+
+  test('parsley-1 → 0.25 (override=6, 6²/144)', () => {
+    const plant = mockPlant({ id: 'parsley-1', spacing: 8, rowSpacing: 12 });
+    expect(calculateSpaceRequirement(plant, 12, 'intensive')).toBe(0.25);
+  });
+
+  // --- Flowers ---
+
+  test('marigold-1 → 0.4444 (override=8, 8²/144)', () => {
+    const plant = mockPlant({ id: 'marigold-1', spacing: 10, rowSpacing: 12 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(64 / 144, 4);
+  });
+
+  test('nasturtium-1 → 0.6944 (override=10, 10²/144)', () => {
+    const plant = mockPlant({ id: 'nasturtium-1', spacing: 12, rowSpacing: 12 });
+    const result = calculateSpaceRequirement(plant, 12, 'intensive');
+    expect(result).toBeCloseTo(100 / 144, 4);
+  });
+
+  // --- Edge cases ---
 
   test('unknown plant uses standard spacing as fallback', () => {
     // No override → uses plant.spacing directly: 12²/144 = 1.0
