@@ -529,7 +529,7 @@ const Livestock: React.FC = () => {
           </div>
         ) : (
         animals.map((animal) => (
-          <div key={animal.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+          <div key={animal.id} data-testid={`animal-card-${animal.id}`} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
             <div className="flex justify-between items-start mb-4">
               <div className="flex-1">
                 <h3 className="text-xl font-bold text-gray-800">{animal.name}</h3>
@@ -546,6 +546,7 @@ const Livestock: React.FC = () => {
                     onClick={() => handleEdit(animal)}
                     className="p-1 text-blue-600 hover:bg-blue-50 rounded"
                     title="Edit"
+                    data-testid={`btn-edit-animal-${animal.id}`}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -555,6 +556,7 @@ const Livestock: React.FC = () => {
                     onClick={() => handleDeleteClick(animal.id)}
                     className="p-1 text-red-600 hover:bg-red-50 rounded"
                     title="Delete"
+                    data-testid={`btn-delete-animal-${animal.id}`}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -615,7 +617,7 @@ const Livestock: React.FC = () => {
         </div>
       ) : (
         hives.map((hive) => (
-          <div key={hive.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+          <div key={hive.id} data-testid={`hive-card-${hive.id}`} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
             <div className="flex justify-between items-start mb-4">
               <div className="flex-1">
                 <h3 className="text-xl font-bold text-gray-800">{hive.name}</h3>
@@ -632,6 +634,7 @@ const Livestock: React.FC = () => {
                     onClick={() => handleEdit(hive)}
                     className="p-1 text-blue-600 hover:bg-blue-50 rounded"
                     title="Edit"
+                    data-testid={`btn-edit-hive-${hive.id}`}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -641,6 +644,7 @@ const Livestock: React.FC = () => {
                     onClick={() => handleDeleteClick(hive.id)}
                     className="p-1 text-red-600 hover:bg-red-50 rounded"
                     title="Delete"
+                    data-testid={`btn-delete-hive-${hive.id}`}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -698,6 +702,7 @@ const Livestock: React.FC = () => {
             <button
               key={category.id}
               onClick={() => setActiveCategory(category.id)}
+              data-testid={`livestock-tab-${category.id}`}
               className={`px-6 py-3 rounded-lg font-medium transition-all ${
                 activeCategory === category.id
                   ? categoryColorClasses[category.color] || 'bg-gray-500 text-white shadow-md'
@@ -810,6 +815,7 @@ const Livestock: React.FC = () => {
           <button
             className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
             onClick={handleAddNew}
+            data-testid="btn-add-livestock"
           >
             Add New {CATEGORY_NAME_SINGULAR[categories.find(c => c.id === activeCategory)?.name || ''] || 'Animal'}
           </button>

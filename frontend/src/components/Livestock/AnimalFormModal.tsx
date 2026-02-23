@@ -422,7 +422,7 @@ export const AnimalFormModal: React.FC<AnimalFormModalProps> = ({
         <Button variant="ghost" onClick={onClose} disabled={loading}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleSubmit} loading={loading}>
+        <Button variant="primary" onClick={handleSubmit} loading={loading} data-testid="animal-form-submit">
           {mode === 'edit' ? 'Save Changes' : `Add ${getCategoryLabel()}`}
         </Button>
       </div>
