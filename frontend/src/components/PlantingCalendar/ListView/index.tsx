@@ -124,6 +124,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
       {/* Add Event Button */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <button
+          data-testid="btn-add-planting-event"
           onClick={() => setShowAddEvent(!showAddEvent)}
           className="w-full md:w-auto px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
         >

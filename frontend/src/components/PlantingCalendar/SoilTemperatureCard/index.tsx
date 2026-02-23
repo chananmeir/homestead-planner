@@ -74,6 +74,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
       {/* Header */}
       <button
+        data-testid="soil-temp-toggle"
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
       >

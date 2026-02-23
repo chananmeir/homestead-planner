@@ -238,6 +238,7 @@ const PlantingCalendar: React.FC = () => {
               {/* View Mode Toggle Buttons + Add Garden Event Button */}
               <div className="flex gap-2">
                 <button
+                  data-testid="view-toggle-list"
                   onClick={() => setViewMode('list')}
                   className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
@@ -251,6 +252,7 @@ const PlantingCalendar: React.FC = () => {
                   <span className="hidden sm:inline">List</span>
                 </button>
                 <button
+                  data-testid="view-toggle-grid"
                   onClick={() => setViewMode('grid')}
                   className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
@@ -264,6 +266,7 @@ const PlantingCalendar: React.FC = () => {
                   <span className="hidden sm:inline">Calendar</span>
                 </button>
                 <button
+                  data-testid="view-toggle-timeline"
                   onClick={() => setViewMode('timeline')}
                   className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
@@ -280,6 +283,7 @@ const PlantingCalendar: React.FC = () => {
                 {/* Add Garden Event Button */}
                 <div className="ml-2 pl-2 border-l border-gray-300">
                   <button
+                    data-testid="btn-add-garden-event"
                     onClick={() => setGardenEventModalOpen(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
                     title="Add garden maintenance events like mulch application"
@@ -292,6 +296,7 @@ const PlantingCalendar: React.FC = () => {
                 {/* Add Maple Tapping Button */}
                 <div className="ml-2 pl-2 border-l border-gray-300">
                   <button
+                    data-testid="btn-add-maple-tapping"
                     onClick={() => setMapleTappingModalOpen(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
                     title="Track maple syrup tapping events"
