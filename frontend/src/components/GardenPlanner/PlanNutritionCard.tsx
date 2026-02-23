@@ -67,7 +67,7 @@ export const PlanNutritionCard: React.FC<Props> = ({ planId, planYear }) => {
 
   if (!data || Object.keys(data.byPlant).length === 0) {
     return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mt-6">
+      <div data-testid="plan-nutrition-card" className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mt-6">
         <p className="text-yellow-800">
           Nutrition estimates unavailable. Add nutritional data for your plants to see estimates.
         </p>
@@ -78,7 +78,7 @@ export const PlanNutritionCard: React.FC<Props> = ({ planId, planYear }) => {
   const { totals, byPlant, missingNutritionData } = data;
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6 mt-6">
+    <div data-testid="plan-nutrition-card" className="bg-white rounded-lg shadow-lg p-6 mt-6">
       {/* Header with toggle */}
       <div
         className="flex justify-between items-center cursor-pointer"

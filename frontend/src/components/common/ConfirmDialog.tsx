@@ -42,7 +42,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="small">
       <div className="space-y-4">
-        <p className="text-gray-700">{message}</p>
+        <p className="text-gray-700 whitespace-pre-line">{message}</p>
 
         <div className="flex gap-3 justify-end pt-4">
           <Button
@@ -53,6 +53,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {cancelText}
           </Button>
           <Button
+            data-testid="confirm-dialog-confirm"
             variant={variant}
             onClick={handleConfirm}
             loading={isConfirming || loading}

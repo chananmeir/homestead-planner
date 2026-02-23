@@ -1776,7 +1776,7 @@ const GardenPlanner: React.FC = () => {
               <h2 className="text-2xl font-bold">Plans</h2>
               <div className="flex gap-2">
                 <button onClick={() => setView('snapshot')} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Garden Snapshot</button>
-                <button onClick={() => { setView('create'); resetWizard(); }} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Create Plan</button>
+                <button data-testid="create-plan-btn" onClick={() => { setView('create'); resetWizard(); }} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Create Plan</button>
               </div>
             </div>
             {plans.length === 0 ? (
@@ -1787,7 +1787,7 @@ const GardenPlanner: React.FC = () => {
             ) : (
               <div className="grid gap-4">
                 {plans.map(plan => (
-                  <div key={plan.id} className="bg-white border rounded-lg p-6 hover:shadow-md">
+                  <div key={plan.id} data-testid={`plan-card-${plan.id}`} className="bg-white border rounded-lg p-6 hover:shadow-md">
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
@@ -1818,12 +1818,14 @@ const GardenPlanner: React.FC = () => {
                           Edit
                         </button>
                         <button
+                          data-testid={`plan-view-${plan.id}`}
                           onClick={() => { setSelectedPlan(plan); setView('detail'); }}
                           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
                           View
                         </button>
                         <button
+                          data-testid={`plan-delete-${plan.id}`}
                           onClick={() => handleDeleteClick(plan.id)}
                           className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
                         >
@@ -3142,6 +3144,7 @@ const GardenPlanner: React.FC = () => {
                       selectedPlan.items!.every(item => item.status === 'exported');
                     return (
                       <button
+                        data-testid="export-to-calendar-btn"
                         onClick={() => handleExportToCalendar(selectedPlan.id)}
                         disabled={loading}
                         className={`px-4 py-2 text-white rounded disabled:bg-gray-300 ${
