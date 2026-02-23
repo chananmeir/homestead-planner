@@ -241,7 +241,7 @@ export const EditSeedModal: React.FC<EditSeedModalProps> = ({ isOpen, onClose, o
         <Button variant="ghost" onClick={onClose} disabled={loading}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleSubmit} loading={loading}>
+        <Button variant="primary" onClick={handleSubmit} loading={loading} data-testid="edit-seed-submit">
           Save Changes
         </Button>
       </div>

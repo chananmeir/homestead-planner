@@ -692,7 +692,7 @@ const SeedInventory: React.FC = () => {
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
-            <div className="text-3xl font-bold text-green-700 mb-2">{totalVarieties}</div>
+            <div data-testid="seed-count" className="text-3xl font-bold text-green-700 mb-2">{totalVarieties}</div>
             <div className="text-sm text-green-600 font-medium">Varieties in Stock</div>
           </div>
 
@@ -710,6 +710,7 @@ const SeedInventory: React.FC = () => {
         {/* Action Buttons */}
         <div className="mb-6 flex gap-3">
           <button
+            data-testid="btn-add-seed"
             className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
             onClick={() => setIsAddModalOpen(true)}
           >
@@ -873,7 +874,7 @@ const SeedInventory: React.FC = () => {
               const lowQuantity = seed.quantity <= 1;
 
               return (
-                <div key={seed.id} className="bg-white border-2 border-gray-200 rounded-lg p-5 hover:shadow-lg transition-shadow">
+                <div key={seed.id} data-testid={`seed-card-${seed.id}`} className="bg-white border-2 border-gray-200 rounded-lg p-5 hover:shadow-lg transition-shadow">
                   {/* Header with Alerts and Actions */}
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
@@ -910,6 +911,7 @@ const SeedInventory: React.FC = () => {
                       </div>
                       <div className="flex gap-1">
                         <button
+                          data-testid={`btn-edit-seed-${seed.id}`}
                           onClick={() => handleEdit(seed)}
                           className="p-1 rounded text-blue-600 hover:bg-blue-50"
                           title="Edit seed"
@@ -930,6 +932,7 @@ const SeedInventory: React.FC = () => {
                           </button>
                         )}
                         <button
+                          data-testid={`btn-delete-seed-${seed.id}`}
                           onClick={() => handleDeleteClick(seed.id)}
                           className="p-1 rounded text-red-600 hover:bg-red-50"
                           title="Delete seed"

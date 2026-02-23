@@ -342,7 +342,7 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
         <Button variant="ghost" onClick={onClose} disabled={loading}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleSubmit} loading={loading}>
+        <Button variant="primary" onClick={handleSubmit} loading={loading} data-testid="add-seed-submit">
           Add Seed
         </Button>
       </div>
