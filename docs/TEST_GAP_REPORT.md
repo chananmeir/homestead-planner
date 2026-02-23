@@ -1,8 +1,8 @@
 # Homestead Planner: Comprehensive Test & Gap Report
 
-**Date**: 2026-02-22 (updated 2026-02-23)
+**Date**: 2026-02-22 (updated 2026-02-26)
 **Branch**: baseline-buildable-frontend
-**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation), #16 (conflict detection). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`). **Playwright E2E**: 3 core E2E tests implemented (`e2e-core.spec.ts`) covering login+bed+plant placement, conflict detection (409), and plan-export-to-calendar verification. Config made CI-aware. 4 `data-testid` selectors added. **Garden Planner E2E**: 13 lifecycle tests implemented in `garden-planner.spec.ts` covering plan CRUD, succession (4x/8x), multi-bed allocation (even/custom), export-to-calendar, idempotent re-export, crop rotation conflict, and nutrition estimates. 8 `data-testid` selectors added. All 13 passing (~32s).
+**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation), #16 (conflict detection). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`). **Playwright E2E**: 3 core E2E tests implemented (`e2e-core.spec.ts`) covering login+bed+plant placement, conflict detection (409), and plan-export-to-calendar verification. Config made CI-aware. 4 `data-testid` selectors added. **Garden Planner E2E**: 13 lifecycle tests implemented in `garden-planner.spec.ts` covering plan CRUD, succession (4x/8x), multi-bed allocation (even/custom), export-to-calendar, idempotent re-export, crop rotation conflict, and nutrition estimates. 8 `data-testid` selectors added. All 13 passing (~32s). **Garden Beds E2E**: 12 serial tests implemented in `garden-beds.spec.ts` covering all 6 planning methods, custom dimensions, edit flow, season extension (cold frame), clear bed, API listing, and API-only deletion. 4 `data-testid` selectors added. All 12 passing.
 **Verification**: All bugs independently verified against source code.
 
 ---
@@ -898,6 +898,7 @@ frontend/tests/
   smoke.spec.ts          # 11 tests — navigation, login/logout, bed creation, tab traversal
   auth-isolation.spec.ts # Multi-user data isolation
   e2e-core.spec.ts       # 3 serial tests — critical user journeys (see 10.1a below)
+  garden-beds.spec.ts    # 12 serial tests — garden bed CRUD & planning methods (see 10.2 below)
   garden-planner.spec.ts # 13 serial tests — garden planner full lifecycle (see 10.3 below)
 ```
 
@@ -915,6 +916,11 @@ frontend/tests/
 | `data-testid="export-to-calendar-btn"` | `GardenPlanner.tsx` | Export to Calendar button |
 | `data-testid="confirm-dialog-confirm"` | `ConfirmDialog.tsx` | Confirm button in dialog |
 | `data-testid="plan-nutrition-card"` | `PlanNutritionCard.tsx` | Nutrition card container |
+| `data-testid="bed-selector"` | `GardenDesigner.tsx` | Bed filter/selector dropdown |
+| `data-testid="active-bed-indicator"` | `GardenDesigner.tsx` | Active bed name indicator |
+| `data-testid="edit-bed-btn"` | `GardenDesigner.tsx` | Edit active bed button |
+| `data-testid="clear-bed-btn"` | `GardenDesigner.tsx` | Clear active bed button |
+| `data-testid="add-bed-btn-empty"` | `GardenDesigner.tsx` | Create First Bed button (empty state) |
 
 **Legacy test:** `frontend/test-seed-import.spec.js` — CSV seed import only (pre-existing, outside `tests/` directory).
 
@@ -1021,52 +1027,51 @@ Suite: Authentication
     - Verify only "User A Bed" visible
 ```
 
-### 10.2 Garden Beds - All Planning Methods (`garden-beds.spec.ts`)
+### 10.2 Garden Beds — CRUD & Planning Methods (`garden-beds.spec.ts`) — IMPLEMENTED AND PASSING
 
-```
-Suite: Garden Bed CRUD
-  test: Create Square Foot bed
-    - Login, Navigate to Garden Designer
-    - Click "Add Bed", fill: name="SFG Bed", width=4, length=8, method=Square Foot
-    - Submit, verify bed appears on canvas with 12" grid
+**Status**: All 12 tests passing. Implemented 2026-02-26.
 
-  test: Create MIGardener bed
-    - method=MIGardener, verify bed created
+**Test user**: Dedicated `gb_test_${RUN_ID}` (registered at suite start, beds cleaned up in `afterAll`) for full isolation from other test suites.
 
-  test: Create Row bed
-    - method=Row, verify bed shows row-based layout
+**Setup**: UI-driven bed creation with API verification for data integrity. Helper `createBedViaUI()` encapsulates modal interaction. API-only setup for fixtures (season extension, planted items).
 
-  test: Create Intensive bed
-    - method=Intensive, verify hexagonal/intensive grid
+| # | Test Name | Type | What It Verifies |
+|---|-----------|------|-----------------|
+| GB-01 | Create Square Foot bed | UI+API | 4x4 preset, `planningMethod='square-foot'`, `gridSize=12`, active indicator shows name |
+| GB-02 | Create MIGardener bed | UI+API | 4x8 preset, `planningMethod='migardener'`, `gridSize=3` |
+| GB-03 | Create Row bed | UI+API | 3x6 preset, `planningMethod='row'`, `gridSize=6` |
+| GB-04 | Create Intensive bed | UI+API | 4x8 preset, `planningMethod='intensive'`, `gridSize=6` |
+| GB-05 | Create Raised Bed | UI+API | 4x8 preset, `planningMethod='raised-bed'`, `gridSize=6` |
+| GB-06 | Create Permaculture bed | UI+API | 4x4 preset, `planningMethod='permaculture'`, `gridSize=12`, `zone='zone1'` |
+| GB-07 | Create custom-dimension bed | UI+API | `custom` preset radio, `width=6`, `length=14` |
+| GB-08 | Edit bed name, dims, method | UI+API | Select bed → edit → change name, 4x8, intensive → API verify updated fields + `gridSize=6` |
+| GB-09 | Season extension (cold frame) | UI+API | Create bed via API → edit in UI → `cold-frame`, 2 layers, material, notes → API verify `seasonExtension` JSON |
+| GB-10 | All beds visible via API | API | `GET /api/garden-beds` → filter by RUN_ID → 8 beds with correct structure |
+| GB-11 | Clear bed removes all plants | UI+API | Place tomato via API → Clear Bed button → confirm → API verify 0 `plantedItems` |
+| GB-12 | Delete bed via API, verify UI | API+UI | API DELETE → reload UI → bed gone from selector (no delete-bed button in UI) |
 
-  test: Create Permaculture bed
-    - method=Permaculture, verify creates successfully
+**Planning method → gridSize mapping verified:**
+| Method | gridSize | Tested In |
+|--------|----------|-----------|
+| `square-foot` | 12 | GB-01 |
+| `migardener` | 3 | GB-02 |
+| `row` | 6 | GB-03 |
+| `intensive` | 6 | GB-04 |
+| `raised-bed` | 6 | GB-05 |
+| `permaculture` | 12 | GB-06 |
 
-  test: Create Container bed
-    - method=Container, verify creates successfully
+**Key patterns:**
+- `test.describe.serial` — beds created in order, reused by later tests (GB-08 edits GB-01's bed)
+- API-driven verification: every UI bed creation confirmed via `GET /api/garden-beds` matching on name
+- `createBedViaUI()` helper handles modal open, form fill, preset/custom toggle, method, zone, submit
+- 4 `data-testid` selectors: `bed-selector`, `active-bed-indicator`, `edit-bed-btn`, `clear-bed-btn`
 
-  test: Edit bed dimensions
-    - Select existing bed, click edit, change width from 4 to 3
-    - Save, verify dimensions updated in display
-
-  test: Edit bed planning method
-    - Change method from Square Foot to MIGardener
-    - Verify grid/display updates accordingly
-
-  test: Delete bed with confirmation
-    - Select bed, click delete, confirm, verify bed removed from canvas
-
-  test: Delete bed with planted items - cascade
-    - Create bed, place items, delete bed
-    - Verify all planted items also removed
-
-  test: Season extension options
-    - Create bed with seasonExtension: cold-frame, 2 layers
-    - Verify season extension stored and displayed
-
-  test: Bed list shows all user beds
-    - Create 3 beds with different methods
-    - Verify all 3 appear in bed selector/list
+**Run commands:**
+```bash
+cd frontend
+npx playwright test tests/garden-beds.spec.ts             # Run this suite only
+npx playwright test tests/garden-beds.spec.ts --headed     # Visible browser
+npx playwright test tests/garden-beds.spec.ts --debug      # Step-through debug
 ```
 
 ### 10.3 Garden Planner - Full Lifecycle (`garden-planner.spec.ts`) — IMPLEMENTED AND PASSING
@@ -1411,15 +1416,16 @@ npx playwright test -g "MIGardener"
 | Smoke | `tests/smoke.spec.ts` | 11 | **PASSING** |
 | Auth Isolation | `tests/auth-isolation.spec.ts` | varies | **PASSING** |
 | Core E2E | `tests/e2e-core.spec.ts` | 3 | **PASSING** (~17s CI) |
+| Garden Beds | `tests/garden-beds.spec.ts` | 12 | **PASSING** |
 | Garden Planner | `tests/garden-planner.spec.ts` | 13 | **PASSING** (~32s) |
-| **Total implemented** | | **27+** | |
+| **Total implemented** | | **39+** | |
 
 **Full coverage map (manual + implemented + proposed):**
 
 | Feature Area | Section 3 (Manual) | Implemented E2E | Proposed E2E (Sec 10.1+) | Total |
 |---|---|---|---|---|
 | Authentication | 8 | 2 (smoke) | 6 | 16 |
-| Garden Beds (all methods) | 10 | 2 (smoke+core) | 12 | 24 |
+| Garden Beds (all methods) | 10 | 14 (smoke+core+garden-beds) | 0 | 24 |
 | Garden Planner (succession, multi-bed) | 15 | 14 (core + garden-planner) | 0 | 29 |
 | Garden Designer (placement, removal) | - | 1 (core E2E-01) | 15 | 16 |
 | Planting Calendar | - | 1 (core E2E-03) | 10 | 11 |
@@ -1442,10 +1448,10 @@ npx playwright test -g "MIGardener"
 | Plant DB Sync | 4 | - | - | 4 |
 | Integration Journeys | - | - | 3 | 3 |
 | Edge Cases (Sec 4) | 30+ | - | - | 30+ |
-| **TOTAL** | **~125** | **~27+** | **~124** | **~275+** |
+| **TOTAL** | **~125** | **~39+** | **~112** | **~275+** |
 
 †Conflict detection has 70 automated backend pytest tests (`test_conflict_detection.py`) in addition to the manual + E2E test cases. These are unit/integration tests, not Playwright E2E.
 
 ---
 
-*Report generated 2026-02-22. Updated 2026-02-23 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests), backlog #9 (succession export integration tests — 36 tests covering all 3 export paths + DTM=0 falsy bug fix), and backlog #10 (auth + user isolation tests — 51 tests covering auth flow, 401 enforcement on 17 protected endpoints, user data isolation across 11 resource types, ownership protection on 8 CRUD operations, and admin access control). Updated 2026-02-24: BUG-08 (health-records user isolation) and BUG-09 (export-garden-plan auth gate) fixed — 2 former xfail tests now pass normally (51 passed, 0 xfail). Updated 2026-02-25: backlog #14 (intensive spacing formula harmonization — backend `onCenter²/144` now matches frontend; 20 new backend + 22 new frontend tests; totals: 114 backend + 55 frontend space calc tests). Updated 2026-02-23: backlog #13 (4 DB CHECK constraints on trellis position fields — migration `8b2eca933349`, 10 tests in `test_trellis_check_constraints.py`). Updated 2026-02-26: backlog #12 (event_details JSON validation — `event_details_validator.py` validates mulch + maple-tapping write paths; ~40 unit tests in `test_event_details_validator.py`; 2 call sites in `gardens_bp.py`). Updated 2026-02-23: backlog #16 (conflict detection automated test suite — 70 tests in `test_conflict_detection.py` covering spatial/temporal overlap, sun exposure, date helpers, has_conflict composite, PlantedItem conversion, validate_planting_conflict pipeline, and query_candidate_items; maps to CONF-01 through CONF-07). Updated 2026-02-23: Playwright E2E — 3 core E2E tests implemented in `e2e-core.spec.ts` (login+bed+plant, conflict 409, plan+export+calendar); `playwright.config.js` made CI-aware (headless + no slowMo when `CI=true`); 4 `data-testid` selectors added (Toast, Add Bed, Create Bed submit, planting event item); smoke.spec.ts (11 tests) and auth-isolation.spec.ts documented in section 10.0; Settings startup bug fixed (user_id NOT NULL). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints). Updated 2026-02-26: Garden Planner E2E — 13 lifecycle tests implemented in `garden-planner.spec.ts` (plan CRUD, 4x/8x succession, even/custom multi-bed allocation, export-to-calendar, idempotent re-export, crop rotation conflict, nutrition estimate); 8 data-testid selectors added; dedicated `gp_test_user` for isolation; all 13 passing (~32s).*
+*Report generated 2026-02-22. Updated 2026-02-23 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests), backlog #9 (succession export integration tests — 36 tests covering all 3 export paths + DTM=0 falsy bug fix), and backlog #10 (auth + user isolation tests — 51 tests covering auth flow, 401 enforcement on 17 protected endpoints, user data isolation across 11 resource types, ownership protection on 8 CRUD operations, and admin access control). Updated 2026-02-24: BUG-08 (health-records user isolation) and BUG-09 (export-garden-plan auth gate) fixed — 2 former xfail tests now pass normally (51 passed, 0 xfail). Updated 2026-02-25: backlog #14 (intensive spacing formula harmonization — backend `onCenter²/144` now matches frontend; 20 new backend + 22 new frontend tests; totals: 114 backend + 55 frontend space calc tests). Updated 2026-02-23: backlog #13 (4 DB CHECK constraints on trellis position fields — migration `8b2eca933349`, 10 tests in `test_trellis_check_constraints.py`). Updated 2026-02-26: backlog #12 (event_details JSON validation — `event_details_validator.py` validates mulch + maple-tapping write paths; ~40 unit tests in `test_event_details_validator.py`; 2 call sites in `gardens_bp.py`). Updated 2026-02-23: backlog #16 (conflict detection automated test suite — 70 tests in `test_conflict_detection.py` covering spatial/temporal overlap, sun exposure, date helpers, has_conflict composite, PlantedItem conversion, validate_planting_conflict pipeline, and query_candidate_items; maps to CONF-01 through CONF-07). Updated 2026-02-23: Playwright E2E — 3 core E2E tests implemented in `e2e-core.spec.ts` (login+bed+plant, conflict 409, plan+export+calendar); `playwright.config.js` made CI-aware (headless + no slowMo when `CI=true`); 4 `data-testid` selectors added (Toast, Add Bed, Create Bed submit, planting event item); smoke.spec.ts (11 tests) and auth-isolation.spec.ts documented in section 10.0; Settings startup bug fixed (user_id NOT NULL). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints). Updated 2026-02-26: Garden Planner E2E — 13 lifecycle tests implemented in `garden-planner.spec.ts` (plan CRUD, 4x/8x succession, even/custom multi-bed allocation, export-to-calendar, idempotent re-export, crop rotation conflict, nutrition estimate); 8 data-testid selectors added; dedicated `gp_test_user` for isolation; all 13 passing (~32s). Updated 2026-02-26: Garden Beds E2E — 12 serial tests implemented in `garden-beds.spec.ts` covering all 6 planning methods (SFG/MIG/row/intensive/raised-bed/permaculture), custom dimensions, edit flow (name+dims+method), season extension (cold frame with layers/material/notes), clear bed, API listing, and API-only deletion; 4 data-testid selectors added (bed-selector, active-bed-indicator, edit-bed-btn, clear-bed-btn); dedicated `gb_test_user` for isolation; all 12 passing.*

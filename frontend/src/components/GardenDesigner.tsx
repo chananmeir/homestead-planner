@@ -660,6 +660,7 @@ const GardenDesigner: React.FC = () => {
     location: string;
     sunExposure: string;
     planningMethod: string;
+    zone?: string;
     seasonExtension?: {
       type: string;
       innerType?: string;
@@ -681,6 +682,7 @@ const GardenDesigner: React.FC = () => {
         location: bedData.location || '',
         sunExposure: bedData.sunExposure,
         planningMethod: bedData.planningMethod,
+        zone: bedData.zone,
         seasonExtension: seasonExtData,
       });
 
@@ -716,6 +718,7 @@ const GardenDesigner: React.FC = () => {
     location: string;
     sunExposure: string;
     planningMethod: string;
+    zone?: string;
     seasonExtension?: {
       type: string;
       innerType?: string;
@@ -739,6 +742,7 @@ const GardenDesigner: React.FC = () => {
         location: bedData.location || '',
         sunExposure: bedData.sunExposure,
         planningMethod: bedData.planningMethod,
+        zone: bedData.zone,
         seasonExtension: seasonExtData,
       });
 
@@ -2290,6 +2294,7 @@ const GardenDesigner: React.FC = () => {
                 </label>
                 <div className="flex items-center gap-4 flex-wrap">
                   <select
+                    data-testid="bed-selector"
                     value={bedFilter === 'all' ? 'all' : bedFilter.toString()}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -2341,7 +2346,7 @@ const GardenDesigner: React.FC = () => {
 
                   {/* Active Bed Indicator */}
                   {activeBed && (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                    <div data-testid="active-bed-indicator" className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
                       <span className="text-sm font-medium text-green-700">Active:</span>
                       <span className="text-sm text-green-900">{activeBed.name}</span>
 
@@ -2374,6 +2379,7 @@ const GardenDesigner: React.FC = () => {
                       )}
 
                       <button
+                        data-testid="edit-bed-btn"
                         onClick={() => setEditingBed(activeBed)}
                         className="ml-2 text-green-700 hover:text-green-900 transition-colors"
                         title="Edit this bed"
@@ -2400,6 +2406,7 @@ const GardenDesigner: React.FC = () => {
                   {/* Clear Bed Button */}
                   {activeBed && getActivePlantedItems(activeBed).length > 0 && (
                     <button
+                      data-testid="clear-bed-btn"
                       onClick={() => setClearConfirm(true)}
                       className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
                     >
@@ -2562,6 +2569,7 @@ const GardenDesigner: React.FC = () => {
                 <div className="text-6xl mb-4">🎨</div>
                 <p className="text-lg mb-4">No garden beds created yet.</p>
                 <button
+                  data-testid="add-bed-btn-empty"
                   onClick={() => setShowBedModal(true)}
                   className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
                 >
