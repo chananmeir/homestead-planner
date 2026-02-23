@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-22 (updated 2026-02-23)
 **Branch**: baseline-buildable-frontend
-**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`).
+**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation), #16 (conflict detection). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`).
 **Verification**: All bugs independently verified against source code.
 
 ---
@@ -311,6 +311,8 @@
 | SPACE-12 | Seed-density broadcast | spinach-1 | migardener | 100 | seedDensityPerSqFt path (no row restriction) | Both | P1 |
 
 ### 3.5 Conflict Detection
+
+**Automated coverage:** `backend/tests/test_conflict_detection.py` — 70 tests covering CONF-01 through CONF-07. CONF-08 (audit endpoint) is NOT covered (the `find_conflicts_in_bed()` function has a known bug — see SUS-06 below).
 
 | ID | Test Case | Preconditions | Steps | Expected Result | Priority |
 |----|-----------|---------------|-------|-----------------|----------|
@@ -730,6 +732,7 @@ def export_garden_plan(bed_id):
 | SUS-03 | Frontend `migardenerSpacing.ts:154` | Comment `\ Traditional row-based crops` has backslash instead of `//` | Low (syntax) |
 | SUS-04 | ~~`/api/plants` returns raw dicts with mixed casing~~ | RESOLVED: `_normalize_plant_keys()` in `data_bp.py` converts to camelCase | Resolved |
 | SUS-05 | Livestock sub-resource endpoints are top-level | `/api/egg-production` instead of `/api/chickens/:id/egg-production` | Low (design) |
+| SUS-06 | `conflict_service.py::find_conflicts_in_bed()` calls `has_conflict()` with positional args `(event1.position_x, event1.position_y, ...)` but `has_conflict()` expects `(new_event, existing_events, garden_bed)`. Dead/broken code. The `audit-conflicts` endpoint in `gardens_bp.py` has its own working implementation that doesn't use this function. | Low (dead code) |
 
 ---
 
@@ -760,11 +763,12 @@ def export_garden_plan(bed_id):
 | 8 | ~~Automated test suite: space calc sync~~ **DONE** | — | `backend/tests/test_space_calculation_sync.py` (114 tests), `frontend/src/utils/__tests__/gardenPlannerSpaceCalculator.test.ts` (55 tests) | — |
 | 9 | ~~Automated test suite: succession export~~ **DONE** | — | `backend/tests/test_succession_export.py` (36 tests), `backend/tests/conftest.py` (shared fixtures) | — |
 | 10 | ~~Automated test suite: auth + user isolation~~ **DONE** | — | `backend/tests/test_auth_isolation.py` (51 tests, 0 xfail), `backend/tests/conftest.py` (auth fixtures) | — |
-| 11 | Clean up dual status system | 8+ hr | 5+ files | HIGH - behavioral change |
+| 11 | ~~Clean up dual status system~~ **DEFERRED** | 8+ hr | 5+ files | HIGH - behavioral change. **Intentionally deferred**: no user-facing bugs today; fix touches seed saving, calendar export, harvest marking, and designer placement with no status-transition test coverage as safety net. Risk/reward ratio too high. |
 | 12 | ~~Add JSON schema for event_details~~ **DONE** | — | `backend/services/event_details_validator.py` (validator), `backend/blueprints/gardens_bp.py` (2 call sites), `backend/tests/test_event_details_validator.py` (~40 tests) | — |
 | 13 | ~~Add DB CHECK constraints for trellis positions~~ **DONE** | — | `backend/models.py` (4 CheckConstraints), `migrations/versions/8b2eca933349_...py`, `backend/tests/test_trellis_check_constraints.py` (10 tests) | — |
 | 14 | ~~Intensive spacing frontend/backend sync audit~~ **DONE** | — | Backend `intensive_spacing.py` formula harmonized to `onCenter²/144` (matching frontend). 20 new backend + 22 new frontend tests added. | — |
 | 15 | ~~Fix mixed casing in /api/plants response~~ **DONE** | — | `backend/blueprints/data_bp.py` (`_normalize_plant_keys()`), `frontend/src/types.ts`, `frontend/src/data/plantDatabase.ts`, 6 component files updated. CLAUDE.md exception removed. | — |
+| 16 | ~~Automated test suite: conflict detection~~ **DONE** | — | `backend/tests/test_conflict_detection.py` (70 tests: 12 spatial overlap, 10 temporal overlap, 8 sun exposure, 6 date helpers, 13 composite has_conflict, 4 PlantedItem conversion, 12 validate_planting_conflict pipeline, 5 query_candidate_items) | — |
 
 ---
 
@@ -801,6 +805,7 @@ def export_garden_plan(bed_id):
 | Cross-check script comparing backend vs frontend plant counts | Missing | Sync drift goes undetected |
 | Integration test: export_to_calendar round-trip | **EXISTS** | `backend/tests/test_succession_export.py` — 36 tests covering all 3 code paths (legacy, bed-allocated, trellis), idempotent re-export, DTM/harvest-date resolution, remainder distribution, and edge cases |
 | Auth isolation test hitting all endpoints | **EXISTS** | `backend/tests/test_auth_isolation.py` — 51 tests (all passing): 5 auth flow, 22 auth-required (17 protected + 3 public + 1 export-garden-plan + 1 structures), 12 user isolation (including health-records), 8 ownership protection, 5 admin access |
+| Backend pytest for conflict_checker.py | **EXISTS** | `backend/tests/test_conflict_detection.py` — 70 tests covering spatial overlap (Chebyshev distance), temporal overlap (strict < boundary), sun exposure compatibility, date helpers, composite has_conflict(), PlantedItem-to-event conversion, validate_planting_conflict pipeline, and query_candidate_items DB queries |
 
 ---
 
@@ -1393,7 +1398,7 @@ npx playwright test -g "MIGardener"
 | Garden Designer (placement, removal) | - | 15 | 15 |
 | Planting Calendar | - | 10 | 10 |
 | Space Calculations | 12 | 10 | 22 |
-| Conflict Detection | 8 | - | 8 |
+| Conflict Detection | 8 | - | 8 + 70 backend pytest† |
 | Calendar Export | 10 | - | 10 |
 | Seed Saving | 6 | 3 | 9 |
 | Crop Rotation | 5 | - | 5 |
@@ -1413,6 +1418,8 @@ npx playwright test -g "MIGardener"
 | Edge Cases (Sec 4) | 30+ | - | 30+ |
 | **TOTAL** | **~125** | **~137** | **~260+** |
 
+†Conflict detection has 70 automated backend pytest tests (`test_conflict_detection.py`) in addition to the 8 manual test cases. These are unit/integration tests, not Playwright E2E.
+
 ---
 
-*Report generated 2026-02-22. Updated 2026-02-23 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests), backlog #9 (succession export integration tests — 36 tests covering all 3 export paths + DTM=0 falsy bug fix), and backlog #10 (auth + user isolation tests — 51 tests covering auth flow, 401 enforcement on 17 protected endpoints, user data isolation across 11 resource types, ownership protection on 8 CRUD operations, and admin access control). Updated 2026-02-24: BUG-08 (health-records user isolation) and BUG-09 (export-garden-plan auth gate) fixed — 2 former xfail tests now pass normally (51 passed, 0 xfail). Updated 2026-02-25: backlog #14 (intensive spacing formula harmonization — backend `onCenter²/144` now matches frontend; 20 new backend + 22 new frontend tests; totals: 114 backend + 55 frontend space calc tests). Updated 2026-02-23: backlog #13 (4 DB CHECK constraints on trellis position fields — migration `8b2eca933349`, 10 tests in `test_trellis_check_constraints.py`). Updated 2026-02-26: backlog #12 (event_details JSON validation — `event_details_validator.py` validates mulch + maple-tapping write paths; ~40 unit tests in `test_event_details_validator.py`; 2 call sites in `gardens_bp.py`). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*
+*Report generated 2026-02-22. Updated 2026-02-23 with BUG-01/BUG-04/BUG-07 fixes, backlog #7 (trellis overlap validation), backlog #8 (automated space calc test suite — 94 backend + 33 frontend tests), backlog #9 (succession export integration tests — 36 tests covering all 3 export paths + DTM=0 falsy bug fix), and backlog #10 (auth + user isolation tests — 51 tests covering auth flow, 401 enforcement on 17 protected endpoints, user data isolation across 11 resource types, ownership protection on 8 CRUD operations, and admin access control). Updated 2026-02-24: BUG-08 (health-records user isolation) and BUG-09 (export-garden-plan auth gate) fixed — 2 former xfail tests now pass normally (51 passed, 0 xfail). Updated 2026-02-25: backlog #14 (intensive spacing formula harmonization — backend `onCenter²/144` now matches frontend; 20 new backend + 22 new frontend tests; totals: 114 backend + 55 frontend space calc tests). Updated 2026-02-23: backlog #13 (4 DB CHECK constraints on trellis position fields — migration `8b2eca933349`, 10 tests in `test_trellis_check_constraints.py`). Updated 2026-02-26: backlog #12 (event_details JSON validation — `event_details_validator.py` validates mulch + maple-tapping write paths; ~40 unit tests in `test_event_details_validator.py`; 2 call sites in `gardens_bp.py`). Updated 2026-02-23: backlog #16 (conflict detection automated test suite — 70 tests in `test_conflict_detection.py` covering spatial/temporal overlap, sun exposure, date helpers, has_conflict composite, PlantedItem conversion, validate_planting_conflict pipeline, and query_candidate_items; maps to CONF-01 through CONF-07). All bugs verified against branch `baseline-buildable-frontend`. Endpoint catalog verified against actual blueprint source files (122 routes across 15 blueprints).*
