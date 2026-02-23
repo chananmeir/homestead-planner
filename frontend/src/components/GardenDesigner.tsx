@@ -121,6 +121,7 @@ const GardenDesigner: React.FC = () => {
   const [editingEventDate, setEditingEventDate] = useState<{
     itemId: number; currentDate: string;
   } | null>(null);
+  const [movingFutureItemId, setMovingFutureItemId] = useState<number | null>(null);
   const [showMoveInput, setShowMoveInput] = useState(false);
   const [moveTargetLabel, setMoveTargetLabel] = useState('');
   const [moveError, setMoveError] = useState<string | null>(null);
@@ -879,6 +880,7 @@ const GardenDesigner: React.FC = () => {
         );
         if (remaining.length === 0) {
           setSelectedFutureCell(null);
+          setMovingFutureItemId(null);
         } else {
           setSelectedFutureCell({ ...selectedFutureCell, futurePlantedItems: remaining });
         }
@@ -903,6 +905,7 @@ const GardenDesigner: React.FC = () => {
         setEditingEventDate(null);
         await loadData();
         setSelectedFutureCell(null);
+        setMovingFutureItemId(null);
       } else {
         const err = await response.json().catch(() => ({ error: 'Failed to update' }));
         showError(err.error || 'Failed to update date');
@@ -1004,6 +1007,74 @@ const GardenDesigner: React.FC = () => {
       }
     } catch (error) {
       console.error('Error moving plant:', error);
+      setMoveError('Network error occurred while moving plant');
+    }
+  };
+
+  const handleMoveFuturePlant = async () => {
+    if (!selectedFutureCell || !movingFutureItemId || !moveTargetLabel.trim()) return;
+    const { bed, futurePlantedItems } = selectedFutureCell;
+    const item = futurePlantedItems.find(i => i.id === movingFutureItemId);
+    if (!item) return;
+
+    const gridWidth = Math.floor((bed.width * 12) / bed.gridSize);
+    const gridHeight = Math.floor((bed.length * 12) / bed.gridSize);
+    const validation = isValidGridLabel(moveTargetLabel, gridWidth, gridHeight);
+
+    if (!validation.valid) {
+      setMoveError(validation.error || 'Invalid position');
+      return;
+    }
+
+    const coord = gridLabelToCoordinate(moveTargetLabel);
+    if (!coord) {
+      setMoveError('Invalid position format. Use letter + number (e.g., A1, B3).');
+      return;
+    }
+
+    if (coord.x === item.position.x && coord.y === item.position.y) {
+      setMoveError('That is the current position.');
+      return;
+    }
+
+    try {
+      const response = await apiPut(`/api/planted-items/${item.id}`, {
+        position: { x: coord.x, y: coord.y }
+      });
+
+      if (response.ok) {
+        const plantName = getPlantName(item.plantId);
+        const newLabel = coordinateToGridLabel(coord.x, coord.y);
+        showSuccess(`Moved ${plantName} to ${newLabel}`);
+        setMovingFutureItemId(null);
+        setMoveTargetLabel('');
+        setMoveError(null);
+
+        const freshBeds = await loadData();
+        await fetchPlantingEvents();
+        await fetchFuturePlantingEvents();
+
+        // Update the popup's item list with new position
+        const updatedItems = futurePlantedItems.map(i =>
+          i.id === item.id ? { ...i, position: { x: coord.x, y: coord.y } } : i
+        );
+        setSelectedFutureCell({ ...selectedFutureCell, futurePlantedItems: updatedItems });
+
+        if (activeBed) {
+          const updatedBed = freshBeds.find(b => b.id === activeBed.id);
+          if (updatedBed) {
+            setActiveBed(updatedBed);
+            setVisibleBeds(prev =>
+              prev.map(b => b.id === updatedBed.id ? updatedBed : b)
+            );
+          }
+        }
+      } else {
+        const errorData = await response.json();
+        setMoveError(formatConflictError(errorData));
+      }
+    } catch (error) {
+      console.error('Error moving future plant:', error);
       setMoveError('Network error occurred while moving plant');
     }
   };
@@ -1138,6 +1209,7 @@ const GardenDesigner: React.FC = () => {
     setPanelDragOffset({ dx: 0, dy: 0 });
     setSelectedPlant(item);  // Required for Edit/Delete handlers
     setSelectedFutureCell(null); // Close future cell panel if open
+    setMovingFutureItemId(null);
     setShowMoveInput(false); // Reset move input when selecting a different plant
     setMoveTargetLabel('');
     setMoveError(null);
@@ -2315,6 +2387,7 @@ const GardenDesigner: React.FC = () => {
 
                   {/* Add Bed Button */}
                   <button
+                    data-testid="add-bed-btn"
                     onClick={() => setShowBedModal(true)}
                     className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
                   >
@@ -3016,7 +3089,7 @@ const GardenDesigner: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => { setSelectedFutureCell(null); setEditingEventDate(null); }}
+                onClick={() => { setSelectedFutureCell(null); setEditingEventDate(null); setMovingFutureItemId(null); }}
                 className="text-gray-400 hover:text-gray-600 transition-colors text-lg font-bold"
               >
                 ✕
@@ -3071,8 +3144,29 @@ const GardenDesigner: React.FC = () => {
                               </span>
                             </div>
                           </div>
-                          {/* Edit & Delete action buttons */}
+                          {/* Move, Edit & Delete action buttons */}
                           <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (movingFutureItemId === item.id) {
+                                  setMovingFutureItemId(null);
+                                  setMoveTargetLabel('');
+                                  setMoveError(null);
+                                } else {
+                                  setMovingFutureItemId(item.id);
+                                  setMoveTargetLabel('');
+                                  setMoveError(null);
+                                  setEditingEventDate(null);
+                                }
+                              }}
+                              className={`p-1 rounded transition-colors ${movingFutureItemId === item.id ? 'text-amber-600 bg-amber-50' : 'text-gray-400 hover:text-amber-600 hover:bg-amber-50'}`}
+                              title="Move plant"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                              </svg>
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -3081,6 +3175,7 @@ const GardenDesigner: React.FC = () => {
                                     ? null
                                     : { itemId: item.id, currentDate: plantedDateStr }
                                 );
+                                setMovingFutureItemId(null);
                               }}
                               className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                               title="Edit planted date"
@@ -3106,6 +3201,62 @@ const GardenDesigner: React.FC = () => {
                             </button>
                           </div>
                         </div>
+
+                        {/* Inline move input */}
+                        {movingFutureItemId === item.id && (
+                          <div className="mt-2 pt-2 border-t border-green-100 space-y-2">
+                            <label className="text-xs font-medium text-gray-700">
+                              Move to position ({(() => {
+                                const gw = Math.floor((bed.width * 12) / bed.gridSize);
+                                const gh = Math.floor((bed.length * 12) / bed.gridSize);
+                                return `A1-${coordinateToGridLabel(gw - 1, gh - 1)}`;
+                              })()}):
+                            </label>
+                            <div className="flex gap-1">
+                              <input
+                                type="text"
+                                value={moveTargetLabel}
+                                onChange={(e) => {
+                                  setMoveTargetLabel(e.target.value.toUpperCase());
+                                  setMoveError(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleMoveFuturePlant();
+                                  if (e.key === 'Escape') {
+                                    setMovingFutureItemId(null);
+                                    setMoveTargetLabel('');
+                                    setMoveError(null);
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                placeholder="e.g. B2"
+                                autoFocus
+                                className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 focus:border-amber-400 uppercase"
+                              />
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleMoveFuturePlant(); }}
+                                disabled={!moveTargetLabel.trim()}
+                                className="px-2 py-1 text-xs font-medium text-white bg-amber-500 rounded hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                Move
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMovingFutureItemId(null);
+                                  setMoveTargetLabel('');
+                                  setMoveError(null);
+                                }}
+                                className="px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 border border-gray-300 rounded hover:bg-gray-200"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            {moveError && (
+                              <p className="text-xs text-red-600 whitespace-pre-line">{moveError}</p>
+                            )}
+                          </div>
+                        )}
 
                         {/* Date details */}
                         <div className="mt-2 pt-2 border-t border-green-100 space-y-1">

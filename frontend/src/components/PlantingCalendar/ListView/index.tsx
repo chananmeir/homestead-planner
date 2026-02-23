@@ -373,6 +373,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                       return (
                         <div
                           key={event.id}
+                          data-testid="planting-event-item"
                           className={`p-4 rounded-lg border transition-all ${
                             event.completed
                               ? 'bg-green-50 border-green-200 opacity-60'

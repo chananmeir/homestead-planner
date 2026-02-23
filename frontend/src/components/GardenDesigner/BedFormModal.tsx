@@ -764,6 +764,69 @@ const BedFormModal: React.FC<BedFormModalProps> = ({ isOpen, onClose, onSubmit, 
                 </div>
               </>
             )}
+
+            {/* Shade Cloth (Heat Protection) */}
+            <div className="mt-6 border-t border-gray-200 pt-4">
+              <div className="mb-3">
+                <h4 className="text-md font-semibold text-gray-800 mb-1">Heat Protection</h4>
+                <p className="text-sm text-gray-600">Shade cloth reduces air temperature for heat-sensitive crops</p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label htmlFor="shade-cloth-toggle" className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    id="shade-cloth-toggle"
+                    type="checkbox"
+                    checked={formData.seasonExtension?.shadeCloth?.installed || false}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      seasonExtension: {
+                        ...formData.seasonExtension!,
+                        shadeCloth: {
+                          installed: e.target.checked,
+                          shadeFactor: formData.seasonExtension?.shadeCloth?.shadeFactor || 50
+                        }
+                      }
+                    })}
+                    className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Shade Cloth Installed</span>
+                </label>
+              </div>
+
+              {formData.seasonExtension?.shadeCloth?.installed && (
+                <div className="mt-3">
+                  <label htmlFor="shade-factor" className="block text-sm font-medium text-gray-700 mb-2">
+                    Shade Factor
+                  </label>
+                  <select
+                    id="shade-factor"
+                    value={formData.seasonExtension?.shadeCloth?.shadeFactor || 50}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      seasonExtension: {
+                        ...formData.seasonExtension!,
+                        shadeCloth: {
+                          installed: true,
+                          shadeFactor: parseInt(e.target.value)
+                        }
+                      }
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  >
+                    <option value="30">30% (-6°F) - Light shade</option>
+                    <option value="40">40% (-8°F) - Moderate shade</option>
+                    <option value="50">50% (-10°F) - Standard for vegetables</option>
+                    <option value="60">60% (-12°F) - Heavy shade</option>
+                    <option value="70">70% (-14°F) - Shade-loving plants</option>
+                    <option value="80">80% (-16°F) - Maximum shade</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    50% shade cloth is standard for most vegetable gardens. Lower values for sun-loving crops, higher for lettuce and greens.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Submit Error */}
@@ -785,6 +848,7 @@ const BedFormModal: React.FC<BedFormModalProps> = ({ isOpen, onClose, onSubmit, 
             </button>
             <button
               type="submit"
+              data-testid="create-bed-submit"
               disabled={loading}
               className="px-4 py-2 text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >

@@ -6,12 +6,13 @@ interface Toast {
   id: string;
   type: ToastType;
   message: string;
+  duration?: number | null; // null = no auto-dismiss
 }
 
 interface ToastContextType {
-  showToast: (message: string, type?: ToastType) => void;
+  showToast: (message: string, type?: ToastType, duration?: number | null) => void;
   showSuccess: (message: string) => void;
-  showError: (message: string) => void;
+  showError: (message: string, duration?: number | null) => void;
   showInfo: (message: string) => void;
   showWarning: (message: string) => void;
 }
@@ -37,22 +38,30 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string, type: ToastType = 'info', duration: number | null = 3000) => {
     const id = Math.random().toString(36).substring(7);
-    const toast: Toast = { id, type, message };
+    const toast: Toast = { id, type, message, duration };
 
-    setToasts((prev) => [...prev, toast]);
+    setToasts((prev) => {
+      // Deduplicate: don't add if same message and type already exists
+      if (prev.some(t => t.message === message && t.type === type)) {
+        return prev;
+      }
+      return [...prev, toast];
+    });
 
-    // Auto-remove after 3 seconds
-    setTimeout(() => {
-      removeToast(id);
-    }, 3000);
+    // Auto-remove after duration (if duration is not null)
+    if (duration !== null) {
+      setTimeout(() => {
+        removeToast(id);
+      }, duration);
+    }
   }, [removeToast]);
 
   const showSuccess = useCallback((message: string) => showToast(message, 'success'), [showToast]);
-  const showError = useCallback((message: string) => showToast(message, 'error'), [showToast]);
+  const showError = useCallback((message: string, duration: number | null = null) => showToast(message, 'error', duration), [showToast]);
   const showInfo = useCallback((message: string) => showToast(message, 'info'), [showToast]);
-  const showWarning = useCallback((message: string) => showToast(message, 'warning'), [showToast]);
+  const showWarning = useCallback((message: string) => showToast(message, 'warning', null), [showToast]);
 
   const value: ToastContextType = {
     showToast,
@@ -117,18 +126,19 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
         {toasts.map((toast) => (
           <div
             key={toast.id}
+            data-testid={`toast-${toast.type}`}
             className={`
               ${toastStyles[toast.type]}
-              px-4 py-3 rounded-lg shadow-lg flex items-center gap-3
-              min-w-[300px] max-w-md
+              px-4 py-3 rounded-lg shadow-lg flex items-start gap-3
+              min-w-[300px] max-w-xl
               animate-slideInRight
             `}
           >
-            {toastIcons[toast.type]}
-            <span className="flex-1">{toast.message}</span>
+            <div className="flex-shrink-0 mt-0.5">{toastIcons[toast.type]}</div>
+            <span className="flex-1 whitespace-pre-line text-sm">{toast.message}</span>
             <button
               onClick={() => removeToast(toast.id)}
-              className="hover:opacity-80 transition-opacity"
+              className="hover:opacity-80 transition-opacity flex-shrink-0"
               aria-label="Close"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
