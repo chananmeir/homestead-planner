@@ -497,7 +497,9 @@ const GardenDesigner: React.FC = () => {
   // items that exist (and block placement) but are invisible due to missing events.
   const getActivePlantedItems = (bed: GardenBed): PlantedItem[] => {
     if (!dateFilter.date) return bed.plantedItems || [];
-    const viewDate = new Date(dateFilter.date);
+    // Append T00:00:00 so date-only strings parse as local time, not UTC.
+    // Without this, "2026-02-23" → UTC midnight → previous day in UTC-negative timezones.
+    const viewDate = new Date(dateFilter.date + 'T00:00:00');
     viewDate.setHours(0, 0, 0, 0);
 
     return (bed.plantedItems || []).filter(item => {
@@ -545,7 +547,9 @@ const GardenDesigner: React.FC = () => {
   // These are items placed on the grid with a plantedDate after the current view date.
   const getFuturePlantedItemPositions = (bed: GardenBed): FuturePlantingPosition[] => {
     if (!dateFilter.date) return [];
-    const viewDate = new Date(dateFilter.date);
+    // Append T00:00:00 so date-only strings parse as local time, not UTC.
+    // Without this, "2026-02-23" → UTC midnight → previous day in UTC-negative timezones.
+    const viewDate = new Date(dateFilter.date + 'T00:00:00');
     viewDate.setHours(0, 0, 0, 0);
     const positions: FuturePlantingPosition[] = [];
     const occupiedCells = new Set<string>();
@@ -595,7 +599,9 @@ const GardenDesigner: React.FC = () => {
   /** Get PlantedItems in a bed whose plantedDate is after the view date (future placed plants) */
   const getFuturePlantedItems = (bed: GardenBed): PlantedItem[] => {
     if (!dateFilter.date) return [];
-    const viewDate = new Date(dateFilter.date);
+    // Append T00:00:00 so date-only strings parse as local time, not UTC.
+    // Without this, "2026-02-23" → UTC midnight → previous day in UTC-negative timezones.
+    const viewDate = new Date(dateFilter.date + 'T00:00:00');
     viewDate.setHours(0, 0, 0, 0);
     return (bed.plantedItems || []).filter(item => {
       if (!item.plantedDate) return false;
