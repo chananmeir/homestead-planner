@@ -98,6 +98,7 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
             Seed Maturity Date
           </label>
           <input
+            data-testid="seed-date-input"
             type="date"
             value={dateStr}
             onChange={(e) => setDateStr(e.target.value)}
@@ -119,6 +120,7 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
             Cancel
           </button>
           <button
+            data-testid="seed-date-submit"
             onClick={handleSubmit}
             disabled={submitting}
             className="flex-1 px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50"

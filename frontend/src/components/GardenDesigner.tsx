@@ -1903,6 +1903,7 @@ const GardenDesigner: React.FC = () => {
             return (
               <g
                 key={item.id}
+                data-testid={`planted-item-${item.id}`}
                 onMouseEnter={() => setHoveredPlant(item)}
                 onMouseLeave={() => setHoveredPlant(null)}
                 onClick={(e) => {
@@ -2250,6 +2251,7 @@ const GardenDesigner: React.FC = () => {
               return (
                 <div className="mb-4">
                   <button
+                    data-testid="future-plantings-toggle"
                     onClick={() => { const next = !showFuturePlantings; localStorage.setItem('showFuturePlantings', String(next)); setShowFuturePlantings(next); }}
                     className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border-2 transition-all ${
                       showFuturePlantings
@@ -2751,6 +2753,7 @@ const GardenDesigner: React.FC = () => {
 
         return (
           <div
+            data-testid="plant-detail-panel"
             className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-300 p-4 min-w-[280px] max-w-[320px] max-h-[80vh] overflow-y-auto"
             style={{ left: `${left + panelDragOffset.dx}px`, top: `${top + panelDragOffset.dy}px` }}
             onClick={(e) => e.stopPropagation()}
@@ -2788,7 +2791,7 @@ const GardenDesigner: React.FC = () => {
             <div className="space-y-3">
               <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                  <span data-testid="plant-status-badge" className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                     item.status === 'harvested' ? 'bg-amber-100 text-amber-800' :
                     item.status === 'growing' ? 'bg-green-100 text-green-800' :
                     item.status === 'transplanted' ? 'bg-blue-100 text-blue-800' :
@@ -2852,6 +2855,7 @@ const GardenDesigner: React.FC = () => {
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-medium text-gray-700 uppercase">Save for Seed</span>
                       <button
+                        data-testid="seed-saving-toggle"
                         onClick={() => handleToggleSeedSaving(item, !item.saveForSeed)}
                         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                           item.saveForSeed ? 'bg-amber-500' : 'bg-gray-300'
@@ -2885,6 +2889,7 @@ const GardenDesigner: React.FC = () => {
                           <div className="space-y-1.5">
                             <p className="text-xs font-medium text-green-700">Seeds ready to collect!</p>
                             <button
+                              data-testid="collect-seeds-btn"
                               onClick={() => setCollectSeedsItem(item)}
                               className="w-full text-xs px-2 py-1.5 bg-green-100 text-green-800 border border-green-300 rounded hover:bg-green-200 font-medium"
                             >
@@ -3007,6 +3012,7 @@ const GardenDesigner: React.FC = () => {
                     Move
                   </button>
                   <button
+                    data-testid="delete-plant-btn"
                     onClick={() => setDeleteConfirm(true)}
                     className="flex-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-300 rounded hover:bg-red-100"
                   >
