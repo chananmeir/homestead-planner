@@ -83,9 +83,16 @@ export function getEffectivePlantingStyle(
     return userOverride;
   }
 
-  // Priority 2: Plant metadata
+  // Priority 2: Plant metadata (map agronomic style → UI PlantingStyle)
   if (plant?.migardener?.plantingStyle) {
-    return plant.migardener.plantingStyle as PlantingStyle;
+    const agronomicToUI: Record<string, PlantingStyle> = {
+      'row_based': 'row',
+      'broadcast': 'broadcast',
+      'dense_patch': 'dense_patch',
+      'plant_spacing': 'plant_spacing',
+      'trellis_linear': 'trellis_linear',
+    };
+    return agronomicToUI[plant.migardener.plantingStyle] || 'grid';
   }
 
   // Priority 3: Bed default (Phase 2 - optional)

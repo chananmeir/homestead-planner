@@ -1,9 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, forwardRef, useImperativeHandle } from 'react';
 
 interface SelectedFile {
   file: File;
   preview: string;
   id: string;
+}
+
+export interface FormFileInputRef {
+  reset: () => void;
 }
 
 interface FormFileInputProps {
@@ -12,23 +16,38 @@ interface FormFileInputProps {
   multiple?: boolean;
   maxSize?: number; // in bytes
   onChange: (files: File[]) => void;
+  onReset?: () => void;
   error?: string;
   helperText?: string;
 }
 
-export const FormFileInput: React.FC<FormFileInputProps> = ({
+export const FormFileInput = forwardRef<FormFileInputRef, FormFileInputProps>(({
   label,
   accept = 'image/*',
   multiple = true,
   maxSize = 16 * 1024 * 1024, // 16MB default
   onChange,
+  onReset,
   error,
   helperText,
-}) => {
+}, ref) => {
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [validationError, setValidationError] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Expose reset function to parent via ref
+  useImperativeHandle(ref, () => ({
+    reset: () => {
+      setSelectedFiles([]);
+      setValidationError('');
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+      onChange([]);
+      onReset?.();
+    }
+  }));
 
   const validateFile = (file: File): string | null => {
     if (maxSize && file.size > maxSize) {
@@ -63,7 +82,10 @@ export const FormFileInput: React.FC<FormFileInputProps> = ({
 
     setValidationError('');
 
-    Array.from(files).forEach((file) => {
+    // If multiple is false, only process the first file and replace existing selection
+    const filesToProcess = multiple ? Array.from(files) : [files[0]];
+
+    filesToProcess.forEach((file) => {
       const validation = validateFile(file);
       if (validation) {
         setValidationError(validation);
@@ -81,7 +103,8 @@ export const FormFileInput: React.FC<FormFileInputProps> = ({
         };
 
         setSelectedFiles(prev => {
-          const updated = [...prev, selectedFile];
+          // If multiple is false, replace the entire selection with the new file
+          const updated = multiple ? [...prev, selectedFile] : [selectedFile];
           onChange(updated.map(sf => sf.file));
           return updated;
         });
@@ -240,4 +263,6 @@ export const FormFileInput: React.FC<FormFileInputProps> = ({
       )}
     </div>
   );
-};
+});
+
+FormFileInput.displayName = 'FormFileInput';
