@@ -67,6 +67,27 @@ GARDEN_METHODS = {
         'spacing': 'Hexagonal/offset pattern',
         'soilDepth': '24 inches deep double-dug beds'
     },
+    'migardener': {
+        'name': 'MIgardener High-Intensity',
+        'description': 'Luke Marion\'s ultra-dense row spacing method for maximum productivity',
+        'gridSize': 3,  # inches per cell (finest grid for dense planting)
+        'standardBedSizes': [
+            {'width': 4, 'length': 8, 'name': '4x8 High-Intensity'},
+            {'width': 4, 'length': 12, 'name': '4x12 Long High-Intensity'},
+            {'width': 3, 'length': 6, 'name': '3x6 Compact High-Intensity'}
+        ],
+        'benefits': [
+            'Extremely high yields per square foot',
+            'Dense planting suppresses weeds naturally',
+            'Self-supporting plant canopy',
+            'Shades soil to retain moisture',
+            'Efficient use of vertical space with trellising'
+        ],
+        'idealFor': 'Maximum production, experienced gardeners, intensive succession planting',
+        'spacing': 'Ultra-dense rows with close within-row spacing',
+        'soilDepth': '8-12 inches minimum, well-amended soil',
+        'notes': 'Requires frequent succession planting and careful soil management'
+    },
     'raised-bed': {
         'name': 'Raised Bed',
         'description': 'Various height raised beds with flexible layouts',
@@ -141,34 +162,40 @@ GARDEN_METHODS = {
 # How many plants per 1 ft square for SFG method
 
 SFG_SPACING = {
+    # 0.5 per square (17" spacing, 2 squares per plant) - Extra-large plants
+    0.5: [
+        'watermelon', 'melon', 'cantaloupe', 'pumpkin'
+    ],
+
     # 1 per square (12" spacing) - Large plants
     1: [
         'tomato', 'pepper', 'eggplant', 'broccoli', 'cauliflower', 'cabbage',
-        'brussels-sprouts', 'kale', 'collards', 'chard', 'basil', 'parsley',
-        'squash', 'cucumber', 'melon', 'watermelon', 'okra', 'corn'
-    ],
-
-    # 2 per square (6" spacing on centers)
-    2: [
-        'lettuce-head', 'celery', 'fennel', 'kohlrabi'
+        'brussels-sprouts', 'kale', 'collards', 'cilantro',
+        'squash', 'cucumber', 'okra', 'corn', 'celery',
+        'lettuce-head', 'lettuce-crisphead'
     ],
 
     # 4 per square (6" spacing) - Medium plants
     4: [
-        'lettuce', 'arugula', 'mustard-greens', 'bok-choy', 'spinach',
-        'marigold', 'nasturtium', 'zinnia', 'parsley'
+        'lettuce', 'lettuce-leaf', 'lettuce-romaine', 'mustard-greens', 'bok-choy',
+        'marigold', 'nasturtium', 'zinnia', 'parsley', 'chard',
+        'beet', 'onion', 'shallot', 'garlic', 'leek', 'kohlrabi', 'thyme'
+    ],
+
+    # 8 per square (4.2" spacing, typically vertical/trellis) - Pole/climbing plants
+    8: [
+        'pea', 'bean-pole'
     ],
 
     # 9 per square (4" spacing) - Small plants
     9: [
-        'beet', 'turnip', 'leek', 'onion', 'shallot', 'garlic',
-        'bush-bean', 'pea', 'asian-greens'
+        'arugula', 'turnip', 'spinach',
+        'bush-bean', 'asian-greens', 'scallion'
     ],
 
     # 16 per square (3" spacing) - Tiny plants
     16: [
-        'carrot', 'radish', 'scallion', 'chive', 'cilantro', 'dill',
-        'oregano', 'thyme', 'parsley-curly'
+        'carrot', 'radish', 'chive'
     ]
 }
 
@@ -235,6 +262,40 @@ INTENSIVE_SPACING = {
     'arugula': 4,
     'marigold': 8,
     'nasturtium': 10
+}
+
+# ==================== MIGARDENER HIGH-INTENSITY SPACING ====================
+# Luke Marion's ultra-dense row spacing method
+# Format: [row spacing, within-row spacing] in inches
+# Note: Some crops use dense sowing followed by thinning
+
+MIGARDENER_SPACING = {
+    # Leafy greens - very dense planting for self-culling and mutual support
+    'lettuce': [4, 4],           # Sow ~0.5" apart, thin to 3-4"; rows 3-4" apart
+    'lettuce-leaf': [4, 4],      # Dense sowing creates self-supporting canopy
+    'spinach': [5, 4],           # 4" within-row, 4-6" between rows
+
+    # Root vegetables - dense sowing, then thin to final spacing
+    'carrot': [6, 2],            # Sow densely, thin to 1.5-2" when 3-4 weeks old
+    'radish': [4, 1],            # Sow 1" apart, thin to 1-1.5" for proper bulb development (36/sqft)
+    'beet': [12, 3],             # 3" for high-density (smaller beets), 4" for larger bulbs
+
+    # Alliums - ultra-dense for maximum yield
+    'onion': [4, 4],             # 3-4" on center for medium bulbs, weed suppression
+    'garlic': [4, 3],            # 3-3.5" apart is the sweet spot for max plants without overcrowding
+
+    # Beans - closer than traditional methods
+    'bean-bush': [18, 5.5],      # Only need 4-7" between plants (not as much space as often thought)
+    'bush-bean': [18, 5.5],      # 18" row gap for airflow and harvest access
+    'bean-pole': [30, 8],        # 8-10" apart on trellis; 24-36" between trellis rows
+
+    # Peas - extremely dense planting tolerated
+    'pea': [60, 1.5],            # Can sow 1-2" apart in 3" wide band at trellis base
+                                 # 48-72" between trellised rows for access
+
+    # Fruiting crops - still need airflow but more intensive than traditional
+    'tomato': [36, 24],          # 2 ft apart for disease prevention; focus on vertical growth
+    'pepper': [21, 14],          # 12-16" apart (14" is middle); 18-24" rows for airflow
 }
 
 # ==================== COMPANION PLANTING GUILDS ====================
@@ -439,6 +500,15 @@ def get_intensive_spacing(plant_id):
     # Default spacing for unknown plants
     return 12
 
+def get_migardener_spacing(plant_id):
+    """Get MIgardener high-intensity row and within-row spacing"""
+    # Try to find exact match or partial match
+    for plant_key, spacing in MIGARDENER_SPACING.items():
+        if plant_key in plant_id:
+            return {'rowSpacing': spacing[0], 'plantSpacing': spacing[1]}
+    # Default spacing for unknown plants (use conservative row method defaults)
+    return {'rowSpacing': 18, 'plantSpacing': 8}
+
 def calculate_plants_per_bed(bed_width, bed_length, plant_id, method='square-foot'):
     """Calculate how many plants fit in a bed based on method"""
     bed_area_inches = bed_width * 12 * bed_length * 12
@@ -462,6 +532,15 @@ def calculate_plants_per_bed(bed_width, bed_length, plant_id, method='square-foo
         # Hexagonal packing efficiency: 0.866
         plants_per_sq_ft = (144 / (spacing_inches * spacing_inches)) * 0.866
         return int((bed_width * bed_length) * plants_per_sq_ft)
+
+    elif method == 'migardener':
+        spacing = get_migardener_spacing(plant_id)
+        row_spacing_inches = spacing['rowSpacing']
+        plant_spacing_inches = spacing['plantSpacing']
+
+        num_rows = int((bed_width * 12) / row_spacing_inches)
+        plants_per_row = int((bed_length * 12) / plant_spacing_inches)
+        return num_rows * plants_per_row
 
     return 1
 

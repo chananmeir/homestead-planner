@@ -1,43 +1,105 @@
 import React, { useState, useEffect } from 'react';
 import { WeatherAlert, WeatherData } from '../types';
 import { format } from 'date-fns';
+import { API_BASE_URL } from '../config';
 
 const WeatherAlerts: React.FC = () => {
-  const [alerts, setAlerts] = useState<WeatherAlert[]>([
-    {
-      id: '1',
-      type: 'frost',
-      severity: 'warning',
-      startDate: new Date(),
-      endDate: new Date(new Date().setDate(new Date().getDate() + 1)),
-      description:
-        'Frost warning tonight. Temperatures expected to drop to 30°F. Protect tender plants.',
-      temperature: 30,
-      dismissed: false,
-    },
-  ]);
-
+  const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [forecast, setForecast] = useState<WeatherData[]>([]);
-  const [zipCode, setZipCode] = useState('');
+  const [zipCode, setZipCode] = useState(() => {
+    // Load from localStorage or default to '53209'
+    return localStorage.getItem('weatherZipCode') || '53209';
+  });
   const [city, setCity] = useState('Your Location');
   const [showSettings, setShowSettings] = useState(false);
+  const [currentWeather, setCurrentWeather] = useState<any>(null);
 
-  // Mock weather data - In production, integrate with OpenWeatherMap or Weather.gov API
+  // Fetch real weather data from backend
   useEffect(() => {
-    const mockForecast: WeatherData[] = Array.from({ length: 7 }, (_, i) => ({
-      date: new Date(new Date().setDate(new Date().getDate() + i)),
-      highTemp: 65 + Math.random() * 15,
-      lowTemp: 45 + Math.random() * 10,
-      precipitation: Math.random() * 0.5,
-      humidity: 50 + Math.random() * 30,
-      windSpeed: 5 + Math.random() * 10,
-      conditions: ['Sunny', 'Partly Cloudy', 'Cloudy', 'Rain'][
-        Math.floor(Math.random() * 4)
-      ],
-      growingDegreeDays: Math.floor(Math.random() * 20),
-    }));
-    setForecast(mockForecast);
-  }, []);
+    if (zipCode) {
+      fetchWeatherData(zipCode);
+    }
+  }, [zipCode]);
+
+  const fetchWeatherData = async (zip: string) => {
+    try {
+      // Fetch current weather
+      const currentResponse = await fetch(
+        `${API_BASE_URL}/api/weather/current?zipcode=${zip}`,
+        { credentials: 'include' }
+      );
+      if (!currentResponse.ok) {
+        throw new Error(`Failed to fetch current weather: ${currentResponse.status}`);
+      }
+      const currentData = await currentResponse.json();
+      setCurrentWeather(currentData.weather);
+
+      // Extract city name if available
+      if (currentData.location && currentData.location.city) {
+        setCity(currentData.location.city);
+      }
+
+      // Fetch forecast
+      const forecastResponse = await fetch(
+        `${API_BASE_URL}/api/weather/forecast?zipcode=${zip}&days=7`,
+        { credentials: 'include' }
+      );
+      if (!forecastResponse.ok) {
+        throw new Error(`Failed to fetch forecast: ${forecastResponse.status}`);
+      }
+      const forecastData = await forecastResponse.json();
+
+      // Convert forecast data to WeatherData format
+      const formattedForecast: WeatherData[] = forecastData.forecast.map((day: any) => ({
+        date: new Date(day.date),
+        highTemp: day.highTemp,
+        lowTemp: day.lowTemp,
+        precipitation: day.precipitation || 0,
+        humidity: day.humidity,
+        windSpeed: day.windSpeed,
+        conditions: day.conditions || 'Unknown',
+        growingDegreeDays: day.growingDegreeDays || 0,
+      }));
+      setForecast(formattedForecast);
+
+      // Generate frost and heat alerts
+      const weatherAlerts: WeatherAlert[] = [];
+      formattedForecast.forEach((day, index) => {
+        // Frost/freeze alerts
+        if (day.lowTemp <= 32) {
+          weatherAlerts.push({
+            id: `frost-${index}`,
+            type: day.lowTemp <= 28 ? 'freeze' : 'frost',
+            severity: day.lowTemp <= 28 ? 'warning' : 'watch',
+            startDate: day.date,
+            endDate: new Date(day.date.getTime() + 24 * 60 * 60 * 1000),
+            description: `${day.lowTemp <= 28 ? 'Freeze' : 'Frost'} warning. Low temperature expected: ${Math.round(day.lowTemp)}°F. Protect tender plants.`,
+            temperature: day.lowTemp,
+            dismissed: false,
+          });
+        }
+        // Heat alerts
+        if (day.highTemp >= 85) {
+          const severity: WeatherAlert['severity'] = day.highTemp >= 95 ? 'warning' : day.highTemp >= 90 ? 'watch' : 'advisory';
+          const label = day.highTemp >= 95 ? 'Extreme heat' : day.highTemp >= 90 ? 'Heat warning' : 'Heat advisory';
+          weatherAlerts.push({
+            id: `heat-${index}`,
+            type: 'heat',
+            severity,
+            startDate: day.date,
+            endDate: new Date(day.date.getTime() + 24 * 60 * 60 * 1000),
+            description: `${label}. High temperature expected: ${Math.round(day.highTemp)}°F. Provide shade cloth for heat-sensitive crops, water deeply, and mulch.`,
+            temperature: day.highTemp,
+            dismissed: false,
+          });
+        }
+      });
+      setAlerts(weatherAlerts);
+
+    } catch (error) {
+      console.error('Error fetching weather:', error);
+    }
+  };
 
   const dismissAlert = (id: string) => {
     setAlerts(alerts.map((a) => (a.id === id ? { ...a, dismissed: true } : a)));
@@ -97,6 +159,7 @@ const WeatherAlerts: React.FC = () => {
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
+            data-testid="weather-settings-btn"
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             ⚙️ Settings
@@ -104,7 +167,7 @@ const WeatherAlerts: React.FC = () => {
         </div>
 
         {showSettings && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+          <div data-testid="weather-settings-panel" className="mt-4 p-4 bg-gray-50 rounded-lg border">
             <h3 className="font-semibold text-gray-700 mb-3">Location Settings</h3>
             <div className="space-y-3">
               <div>
@@ -117,13 +180,18 @@ const WeatherAlerts: React.FC = () => {
                     value={zipCode}
                     onChange={(e) => setZipCode(e.target.value)}
                     placeholder="Enter ZIP code or city"
+                    data-testid="weather-zipcode-input"
                     className="flex-1 px-3 py-2 border rounded-lg"
                   />
                   <button
                     onClick={() => {
-                      if (zipCode) setCity(zipCode);
+                      if (zipCode) {
+                        localStorage.setItem('weatherZipCode', zipCode);
+                        // City will be set when weather data loads
+                      }
                       setShowSettings(false);
                     }}
+                    data-testid="weather-zipcode-save"
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                   >
                     Save
@@ -167,7 +235,7 @@ const WeatherAlerts: React.FC = () => {
                   <p className="text-sm">{alert.description}</p>
                   {alert.temperature && (
                     <p className="text-sm font-semibold mt-2">
-                      Low: {alert.temperature}°F
+                      {alert.type === 'heat' ? 'High' : 'Low'}: {alert.temperature}°F
                     </p>
                   )}
                 </div>
@@ -188,10 +256,11 @@ const WeatherAlerts: React.FC = () => {
         <h3 className="text-xl font-semibold text-gray-700 mb-4">
           7-Day Forecast - {city}
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+        <div data-testid="weather-forecast-grid" className="grid grid-cols-1 md:grid-cols-7 gap-3">
           {forecast.map((day, index) => (
             <div
               key={index}
+              data-testid={`weather-forecast-day-${index}`}
               className={`p-4 rounded-lg border-2 ${
                 index === 0 ? 'bg-blue-50 border-blue-300' : 'border-gray-200'
               }`}
@@ -225,14 +294,13 @@ const WeatherAlerts: React.FC = () => {
 
       {/* Current Conditions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg shadow-md p-6">
+        <div data-testid="weather-temp-card" className="bg-white rounded-lg shadow-md p-6">
           <h4 className="font-semibold text-gray-700 mb-3">Temperature</h4>
           <div className="text-4xl font-bold text-gray-800">
-            {forecast[0] ? Math.round(forecast[0].highTemp) : '--'}°F
+            {currentWeather ? Math.round(currentWeather.temperature) : '--'}°F
           </div>
           <p className="text-sm text-gray-600 mt-2">
-            Feels like {forecast[0] ? Math.round(forecast[0].highTemp - 2) : '--'}
-            °F
+            Feels like {currentWeather ? Math.round(currentWeather.feelsLike) : '--'}°F
           </p>
         </div>
 
@@ -244,17 +312,17 @@ const WeatherAlerts: React.FC = () => {
           <p className="text-sm text-gray-600 mt-2">Expected today</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6">
+        <div data-testid="weather-wind-card" className="bg-white rounded-lg shadow-md p-6">
           <h4 className="font-semibold text-gray-700 mb-3">Wind</h4>
           <div className="text-4xl font-bold text-gray-800">
-            {forecast[0] ? Math.round(forecast[0].windSpeed) : '0'} mph
+            {currentWeather ? Math.round(currentWeather.windSpeed) : '0'} mph
           </div>
           <p className="text-sm text-gray-600 mt-2">Current wind speed</p>
         </div>
       </div>
 
       {/* Growing Degree Days */}
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div data-testid="weather-gdd-chart" className="bg-white rounded-lg shadow-md p-6">
         <h3 className="text-xl font-semibold text-gray-700 mb-4">
           Growing Degree Days (GDD)
         </h3>

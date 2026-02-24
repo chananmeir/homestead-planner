@@ -1,27 +1,28 @@
 import React, { useState } from 'react';
-import { PlantingCalendar as PlantingCalendarType, Plant } from '../types';
-import { PLANT_DATABASE } from '../data/plantDatabase';
-import { format, addDays, addWeeks } from 'date-fns';
+import { PlantingCalendar as PlantingCalendarType } from '../../../types';
+import { PLANT_DATABASE } from '../../../data/plantDatabase';
+import { format, addWeeks } from 'date-fns';
+import { calculatePlantingDates } from '../utils/dateCalculations';
 
-const PlantingCalendar: React.FC = () => {
+interface ListViewProps {
+  plantingEvents: PlantingCalendarType[];
+  setPlantingEvents: React.Dispatch<React.SetStateAction<PlantingCalendarType[]>>;
+}
+
+const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }) => {
   const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date('2024-04-15'));
   const [firstFrostDate, setFirstFrostDate] = useState<Date>(new Date('2024-10-15'));
-  const [plantingEvents, setPlantingEvents] = useState<PlantingCalendarType[]>([]);
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [selectedPlant, setSelectedPlant] = useState<string>('');
   const [plantingMethod, setPlantingMethod] = useState<'seed' | 'transplant'>('seed');
 
-  const calculatePlantingDates = (plant: Plant) => {
-    const seedStartDate = addWeeks(lastFrostDate, -plant.transplantWeeksBefore);
-    const transplantDate = addDays(lastFrostDate, plant.transplantWeeksBefore * 7);
-    const expectedHarvestDate = addDays(transplantDate, plant.daysToMaturity);
-
-    return {
-      seedStartDate,
-      transplantDate,
-      expectedHarvestDate,
-    };
-  };
+  // State for manual date overrides
+  const [manualDates, setManualDates] = useState<{
+    seedStartDate?: Date;
+    transplantDate?: Date;
+    directSeedDate?: Date;
+    expectedHarvestDate?: Date;
+  }>({});
 
   const addPlantingEvent = () => {
     if (!selectedPlant) return;
@@ -29,16 +30,22 @@ const PlantingCalendar: React.FC = () => {
     const plant = PLANT_DATABASE.find((p) => p.id === selectedPlant);
     if (!plant) return;
 
-    const dates = calculatePlantingDates(plant);
+    const dates = calculatePlantingDates(plant, lastFrostDate, plantingMethod);
 
     const newEvent: PlantingCalendarType = {
-      id: String(Date.now()),
+      id: Date.now(),
       plantId: plant.id,
-      gardenBedId: '',
-      seedStartDate: plantingMethod === 'transplant' ? dates.seedStartDate : undefined,
-      transplantDate: plantingMethod === 'transplant' ? dates.transplantDate : undefined,
-      directSeedDate: plantingMethod === 'seed' ? dates.transplantDate : undefined,
-      expectedHarvestDate: dates.expectedHarvestDate,
+      gardenBedId: undefined,
+      seedStartDate: plantingMethod === 'transplant'
+        ? (manualDates.seedStartDate || dates.seedStartDate)
+        : undefined,
+      transplantDate: plantingMethod === 'transplant'
+        ? (manualDates.transplantDate || dates.transplantDate)
+        : undefined,
+      directSeedDate: plantingMethod === 'seed'
+        ? (manualDates.directSeedDate || dates.directSeedDate)
+        : undefined,
+      expectedHarvestDate: manualDates.expectedHarvestDate || dates.expectedHarvestDate,
       successionPlanting: false,
       completed: false,
     };
@@ -46,16 +53,17 @@ const PlantingCalendar: React.FC = () => {
     setPlantingEvents([...plantingEvents, newEvent]);
     setShowAddEvent(false);
     setSelectedPlant('');
+    setManualDates({}); // Reset manual dates
   };
 
-  const removeEvent = (id: string) => {
+  const removeEvent = (id: number) => {
     setPlantingEvents(plantingEvents.filter((e) => e.id !== id));
   };
 
-  const toggleCompleted = (id: string) => {
+  const toggleCompleted = (id: number) => {
     setPlantingEvents(
       plantingEvents.map((e) =>
-        e.id === id ? { ...e, completed: !e.completed } : e
+        e.id === id ? { ...e, completed: !e.completed, isComplete: !e.completed } : e
       )
     );
   };
@@ -116,6 +124,7 @@ const PlantingCalendar: React.FC = () => {
       {/* Add Event Button */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <button
+          data-testid="btn-add-planting-event"
           onClick={() => setShowAddEvent(!showAddEvent)}
           className="w-full md:w-auto px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
         >
@@ -179,35 +188,95 @@ const PlantingCalendar: React.FC = () => {
               {selectedPlant && (
                 <div className="p-3 bg-blue-50 rounded border border-blue-200">
                   <h4 className="font-semibold text-blue-900 mb-2">
-                    Calculated Dates:
+                    Planting Dates (edit if needed):
                   </h4>
                   {(() => {
                     const plant = getPlantById(selectedPlant);
                     if (!plant) return null;
-                    const dates = calculatePlantingDates(plant);
+                    const dates = calculatePlantingDates(plant, lastFrostDate, plantingMethod);
                     return (
-                      <div className="text-sm text-blue-800 space-y-1">
+                      <div className="space-y-3">
                         {plantingMethod === 'transplant' && (
                           <>
                             <div>
-                              Start Seeds Indoors:{' '}
-                              {format(dates.seedStartDate, 'MMM d, yyyy')}
+                              <label className="block text-sm font-medium text-blue-800 mb-1">
+                                Start Seeds Indoors:
+                              </label>
+                              <input
+                                type="date"
+                                value={format(
+                                  manualDates.seedStartDate || dates.seedStartDate!,
+                                  'yyyy-MM-dd'
+                                )}
+                                onChange={(e) =>
+                                  setManualDates({
+                                    ...manualDates,
+                                    seedStartDate: new Date(e.target.value),
+                                  })
+                                }
+                                className="w-full px-3 py-2 border rounded-lg text-sm"
+                              />
                             </div>
                             <div>
-                              Transplant Outdoors:{' '}
-                              {format(dates.transplantDate, 'MMM d, yyyy')}
+                              <label className="block text-sm font-medium text-blue-800 mb-1">
+                                Transplant Outdoors:
+                              </label>
+                              <input
+                                type="date"
+                                value={format(
+                                  manualDates.transplantDate || dates.transplantDate!,
+                                  'yyyy-MM-dd'
+                                )}
+                                onChange={(e) =>
+                                  setManualDates({
+                                    ...manualDates,
+                                    transplantDate: new Date(e.target.value),
+                                  })
+                                }
+                                className="w-full px-3 py-2 border rounded-lg text-sm"
+                              />
                             </div>
                           </>
                         )}
                         {plantingMethod === 'seed' && (
                           <div>
-                            Direct Seed:{' '}
-                            {format(dates.transplantDate, 'MMM d, yyyy')}
+                            <label className="block text-sm font-medium text-blue-800 mb-1">
+                              Direct Seed:
+                            </label>
+                            <input
+                              type="date"
+                              value={format(
+                                manualDates.directSeedDate || dates.directSeedDate!,
+                                'yyyy-MM-dd'
+                              )}
+                              onChange={(e) =>
+                                setManualDates({
+                                  ...manualDates,
+                                  directSeedDate: new Date(e.target.value),
+                                })
+                              }
+                              className="w-full px-3 py-2 border rounded-lg text-sm"
+                            />
                           </div>
                         )}
                         <div>
-                          Expected Harvest:{' '}
-                          {format(dates.expectedHarvestDate, 'MMM d, yyyy')}
+                          <label className="block text-sm font-medium text-blue-800 mb-1">
+                            Expected Harvest:
+                          </label>
+                          <input
+                            type="date"
+                            value={format(
+                              manualDates.expectedHarvestDate || dates.expectedHarvestDate,
+                              'yyyy-MM-dd'
+                            )}
+                            onChange={(e) =>
+                              setManualDates({
+                                ...manualDates,
+                                expectedHarvestDate: new Date(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          />
                         </div>
                       </div>
                     );
@@ -251,14 +320,63 @@ const PlantingCalendar: React.FC = () => {
                   </h4>
                   <div className="space-y-3">
                     {events.map((event) => {
+                      // Handle maple-tapping events
+                      if (event.eventType === 'maple-tapping') {
+                        let treeType = 'Sugar Maple';
+                        let tapCount = 1;
+                        try {
+                          if (event.eventDetails) {
+                            const details = typeof event.eventDetails === 'string'
+                              ? JSON.parse(event.eventDetails)
+                              : event.eventDetails;
+                            const types = { sugar: 'Sugar Maple', red: 'Red Maple', black: 'Black Maple', boxelder: 'Box Elder Maple' };
+                            treeType = types[details.treeType as keyof typeof types] || 'Maple Tree';
+                            tapCount = details.tapCount || 1;
+                          }
+                        } catch {
+                          // Use defaults
+                        }
+
+                        return (
+                          <div key={event.id} className="p-4 rounded-lg border bg-white border-orange-200">
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center gap-2">
+                                <span className="text-2xl">🍁</span>
+                                <div>
+                                  <h4 className="font-semibold text-gray-900">{treeType}</h4>
+                                  <p className="text-sm text-gray-600">
+                                    {tapCount} tap{tapCount > 1 ? 's' : ''}
+                                  </p>
+                                  {event.expectedHarvestDate && (
+                                    <p className="text-sm text-orange-600 mt-1">
+                                      Tapped: {format(event.expectedHarvestDate, 'MMM d, yyyy')}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => removeEvent(event.id)}
+                                className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Skip other non-planting events (like mulch events) in list view for now
+                      if (!event.plantId) return null;
+
                       const plant = getPlantById(event.plantId);
                       if (!plant) return null;
 
                       return (
                         <div
                           key={event.id}
+                          data-testid="planting-event-item"
                           className={`p-4 rounded-lg border transition-all ${
-                            event.completed
+                            event.isComplete || event.completed
                               ? 'bg-green-50 border-green-200 opacity-60'
                               : 'bg-white border-gray-200'
                           }`}
@@ -277,12 +395,19 @@ const PlantingCalendar: React.FC = () => {
                                     {plant.name}
                                   </h5>
                                   <div className="text-sm text-gray-600 space-y-1 mt-1">
-                                    {event.seedStartDate && (
-                                      <div>
-                                        🌱 Start Seeds:{' '}
-                                        {format(event.seedStartDate, 'MMM d')}
-                                      </div>
-                                    )}
+                                    {(() => {
+                                      let seedStart = event.seedStartDate;
+                                      if (!seedStart && event.transplantDate && plant?.transplantWeeksBefore) {
+                                        seedStart = addWeeks(event.transplantDate, -plant.transplantWeeksBefore);
+                                      }
+                                      return seedStart ? (
+                                        <div>
+                                          🌱 Start Seeds:{' '}
+                                          {format(seedStart, 'MMM d')}
+                                          {!event.seedStartDate && <span className="text-xs text-gray-500 ml-1">(calc)</span>}
+                                        </div>
+                                      ) : null;
+                                    })()}
                                     {event.transplantDate && (
                                       <div>
                                         🌿 Transplant:{' '}
@@ -295,10 +420,12 @@ const PlantingCalendar: React.FC = () => {
                                         {format(event.directSeedDate, 'MMM d')}
                                       </div>
                                     )}
-                                    <div>
-                                      🎉 Harvest:{' '}
-                                      {format(event.expectedHarvestDate, 'MMM d')}
-                                    </div>
+                                    {event.expectedHarvestDate && (
+                                      <div>
+                                        🎉 Harvest:{' '}
+                                        {format(event.expectedHarvestDate, 'MMM d')}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -344,4 +471,4 @@ const PlantingCalendar: React.FC = () => {
   );
 };
 
-export default PlantingCalendar;
+export default ListView;

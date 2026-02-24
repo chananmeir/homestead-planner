@@ -2,6 +2,15 @@ Flask==3.0.0
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
 python-dateutil==2.8.2
+python-dotenv==1.0.1
 requests==2.31.0
 Pillow==10.1.0
 reportlab==4.0.7
+Flask-CORS==4.0.0
+Flask-Login==0.6.3
+openmeteo-requests==1.5.0
+requests-cache==1.2.1
+retry-requests==2.0.0
+numpy==1.24.4
+astor>=0.8.1  # AST to source code converter for plant_database updates
+pytest>=7.0.0
