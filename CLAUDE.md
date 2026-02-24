@@ -650,7 +650,7 @@ After making changes, verify:
 - [ ] **E2E Tests**: Run Playwright E2E tests (requires both servers running)
   ```bash
   cd frontend
-  npx playwright test                                    # All E2E suites (~161 tests)
+  npx playwright test                                    # All E2E suites (~220 tests)
   npx playwright test tests/garden-planner.spec.ts       # Garden Planner lifecycle (13 tests)
   npx playwright test tests/e2e-core.spec.ts             # Core user journeys (3 tests)
   ```
@@ -940,7 +940,7 @@ npm run build
 CI=true npx react-scripts test --watchAll=false  # All tests (33+ space calc tests)
 
 # E2E tests (requires both servers running on ports 3000/5000)
-npx playwright test                          # All E2E suites (~161 tests)
+npx playwright test                          # All E2E suites (~220 tests)
 ```
 
 ### Common Tasks
@@ -1039,7 +1039,7 @@ If unsure what to run, default to:
 - Backend: `cd backend && python -m pytest`
 - Frontend: `cd frontend && npm run build`
 - Frontend tests: `cd frontend && CI=true npx react-scripts test --watchAll=false`
-- E2E tests: `cd frontend && npx playwright test` (requires both servers running, ~161 tests)
+- E2E tests: `cd frontend && npx playwright test` (requires both servers running, ~220 tests)
 ---
 
 ## Final Notes
@@ -1064,4 +1064,4 @@ If unsure what to run, default to:
 
 ---
 
-**Last Updated**: 2026-02-26
+**Last Updated**: 2026-02-28
