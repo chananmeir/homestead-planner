@@ -227,6 +227,7 @@ export interface PlantingCalendar {
   gardenBedId?: number;
   notes?: string;
   completed: boolean;
+  isComplete?: boolean;  // Canonical completion check from backend
   quantityCompleted?: number;  // How many actually planted (null = not started)
 
   // Date fields
@@ -334,6 +335,8 @@ export interface PlantingEvent {
   positionY?: number;
   spaceRequired?: number;
   conflictOverride?: boolean;
+  completed?: boolean;
+  isComplete?: boolean;
   notes?: string;
 
   // NEW: Planting method for seed density vs individual plants

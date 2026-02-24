@@ -63,7 +63,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
   const toggleCompleted = (id: number) => {
     setPlantingEvents(
       plantingEvents.map((e) =>
-        e.id === id ? { ...e, completed: !e.completed } : e
+        e.id === id ? { ...e, completed: !e.completed, isComplete: !e.completed } : e
       )
     );
   };
@@ -376,7 +376,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }
                           key={event.id}
                           data-testid="planting-event-item"
                           className={`p-4 rounded-lg border transition-all ${
-                            event.completed
+                            event.isComplete || event.completed
                               ? 'bg-green-50 border-green-200 opacity-60'
                               : 'bg-white border-gray-200'
                           }`}

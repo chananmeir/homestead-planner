@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import CheckConstraint
 from datetime import datetime
 import json
 
@@ -222,8 +223,39 @@ class PlantingEvent(db.Model):
     completed = db.Column(db.Boolean, default=False)
     quantity_completed = db.Column(db.Integer, nullable=True, default=None)  # How many actually planted (None=not started, 0-quantity=partial, >=quantity=complete)
     notes = db.Column(db.Text)
+
+    @property
+    def is_complete(self):
+        """Canonical completion check. Prefers quantity_completed >= quantity
+        when both are set, falls back to completed boolean."""
+        if self.quantity is not None and self.quantity_completed is not None:
+            return self.quantity_completed >= self.quantity
+        return bool(self.completed)
     export_key = db.Column(db.String(100), nullable=True, index=True)  # Idempotency key for preventing duplicate exports
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            'trellis_position_start_inches >= 0',
+            name='ck_pe_trellis_start_nonneg',
+        ),
+        CheckConstraint(
+            'trellis_position_end_inches > trellis_position_start_inches',
+            name='ck_pe_trellis_end_gt_start',
+        ),
+        CheckConstraint(
+            'linear_feet_allocated >= 0',
+            name='ck_pe_linear_feet_nonneg',
+        ),
+        CheckConstraint(
+            '(trellis_position_start_inches IS NULL) = (trellis_position_end_inches IS NULL)',
+            name='ck_pe_trellis_fields_together',
+        ),
+        CheckConstraint(
+            'quantity_completed IS NULL OR quantity IS NULL OR quantity_completed <= quantity',
+            name='ck_pe_qty_completed_le_qty',
+        ),
+    )
 
     # Relationships
     user = db.relationship('User', backref='planting_events')
@@ -273,7 +305,8 @@ class PlantingEvent(db.Model):
             'trellisPositionStartInches': self.trellis_position_start_inches,
             'trellisPositionEndInches': self.trellis_position_end_inches,
             'linearFeetAllocated': self.linear_feet_allocated,
-            'exportKey': self.export_key
+            'exportKey': self.export_key,
+            'isComplete': self.is_complete
         }
 
 class CompostPile(db.Model):

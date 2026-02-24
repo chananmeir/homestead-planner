@@ -6,6 +6,7 @@ import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { GroupedDateMarker, getEventLabel } from './utils';
 import { API_BASE_URL } from '../../../config';
 import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
+import { isEventComplete } from '../../../utils/completionHelpers';
 
 interface GroupedEventsModalProps {
   isOpen: boolean;
@@ -37,9 +38,7 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
   // Calculate completion summary
   const getCompletionSummary = () => {
     const total = marker.events.length;
-    const completed = marker.events.filter(e =>
-      e.quantityCompleted !== undefined && e.quantityCompleted !== null && e.quantity && e.quantityCompleted >= e.quantity
-    ).length;
+    const completed = marker.events.filter(e => isEventComplete(e)).length;
     const partial = marker.events.filter(e =>
       e.quantityCompleted !== undefined && e.quantityCompleted !== null && e.quantity &&
       e.quantityCompleted > 0 && e.quantityCompleted < e.quantity
@@ -280,7 +279,7 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
                     <div className="flex gap-2 mt-2">
                       {/* Completion Status Badge - Enhanced */}
                       {event.quantity && event.quantityCompleted !== null && event.quantityCompleted !== undefined ? (
-                        event.quantityCompleted >= event.quantity ? (
+                        isEventComplete(event) ? (
                           <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
                             ✓ Complete ({event.quantityCompleted}/{event.quantity})
                           </span>
@@ -293,7 +292,7 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
                             Not Started (0/{event.quantity})
                           </span>
                         )
-                      ) : event.completed ? (
+                      ) : isEventComplete(event) ? (
                         <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
                           ✓ Completed
                         </span>

@@ -10,6 +10,7 @@ import {
 } from './utils';
 import { ConflictDetailsModal } from './ConflictDetailsModal';
 import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
+import { isEventComplete } from '../../../utils/completionHelpers';
 
 interface TimelineBarProps {
   event: PlantingCalendar;
@@ -125,7 +126,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
           <div
             className={`absolute top-2 h-8 rounded-l cursor-pointer border-2 ${colors.bg} ${colors.border}
                         opacity-40 hover:opacity-60 transition-opacity flex items-center justify-center
-                        ${event.completed ? 'opacity-30' : ''}`}
+                        ${isEventComplete(event) ? 'opacity-30' : ''}`}
             style={{
               left: `${indoorLeft}px`,
               width: `${Math.max(indoorWidth, 10)}px`,
@@ -144,7 +145,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
           <div
             className={`absolute top-2 h-8 ${showIndoorSegment ? 'rounded-r' : 'rounded'} cursor-pointer border-2 ${colors.bg} ${colors.border}
                         opacity-80 hover:opacity-100 transition-opacity flex items-center justify-center
-                        ${event.completed ? 'opacity-50' : ''}
+                        ${isEventComplete(event) ? 'opacity-50' : ''}
                         ${event.conflictOverride ? 'border-red-500 ring-1 ring-red-400' : ''}`}
             style={{
               left: `${outdoorLeft}px`,
@@ -220,7 +221,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
                   ⚠️ Conflict Override - planted despite space conflict
                 </div>
               )}
-              {event.completed && (
+              {isEventComplete(event) && (
                 <div className="text-green-300 mt-1">✓ Completed</div>
               )}
               {event.notes && (

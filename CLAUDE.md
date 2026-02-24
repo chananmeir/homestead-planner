@@ -230,28 +230,30 @@ except (json.JSONDecodeError, AttributeError) as e:
     mulch_type = 'none'
 ```
 
-### 🟡 HIGH RISK: Dual Status System
+### 🟡 HIGH RISK: Completion State Consistency
 
 **Files Involved**:
-- `backend/models.py::PlantingEvent` (Lines 108-109, 201-202)
+- `backend/models.py::PlantingEvent` (Lines 223-224) — `completed` (Boolean), `quantity_completed` (Integer)
+- `backend/models.py::PlantedItem` (Line 109) — `status` (String): 'planned' | 'seeded' | 'transplanted' | 'growing' | 'harvested' | 'saving-seed'
 
-**Problem**: PlantingEvent has **THREE status fields** with unclear semantics:
-- `status` (String): 'planned' | 'seeded' | 'transplanted' | 'growing' | 'harvested' | 'saving-seed'
-- `completed` (Boolean): True/False
-- `quantity_completed` (Integer): None (not started), 0 (partial), ≥quantity (complete)
+**Clarification**: PlantingEvent has **TWO** completion fields, not three. The `status` string lives on **PlantedItem**, not PlantingEvent. These are separate models with no automatic cross-model sync.
 
-**Inconsistencies**:
-- `status='harvested'` but `completed=False` (contradictory)
-- `completed=True` but `quantity_completed=10` when `quantity=20` (partial)
-- No validation enforcing consistency
+**PlantingEvent completion fields**:
+- `completed` (Boolean, default False): Simple complete/not-complete flag
+- `quantity_completed` (Integer, nullable): None (not started), 0 (partial), ≥quantity (complete)
+
+**Computed property**: `PlantingEvent.is_complete` — canonical completion check. Prefers `quantity_completed >= quantity` when both are set, falls back to `completed` boolean.
+
+**Inconsistencies addressed by normalization (Feb 2026)**:
+- PUT endpoint: `completed=True` without `quantityCompleted` auto-sets `quantity_completed = quantity`
+- Harvest endpoint: sets `completed=True` and `quantity_completed = quantity`
+- PlantedItem harvest: propagates completion to linked PlantingEvent
 
 **Rules**:
-1. Do NOT add logic that assumes status fields are consistent
-2. Prefer using `quantity_completed` for completion tracking
-3. Treat `status` as informational only
+1. Do NOT add logic that assumes PlantedItem.status and PlantingEvent.completed are consistent
+2. Prefer using `is_complete` property for completion checks
+3. Treat PlantedItem.status as informational only (no cross-model sync except 'harvested')
 4. If modifying status logic, document ambiguities
-
-**Known Issue**: Reviewed Feb 2026 (backlog #11) and **intentionally deferred**. No user-facing bugs today. Cleanup would touch seed saving, calendar export, harvest marking, and designer placement — all without status-transition test coverage as a safety net. Leave as-is until dedicated test coverage exists.
 
 ### 🟠 MEDIUM RISK: Trellis Capacity Tracking
 

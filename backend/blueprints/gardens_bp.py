@@ -960,8 +960,15 @@ def planted_item(item_id):
             planting_event.garden_bed_id = str(data['gardenBedId'])
 
     # Update other fields
+    old_status = item.status
     item.status = data.get('status', item.status)
     item.notes = data.get('notes', item.notes)
+
+    # Cross-model sync: PlantedItem 'harvested' → PlantingEvent completed
+    if item.status == 'harvested' and old_status != 'harvested' and planting_event:
+        planting_event.completed = True
+        if planting_event.quantity is not None:
+            planting_event.quantity_completed = planting_event.quantity
     if 'variety' in data:
         item.variety = data.get('variety')  # Allow updating variety
     if 'plantedDate' in data and data['plantedDate']:
@@ -1520,6 +1527,13 @@ def planting_event(event_id):
     event.completed = data.get('completed', event.completed)
     event.notes = data.get('notes', event.notes)
 
+    # Bidirectional sync: completed boolean → quantity_completed
+    if 'completed' in data and 'quantityCompleted' not in data:
+        if data['completed'] and event.quantity is not None:
+            event.quantity_completed = event.quantity
+        elif not data['completed'] and event.quantity is not None:
+            event.quantity_completed = 0
+
     # Handle quantity completed update (for partial completion tracking)
     if 'quantityCompleted' in data:
         event.quantity_completed = data.get('quantityCompleted')
@@ -1585,6 +1599,11 @@ def mark_event_harvested(event_id):
         # Default to today if no date provided
         event.actual_harvest_date = datetime.now()
 
+    # Harvesting implies completion
+    event.completed = True
+    if event.quantity is not None:
+        event.quantity_completed = event.quantity
+
     db.session.commit()
     return jsonify(event.to_dict())
 
@@ -1614,6 +1633,12 @@ def bulk_update_events():
         # Apply updates
         if 'completed' in updates:
             event.completed = updates['completed']
+            # Bidirectional sync: completed boolean → quantity_completed
+            if 'quantityCompleted' not in updates:
+                if updates['completed'] and event.quantity is not None:
+                    event.quantity_completed = event.quantity
+                elif not updates['completed'] and event.quantity is not None:
+                    event.quantity_completed = 0
         if 'quantityCompleted' in updates:
             event.quantity_completed = updates['quantityCompleted']
             # Auto-update completed flag based on quantity
