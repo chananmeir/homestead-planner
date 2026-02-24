@@ -1477,11 +1477,13 @@ const PropertyDesigner: React.FC = () => {
                   setIsModalOpen(true);
                 }}
                 className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+              data-testid="btn-create-property"
               >
                 + Create New Property
               </button>
             </div>
             <select
+              data-testid="property-selector"
               value={selectedProperty?.id || ''}
               onChange={(e) => {
                 const prop = properties.find(p => p.id === parseInt(e.target.value));
@@ -1616,12 +1618,14 @@ const PropertyDesigner: React.FC = () => {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setIsStructureModalOpen(true)}
+                    data-testid="btn-add-structure"
                     className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
                   >
                     Add Structure
                   </button>
                   <button
                     onClick={() => setIsTrellisManagerOpen(true)}
+                    data-testid="btn-manage-trellises"
                     className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors"
                   >
                     Manage Trellises
