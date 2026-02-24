@@ -157,6 +157,14 @@ with app.app_context():
     # Default frost dates are now per-user (Settings requires user_id).
     # Seeding is skipped at startup; defaults are applied on first user login.
 
+    # Seed default admin user if none exists
+    if not User.query.filter_by(is_admin=True).first():
+        admin = User(username='admin', email='admin@homestead.local', is_admin=True)
+        admin.set_password('admin123')
+        db.session.add(admin)
+        db.session.commit()
+        print("[OK] Created default admin user (admin/admin123)")
+
 # ==================== ALL ROUTES NOW HANDLED BY BLUEPRINTS ====================
 #
 # All application routes have been refactored into modular blueprints.
