@@ -25,6 +25,7 @@ export const PlanNutritionCard: React.FC<Props> = ({ planId, planYear }) => {
 
   useEffect(() => {
     loadNutrition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
 
   const loadNutrition = async () => {

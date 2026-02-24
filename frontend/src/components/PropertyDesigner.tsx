@@ -4,7 +4,6 @@ import { PropertyFormModal } from './PropertyDesigner/PropertyFormModal';
 import { StructureFormModal } from './PropertyDesigner/StructureFormModal';
 import { TrellisManager } from './PropertyDesigner/TrellisManager';
 import { ConfirmDialog, useToast } from './common';
-import PlantIcon, { PlantIconSVG } from './common/PlantIcon';
 import StructureIcon, { StructureIconSVG } from './common/StructureIcon';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 import { Plant, TrellisStructure } from '../types';
@@ -684,7 +683,7 @@ const PropertyDesigner: React.FC = () => {
         throw new Error(errorData.error || 'Failed to place tree');
       }
 
-      const savedStructure = await structureResponse.json();
+      await structureResponse.json();
 
       // Auto-create PlantingEvent for timeline integration
       await createPlantingEventForTree(plant, x, y);

@@ -49,6 +49,7 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
 
   // Auto-adjustment state (Phase 4)
   const [showAutoAdjustModal, setShowAutoAdjustModal] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [proposedAdjustments, setProposedAdjustments] = useState<EventAdjustment[]>([]);
 
   // Succession Wizard state (Phase 3B)

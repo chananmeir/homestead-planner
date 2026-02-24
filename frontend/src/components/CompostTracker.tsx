@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CompostPile, CompostIngredient, COMPOST_MATERIALS } from '../types';
+import { CompostPile } from '../types';
 import { format, addDays, differenceInDays } from 'date-fns';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 
@@ -26,6 +26,7 @@ const CompostTracker: React.FC = () => {
   // Load compost piles from backend on mount
   useEffect(() => {
     loadCompostPiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadCompostPiles = async () => {

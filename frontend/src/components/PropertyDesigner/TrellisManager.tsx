@@ -43,6 +43,7 @@ export const TrellisManager: React.FC<TrellisManagerProps> = ({
     if (isOpen && propertyId) {
       fetchTrellises();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, propertyId]);
 
   const fetchTrellises = async () => {

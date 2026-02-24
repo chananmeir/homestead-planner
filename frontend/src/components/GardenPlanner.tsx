@@ -14,7 +14,6 @@ import { ConfirmDialog, useToast } from './common';
 import { SearchBar } from './common/SearchBar';
 import { FilterBar, FilterGroup } from './common/FilterBar';
 import { SortDropdown, SortOption, SortDirection } from './common/SortDropdown';
-import { PLANT_DATABASE } from '../data/plantDatabase';
 import { getPlantById, resolveAlias } from '../utils/plantIdResolver';
 import { calculateSpaceForQuantities, calculateSpacePerBed, calculateTrellisSpaceRequirement, isTrellisPlanting, getLinearFeetPerPlant, calculateSeedRowOptimization, SeedRowOptimization, refineBedSpaceWithDates } from '../utils/gardenPlannerSpaceCalculator';
 import { calculateSuggestedInterval } from './PlantingCalendar/utils/successionCalculations';
@@ -55,6 +54,7 @@ const GardenPlanner: React.FC = () => {
   // Per-bed allocation state
   const [bedAssignments, setBedAssignments] = useState<Map<number, number[]>>(new Map());
   const [bedSpaceUsage, setBedSpaceUsage] = useState<Map<number, BedSpaceUsage>>(new Map());
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [rotationWarnings, setRotationWarnings] = useState<Map<string, RotationWarningType[]>>(new Map());
   const [perSeedBedFilter, setPerSeedBedFilter] = useState<Map<number, number | null>>(new Map());
   const [editingBedsForSeedId, setEditingBedsForSeedId] = useState<number | null>(null);
@@ -715,6 +715,7 @@ const GardenPlanner: React.FC = () => {
   /**
    * Check if allocation is valid (sum equals total quantity)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isAllocationValid = (seedId: number): boolean => {
     const mode = allocationModes.get(seedId) || 'even';
     if (mode === 'even') return true; // Even mode auto-calculates
@@ -862,6 +863,7 @@ const GardenPlanner: React.FC = () => {
     if (gardenBeds.length > 0 && manualQuantities.size > 0) {
       updateBedSpaceUsage();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manualQuantities, bedAssignments, gardenBeds, seedInventory, perSeedSuccession, bedAllocations, allocationModes, calculatedPlan]);
 
   // Update space breakdown summary when succession preferences change
@@ -869,6 +871,7 @@ const GardenPlanner: React.FC = () => {
     if (manualQuantities.size > 0 && (gardenBeds.length > 0 || trellisStructures.length > 0)) {
       calculateSpaceBreakdown(manualQuantities, perSeedSuccession);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perSeedSuccession, manualQuantities, gardenBeds, trellisStructures, seedInventory]);
 
   // Calculate per-seed-row optimization suggestions
