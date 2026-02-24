@@ -1,8 +1,8 @@
 # Homestead Planner: Comprehensive Test & Gap Report
 
-**Date**: 2026-02-22 (updated 2026-02-28e)
+**Date**: 2026-02-22 (updated 2026-02-28f)
 **Branch**: baseline-buildable-frontend
-**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation), #16 (conflict detection). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`). **Playwright E2E**: 3 core E2E tests implemented (`e2e-core.spec.ts`) covering login+bed+plant placement, conflict detection (409), and plan-export-to-calendar verification. Config made CI-aware. 4 `data-testid` selectors added. **Garden Planner E2E**: 13 lifecycle tests implemented in `garden-planner.spec.ts` covering plan CRUD, succession (4x/8x), multi-bed allocation (even/custom), export-to-calendar, idempotent re-export, crop rotation conflict, and nutrition estimates. 8 `data-testid` selectors added. All 13 passing (~32s). **Garden Beds E2E**: 12 serial tests implemented in `garden-beds.spec.ts` covering all 6 planning methods, custom dimensions, edit flow, season extension (cold frame), clear bed, API listing, and API-only deletion. 4 `data-testid` selectors added. All 12 passing. **Garden Designer E2E**: 14 serial tests implemented in `garden-designer.spec.ts` covering plant placement & verification (API+UI), conflict detection (409), plant removal (API/UI/clear bed), seed saving lifecycle (toggle ON/OFF, collect seeds), cross-bed isolation, future plantings toggle, and season progress linkage. 9 `data-testid` selectors added across 3 files. All 14 passing (~50s). **Planting Calendar E2E**: 14 serial tests implemented in `planting-calendar.spec.ts` covering event CRUD for all 3 event types (planting/mulch/maple-tapping), succession creation, list/grid/timeline view toggling, event update + mark-as-harvested + deletion, soil temperature card toggle, and Garden Event/Maple Tapping button visibility. 7 `data-testid` selectors added. All 14 passing (~25s). **Seed Inventory E2E**: 12 serial tests implemented in `seed-inventory.spec.ts` covering seed CRUD via API (custom create, update quantity/notes, update agronomic overrides, delete), agronomic override NULL vs 0 validation, UI verification (seed cards, search filtering, Add New Seed modal), seed catalog pagination, and catalog-to-personal clone workflow. 7 `data-testid` selectors added across 3 files. 11 passing + 1 conditional skip (~21s). **Harvest Tracker E2E**: 10 serial tests implemented in `harvest-tracker.spec.ts` covering harvest CRUD via API (create with quality ratings excellent/good/fair, update quantity+quality, delete), GET all harvests verification, stats aggregation endpoint validation (total/count per plant), UI verification (harvest rows with count stat, search filtering, Log New Harvest modal open). 7 `data-testid` selectors added across 3 files. All 10 passing. **Livestock E2E**: 14 serial tests implemented in `livestock.spec.ts` covering chickens CRUD (create, update quantity, GET all), egg production record, duck creation, beehive CRUD + hive inspection + honey harvest, general livestock (goat) + health record, delete verification, UI tab switching (chickens/ducks/bees/other with card visibility), and category-specific Add New modal forms. 9 `data-testid` selectors added across 2 files. All 14 passing (~26s). **Compost Tracker E2E**: 11 serial tests implemented in `compost.spec.ts` covering pile CRUD via API (create, create second + GET both, update status/moisture/turned), ingredients & C:N ratio recalculation (add brown dried-leaves, add green grass-clippings, add more green food-scraps with directional ratio assertions), status lifecycle (building→cooking→curing→ready), delete with cascade verification, UI verification (pile card with C:N ratio display, status dropdown changes, Add Compost Pile form toggle). 6 `data-testid` selectors added to CompostTracker.tsx. All 11 passing (~23s). **Admin User Management E2E**: 13 serial tests implemented in `admin.spec.ts` covering access control (non-admin 403, unauthenticated 401), admin CRUD (list users with stats, search/filter, create user, duplicate username rejection, update email + admin status, reset password with login verification), self-protection constraints (cannot delete self, cannot reset own password, short password rejection), and delete with verification (cascade delete, 404 on non-existent user). 3 `data-testid` selectors added to AdminUserManagement/index.tsx. All 13 passing (~14s). **Property Designer E2E**: 13 serial tests implemented in `property-designer.spec.ts` covering property CRUD (create, create second + GET both, update), placed structure CRUD (place chicken-coop-small-1, place tool-shed-small-1 with rotation, update position, delete + verify gone), trellis CRUD with capacity tracking (create post_wire with Pythagorean length calc, get empty capacity, update coords recalculates length, delete), cascade delete (property deletion cascades structures), and UI verification (property selector, Add Structure + Manage Trellises buttons). 4 `data-testid` selectors added to PropertyDesigner.tsx. All 13 passing (~16s). **Weather Module E2E**: 12 serial tests implemented in `weather.spec.ts` covering weather API endpoint validation (GET current weather with zipcode, missing params 400, GET forecast with 7 days, days parameter clamping min=1/max=10, lat/lon coordinates), UI rendering (all main sections visible, 7-day forecast grid with Today highlighted, current conditions temperature + wind cards), settings panel (open/close toggle, ZIP code save triggers re-fetch), and GDD chart (chart rendering with forecast data, GDD formula verification against temperatures). 9 `data-testid` selectors added to WeatherAlerts.tsx. All 12 passing (~33s).
+**Scope**: Discovery + documentation. Bug fixes applied for BUG-01, BUG-02, BUG-04, BUG-05, BUG-06, BUG-07, BUG-08, BUG-09. Automated test suites for backlog #8 (space calc), #9 (succession export), #10 (auth + user isolation), #16 (conflict detection). Security fixes: health-records user isolation, export-garden-plan auth gate. Backlog #12: JSON schema validation for event_details (mulch + maple-tapping write-path validation, ~40 unit tests). Backlog #13: 4 DB CHECK constraints on trellis position fields (migration + 10 tests). Backlog #14: intensive spacing formula harmonized (backend now matches frontend `onCenter²/144`). **Playwright E2E**: 3 core E2E tests implemented (`e2e-core.spec.ts`) covering login+bed+plant placement, conflict detection (409), and plan-export-to-calendar verification. Config made CI-aware. 4 `data-testid` selectors added. **Garden Planner E2E**: 13 lifecycle tests implemented in `garden-planner.spec.ts` covering plan CRUD, succession (4x/8x), multi-bed allocation (even/custom), export-to-calendar, idempotent re-export, crop rotation conflict, and nutrition estimates. 8 `data-testid` selectors added. All 13 passing (~32s). **Garden Beds E2E**: 12 serial tests implemented in `garden-beds.spec.ts` covering all 6 planning methods, custom dimensions, edit flow, season extension (cold frame), clear bed, API listing, and API-only deletion. 4 `data-testid` selectors added. All 12 passing. **Garden Designer E2E**: 14 serial tests implemented in `garden-designer.spec.ts` covering plant placement & verification (API+UI), conflict detection (409), plant removal (API/UI/clear bed), seed saving lifecycle (toggle ON/OFF, collect seeds), cross-bed isolation, future plantings toggle, and season progress linkage. 9 `data-testid` selectors added across 3 files. All 14 passing (~50s). **Planting Calendar E2E**: 14 serial tests implemented in `planting-calendar.spec.ts` covering event CRUD for all 3 event types (planting/mulch/maple-tapping), succession creation, list/grid/timeline view toggling, event update + mark-as-harvested + deletion, soil temperature card toggle, and Garden Event/Maple Tapping button visibility. 7 `data-testid` selectors added. All 14 passing (~25s). **Seed Inventory E2E**: 12 serial tests implemented in `seed-inventory.spec.ts` covering seed CRUD via API (custom create, update quantity/notes, update agronomic overrides, delete), agronomic override NULL vs 0 validation, UI verification (seed cards, search filtering, Add New Seed modal), seed catalog pagination, and catalog-to-personal clone workflow. 7 `data-testid` selectors added across 3 files. 11 passing + 1 conditional skip (~21s). **Harvest Tracker E2E**: 10 serial tests implemented in `harvest-tracker.spec.ts` covering harvest CRUD via API (create with quality ratings excellent/good/fair, update quantity+quality, delete), GET all harvests verification, stats aggregation endpoint validation (total/count per plant), UI verification (harvest rows with count stat, search filtering, Log New Harvest modal open). 7 `data-testid` selectors added across 3 files. All 10 passing. **Livestock E2E**: 14 serial tests implemented in `livestock.spec.ts` covering chickens CRUD (create, update quantity, GET all), egg production record, duck creation, beehive CRUD + hive inspection + honey harvest, general livestock (goat) + health record, delete verification, UI tab switching (chickens/ducks/bees/other with card visibility), and category-specific Add New modal forms. 9 `data-testid` selectors added across 2 files. All 14 passing (~26s). **Compost Tracker E2E**: 11 serial tests implemented in `compost.spec.ts` covering pile CRUD via API (create, create second + GET both, update status/moisture/turned), ingredients & C:N ratio recalculation (add brown dried-leaves, add green grass-clippings, add more green food-scraps with directional ratio assertions), status lifecycle (building→cooking→curing→ready), delete with cascade verification, UI verification (pile card with C:N ratio display, status dropdown changes, Add Compost Pile form toggle). 6 `data-testid` selectors added to CompostTracker.tsx. All 11 passing (~23s). **Admin User Management E2E**: 13 serial tests implemented in `admin.spec.ts` covering access control (non-admin 403, unauthenticated 401), admin CRUD (list users with stats, search/filter, create user, duplicate username rejection, update email + admin status, reset password with login verification), self-protection constraints (cannot delete self, cannot reset own password, short password rejection), and delete with verification (cascade delete, 404 on non-existent user). 3 `data-testid` selectors added to AdminUserManagement/index.tsx. All 13 passing (~14s). **Property Designer E2E**: 13 serial tests implemented in `property-designer.spec.ts` covering property CRUD (create, create second + GET both, update), placed structure CRUD (place chicken-coop-small-1, place tool-shed-small-1 with rotation, update position, delete + verify gone), trellis CRUD with capacity tracking (create post_wire with Pythagorean length calc, get empty capacity, update coords recalculates length, delete), cascade delete (property deletion cascades structures), and UI verification (property selector, Add Structure + Manage Trellises buttons). 4 `data-testid` selectors added to PropertyDesigner.tsx. All 13 passing (~16s). **Weather Module E2E**: 12 serial tests implemented in `weather.spec.ts` covering weather API endpoint validation (GET current weather with zipcode, missing params 400, GET forecast with 7 days, days parameter clamping min=1/max=10, lat/lon coordinates), UI rendering (all main sections visible, 7-day forecast grid with Today highlighted, current conditions temperature + wind cards), settings panel (open/close toggle, ZIP code save triggers re-fetch), and GDD chart (chart rendering with forecast data, GDD formula verification against temperatures). 9 `data-testid` selectors added to WeatherAlerts.tsx. All 12 passing (~33s). **Authentication E2E**: 14 serial tests implemented in `auth.spec.ts` covering register validation via API (happy path with user shape, duplicate username 400, duplicate email 400, short password 400), login validation via API (wrong password 401, non-existent username 401, valid credentials returns user), session management (auth check authenticated, get current user /api/auth/me, logout clears session + protected endpoint 401, logout idempotent), and UI flows (wrong password shows error in modal, register via UI with auto-login + username in header, switch between Login/Register modals). No new data-testid selectors needed (existing id= and role= attributes sufficient). All 14 passing (~14s).
 **Verification**: All bugs independently verified against source code.
 
 ---
@@ -1031,41 +1031,37 @@ CI=true npx playwright test tests/e2e-core.spec.ts     # CI (headless, no slowMo
 
 ---
 
-### 10.1 Auth E2E Tests (`auth.spec.ts`) — PROPOSED
+### 10.1 Auth E2E Tests (`auth.spec.ts`) — IMPLEMENTED
+
+**Status**: All 14 tests passing (~14s). Implemented 2026-02-28.
+
+**No new data-testid selectors needed** — existing `id=` selectors (`#username`, `#password`, `#reg-username`, `#reg-email`, `#reg-password`, `#reg-confirm-password`) and `role="dialog"` attributes in LoginModal.tsx and RegisterModal.tsx were sufficient.
 
 ```
-Suite: Authentication
-  test: Register new user
-    - Fill register form, submit
-    - Verify redirect to main app
-    - Verify username shown in header
+Suite 1: Register Validation via API (4 tests)
+  AUTH-01: Register new user via API (happy path — 201, user shape, auto-login)
+  AUTH-02: Duplicate username rejected (400)
+  AUTH-03: Duplicate email rejected (400)
+  AUTH-04: Short password rejected (400, error contains "8")
 
-  test: Login with valid credentials
-    - Fill login form, submit
-    - Verify authenticated state
-    - Verify auth check returns user
+Suite 2: Login Validation via API (3 tests)
+  AUTH-05: Login with wrong password returns 401
+  AUTH-06: Login with non-existent username returns 401
+  AUTH-07: Login with valid credentials returns user (200, user shape)
 
-  test: Login with invalid password
-    - Fill login form with wrong password
-    - Verify error message shown
-    - Verify not redirected
+Suite 3: Session Management via API (4 tests)
+  AUTH-08: Auth check returns authenticated after login (/api/auth/check)
+  AUTH-09: Get current user returns user details (/api/auth/me — returns dict directly, no wrapper)
+  AUTH-10: Logout clears session, protected endpoints return 401 (/api/auth/me → 401, /api/auth/check → authenticated=false)
+  AUTH-11: Logout is idempotent (succeeds when already logged out)
 
-  test: Logout
-    - Login first, then click logout
-    - Verify returned to login screen
-    - Verify protected pages redirect to login
+Suite 4: UI — Login Error Display & Register Flow (3 tests)
+  AUTH-12: Login with wrong password shows error in modal (red .bg-red-50 box, modal stays open)
+  AUTH-13: Register via UI, auto-login, username in header (fill all 4 fields, Create Account, Welcome message)
+  AUTH-14: Switch between Login and Register modals ("Register here" → register modal, "Login here" → login modal)
+```
 
-  test: Protected routes require auth
-    - Without logging in, navigate to /garden-designer
-    - Verify login prompt or redirect
-
-  test: User data isolation
-    - Register User A, create a garden bed "User A Bed"
-    - Logout, register User B
-    - Navigate to garden designer
-    - Verify User A's bed is NOT visible
-    - Create User B bed, verify it shows
-    - Logout, login as User A
+**Note**: Happy-path login/register/logout already covered by `smoke.spec.ts`. Data isolation covered by `auth-isolation.spec.ts` (10 tests across 7 features). This suite focuses on validation error paths, session lifecycle, and UI error display.
     - Verify only "User A Bed" visible
 ```
 
@@ -1621,13 +1617,14 @@ npx playwright test -g "MIGardener"
 | Admin User Mgmt | `tests/admin.spec.ts` | 13 | **PASSING** (~14s) |
 | Property Designer | `tests/property-designer.spec.ts` | 13 | **PASSING** (~16s) |
 | Weather Module | `tests/weather.spec.ts` | 12 | **PASSING** (~33s) |
-| **Total implemented** | | **152+** | |
+| Authentication | `tests/auth.spec.ts` | 14 | **PASSING** (~14s) |
+| **Total implemented** | | **166+** | |
 
 **Full coverage map (manual + implemented + proposed):**
 
 | Feature Area | Section 3 (Manual) | Implemented E2E | Proposed E2E (Sec 10.1+) | Total |
 |---|---|---|---|---|
-| Authentication | 8 | 2 (smoke) | 6 | 16 |
+| Authentication | 8 | 16 (smoke+auth-isolation+auth) | 0 | 24 |
 | Garden Beds (all methods) | 10 | 14 (smoke+core+garden-beds) | 0 | 24 |
 | Garden Planner (succession, multi-bed) | 15 | 14 (core + garden-planner) | 0 | 29 |
 | Garden Designer (placement, removal, seed saving) | - | 15 (core E2E-01 + garden-designer) | 0 | 15 |
@@ -1650,7 +1647,7 @@ npx playwright test -g "MIGardener"
 | Plant DB Sync | 4 | - | - | 4 |
 | Integration Journeys | - | - | 3 | 3 |
 | Edge Cases (Sec 4) | 30+ | - | - | 30+ |
-| **TOTAL** | **~125** | **~152+** | **~26** | **~303+** |
+| **TOTAL** | **~125** | **~166+** | **~20** | **~311+** |
 
 †Conflict detection has 70 automated backend pytest tests (`test_conflict_detection.py`) in addition to the manual + E2E test cases. These are unit/integration tests, not Playwright E2E.
 
