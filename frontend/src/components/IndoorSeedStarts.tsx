@@ -200,6 +200,7 @@ const IndoorSeedStarts: React.FC = () => {
           <div className="flex gap-3">
             <button
               onClick={() => setShowImportModal(true)}
+              data-testid="btn-import-from-garden"
               className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -209,6 +210,7 @@ const IndoorSeedStarts: React.FC = () => {
             </button>
             <button
               onClick={() => setShowAddModal(true)}
+              data-testid="btn-start-seeds"
               className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,7 +223,7 @@ const IndoorSeedStarts: React.FC = () => {
 
         {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+          <div data-testid="iss-stat-active" className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
             <div className="text-2xl font-bold text-blue-700">{activeStarts.length}</div>
             <div className="text-sm text-blue-600 font-medium">Active Starts</div>
           </div>
@@ -237,7 +239,7 @@ const IndoorSeedStarts: React.FC = () => {
             </div>
             <div className="text-sm text-green-600 font-medium">Growing</div>
           </div>
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
+          <div data-testid="iss-stat-transplanted" className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
             <div className="text-2xl font-bold text-purple-700">{transplantedCount}</div>
             <div className="text-sm text-purple-600 font-medium">Transplanted</div>
           </div>
@@ -283,6 +285,7 @@ const IndoorSeedStarts: React.FC = () => {
             return (
               <div
                 key={start.id}
+                data-testid={`iss-card-${start.id}`}
                 className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6"
               >
                 {/* Header */}
