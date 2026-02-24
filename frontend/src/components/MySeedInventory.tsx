@@ -3,6 +3,7 @@ import { ConfirmDialog, useToast, SearchBar, SortDropdown, FilterBar } from './c
 import type { SortOption, SortDirection, FilterGroup } from './common';
 import { AddSeedModal } from './SeedInventory/AddSeedModal';
 import { EditSeedModal } from './SeedInventory/EditSeedModal';
+import { SeedImportModal } from './SeedInventory/SeedImportModal';
 
 import { API_BASE_URL } from '../config';
 interface Seed {
@@ -129,6 +130,7 @@ const SeedInventory: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [selectedSeed, setSelectedSeed] = useState<Seed | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; seedId: number | null }>({
     isOpen: false,
@@ -727,6 +729,15 @@ const SeedInventory: React.FC = () => {
             </svg>
             Export to CSV
           </button>
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors font-medium shadow-md hover:shadow-lg"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Import CSV
+          </button>
         </div>
 
         {/* Search Bar */}
@@ -1042,6 +1053,12 @@ const SeedInventory: React.FC = () => {
         onClose={() => setIsEditModalOpen(false)}
         onSuccess={loadData}
         seed={selectedSeed}
+      />
+
+      <SeedImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSuccess={loadData}
       />
 
       <ConfirmDialog
