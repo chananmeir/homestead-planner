@@ -352,6 +352,7 @@ const CompostTracker: React.FC = () => {
         <button
           onClick={() => setShowAddPile(!showAddPile)}
           className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          data-testid="btn-add-pile"
         >
           {showAddPile ? 'Cancel' : '+ Add Compost Pile'}
         </button>
@@ -441,6 +442,7 @@ const CompostTracker: React.FC = () => {
                 onClick={addCompostPile}
                 disabled={!newPile.name || !newPile.location}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                data-testid="btn-create-pile"
               >
                 Create Pile
               </button>
@@ -459,7 +461,7 @@ const CompostTracker: React.FC = () => {
       ) : (
         <div className="space-y-6">
           {compostPiles.map((pile) => (
-            <div key={pile.id} className="bg-white rounded-lg shadow-md p-6">
+            <div key={pile.id} data-testid={`compost-pile-${pile.id}`} className="bg-white rounded-lg shadow-md p-6">
               {/* Pile Header */}
               <div className="flex justify-between items-start mb-4">
                 <div>
@@ -482,6 +484,7 @@ const CompostTracker: React.FC = () => {
                       updatePileStatus(pile.id, e.target.value as CompostPile['status'])
                     }
                     className="px-3 py-1 border rounded-lg text-sm"
+                    data-testid={`pile-status-${pile.id}`}
                   >
                     <option value="building">Building</option>
                     <option value="cooking">Cooking</option>
@@ -491,6 +494,7 @@ const CompostTracker: React.FC = () => {
                   <button
                     onClick={() => deletePile(pile.id)}
                     className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                    data-testid={`btn-delete-pile-${pile.id}`}
                   >
                     Delete
                   </button>
@@ -511,6 +515,7 @@ const CompostTracker: React.FC = () => {
                       className={`text-3xl font-bold ${getCNRatioColor(
                         pile.carbonNitrogenRatio
                       )}`}
+                      data-testid={`pile-cn-ratio-${pile.id}`}
                     >
                       {pile.carbonNitrogenRatio.toFixed(1)}:1
                     </div>
