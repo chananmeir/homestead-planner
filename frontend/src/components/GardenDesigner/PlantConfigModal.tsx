@@ -1035,6 +1035,12 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       return;
     }
 
+    // Block save when no position is set (click-to-place mode requires coordinate input)
+    if (!currentPosition) {
+      setPositionError('Enter a grid position (e.g., A1) before placing');
+      return;
+    }
+
     // Validate trellis selection if required
     if (representativePlant?.migardener?.trellisRequired && !selectedTrellisId) {
       showError('Please select a trellis structure for this plant');
@@ -1281,6 +1287,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                     <input
                       id="gridPosition"
                       type="text"
+                      autoFocus={!position}
                       value={gridLabelInput || currentGridLabel}
                       onChange={(e) => handleGridLabelChange(e.target.value)}
                       onBlur={() => {
@@ -1290,17 +1297,25 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                           setEditedPosition(null);
                         }
                       }}
-                      placeholder={currentGridLabel}
+                      placeholder={!position ? 'e.g., A1' : currentGridLabel}
                       className={`px-2 py-1 text-sm border rounded w-16 focus:outline-none focus:ring-1 ${
                         positionError
                           ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                          : 'border-gray-300 focus:ring-green-500 focus:border-green-500'
+                          : !position && !currentPosition
+                            ? 'border-yellow-300 focus:ring-yellow-500 focus:border-yellow-500'
+                            : 'border-gray-300 focus:ring-green-500 focus:border-green-500'
                       }`}
                       title="Edit grid position (e.g., A1, B2)"
                     />
-                    <span className="text-xs text-gray-500">
-                      ({currentPosition?.x}, {currentPosition?.y})
-                    </span>
+                    {currentPosition ? (
+                      <span className="text-xs text-gray-500">
+                        ({currentPosition.x}, {currentPosition.y})
+                      </span>
+                    ) : (
+                      <span className="text-xs text-yellow-600">
+                        Type a grid position
+                      </span>
+                    )}
                     {gridDimensions && (
                       <span className="text-xs text-gray-400 ml-1">
                         {getGridBoundsDescription(gridDimensions.gridWidth, gridDimensions.gridHeight)}
@@ -2015,6 +2030,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             onClick={handleSave}
             disabled={
               isSubmitting ||
+              !currentPosition || // Block: no grid position (click-to-place requires coordinate)
               (activePlanId && variety && matchingSeedLots.length === 0) || // Block: no seed lot for variety
               (activePlanId && variety && matchingSeedLots.length > 1 && !selectedSeedId) || // Block: multiple lots, none selected
               (quantity > 1 &&
@@ -2025,7 +2041,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 (usesDualInput && numberOfSquares > 1)) // Disable for succession planting without preview
             }
             className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center gap-2 ${
-              (quantity > 1 && !showingPreview && bed !== undefined && !rowNumber && (usesDualInput && numberOfSquares > 1))
+              !currentPosition
+                || (quantity > 1 && !showingPreview && bed !== undefined && !rowNumber && (usesDualInput && numberOfSquares > 1))
                 || (activePlanId && variety && (matchingSeedLots.length === 0 || (matchingSeedLots.length > 1 && !selectedSeedId)))
                 ? 'bg-gray-400 cursor-not-allowed'
                 : warnings.some(w => w.severity === 'warning')

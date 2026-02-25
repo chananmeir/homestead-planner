@@ -130,7 +130,7 @@ const GardenDesigner: React.FC = () => {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pendingPlant, setPendingPlant] = useState<{
     cropName: string;
-    position: { x: number; y: number };
+    position: { x: number; y: number } | null;
     bedId: number;
     sourcePlanItemId?: number;
     initialVariety?: string;
@@ -149,6 +149,7 @@ const GardenDesigner: React.FC = () => {
   const [plantingEvents, setPlantingEvents] = useState<PlantingEvent[]>([]);
   const [futurePlantingEvents, setFuturePlantingEvents] = useState<PlantingEvent[]>([]);
   const [showFuturePlantings, setShowFuturePlantings] = useState<boolean>(() => localStorage.getItem('showFuturePlantings') === 'true');
+  const [showGridLabels, setShowGridLabels] = useState<boolean>(() => localStorage.getItem('showGridLabels') !== 'false');
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [quickHarvestDays, setQuickHarvestDays] = useState<number | null>(null); // Days to harvest filter from PlantPalette
 
@@ -1288,6 +1289,11 @@ const GardenDesigner: React.FC = () => {
       // Use edited position from config if provided, otherwise use original position
       const finalPosition = config.position || position;
 
+      if (!finalPosition) {
+        showError('No grid position specified. Enter a coordinate (e.g., A1) to place the plant.');
+        return;
+      }
+
       // Calculate plants per square based on spacing (method-aware)
       const gridSize = targetBed.gridSize || 12;
       let plantsPerSquare: number;
@@ -1579,6 +1585,33 @@ const GardenDesigner: React.FC = () => {
     setPreviewPositions([]); // Clear preview
   };
 
+  // Click-to-place: click a plant (palette or planned section) to open config modal with no position
+  const handleClickToPlace = useCallback((plant: Plant) => {
+    if (!activeBed) {
+      showError('Select a bed first, then click a plant to place by coordinate.');
+      return;
+    }
+    const cropName = extractCropName(plant.name);
+    setPendingPlant({ cropName, position: null, bedId: activeBed.id });
+    setShowConfigModal(true);
+  }, [activeBed, showError]);
+
+  const handlePlannedClickToPlace = useCallback((plant: Plant, planItemId: number, varietyName?: string) => {
+    if (!activeBed) {
+      showError('Select a bed first, then click a plant to place by coordinate.');
+      return;
+    }
+    const cropName = extractCropName(plant.name);
+    setPendingPlant({
+      cropName,
+      position: null,
+      bedId: activeBed.id,
+      sourcePlanItemId: planItemId,
+      initialVariety: varietyName,
+    });
+    setShowConfigModal(true);
+  }, [activeBed, showError]);
+
   // Handle duplication of planted items via Shift+drag
   const handleDragStart = (event: DragStartEvent) => {
     setActivePlant(event.active.data.current as Plant);
@@ -1851,12 +1884,10 @@ const GardenDesigner: React.FC = () => {
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" />
 
-          {/* Cell Labels (development only) */}
-          {process.env.NODE_ENV === 'development' && Array.from({ length: gridHeight }).map((_, y) =>
+          {/* Cell Labels (toggleable) */}
+          {showGridLabels && Array.from({ length: gridHeight }).map((_, y) =>
             Array.from({ length: gridWidth }).map((_, x) => {
-              const colLabel = String.fromCharCode(65 + x); // A, B, C, D...
-              const rowLabel = (y + 1).toString(); // 1, 2, 3, 4...
-              const cellLabel = colLabel + rowLabel; // A1, B2, C3...
+              const cellLabel = coordinateToGridLabel(x, y);
 
               return (
                 <text
@@ -2125,6 +2156,7 @@ const GardenDesigner: React.FC = () => {
             <PlantPalette
               plants={plants}
               plantingDate={dateFilter.date}
+              onPlantSelect={handleClickToPlace}
               onQuickHarvestChange={(days) => {
                 setQuickHarvestDays(days);
                 // Auto-enable future plantings when quick harvest filter is active
@@ -2144,6 +2176,7 @@ const GardenDesigner: React.FC = () => {
                 futurePlantingEvents={futurePlantingEvents}
                 activePlantedItems={getActivePlantedItems(activeBed)}
                 allPlantedItems={activeBed.plantedItems || []}
+                onClickToPlace={handlePlannedClickToPlace}
                 onDateClick={(dateStr) => handleDateFilterChange({ mode: 'single', date: dateStr })}
                 bedWidth={activeBed.width}
                 bedLength={activeBed.length}
@@ -2435,6 +2468,23 @@ const GardenDesigner: React.FC = () => {
                       Delete Selected Plant
                     </button>
                   )}
+
+                  {/* Grid Labels Toggle */}
+                  <button
+                    onClick={() => {
+                      const next = !showGridLabels;
+                      setShowGridLabels(next);
+                      localStorage.setItem('showGridLabels', String(next));
+                    }}
+                    className={`px-2 py-1 text-xs font-mono font-bold rounded border transition-colors ${
+                      showGridLabels
+                        ? 'bg-green-100 text-green-700 border-green-300'
+                        : 'bg-gray-100 text-gray-500 border-gray-300'
+                    }`}
+                    title={showGridLabels ? 'Hide grid labels' : 'Show grid labels'}
+                  >
+                    A1
+                  </button>
 
                   {/* Zoom Controls */}
                   <div className="flex items-center gap-2 ml-auto">

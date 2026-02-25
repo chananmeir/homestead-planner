@@ -529,7 +529,7 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
       {/* Footer Info */}
       <div className="p-3 border-t border-gray-200 bg-gray-50">
         <p className="text-xs text-gray-600 text-center">
-          Drag plants onto the garden grid
+          Drag or click plants to place on grid
         </p>
       </div>
     </div>
