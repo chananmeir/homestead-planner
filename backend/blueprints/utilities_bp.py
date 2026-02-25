@@ -337,10 +337,10 @@ def get_soil_temperature():
         elif latitude and longitude:
             lat = float(latitude)
             lon = float(longitude)
-        elif current_user.property_latitude and current_user.property_longitude:
-            # Use user's property location
-            lat = current_user.property_latitude
-            lon = current_user.property_longitude
+        elif current_user.properties and current_user.properties[0].latitude and current_user.properties[0].longitude:
+            # Use user's first property location
+            lat = current_user.properties[0].latitude
+            lon = current_user.properties[0].longitude
         else:
             # Default to NYC if no location provided
             lat = float(DEFAULT_LATITUDE)

@@ -271,6 +271,36 @@ def api_garden_plan_detail(plan_id):
     return jsonify(plan.to_dict())
 
 
+@garden_planner_bp.route('/garden-plans/<int:plan_id>/items', methods=['GET', 'POST'])
+@login_required
+def api_garden_plan_items(plan_id):
+    """Get all items or add an item to an existing garden plan"""
+    plan = GardenPlan.query.get(plan_id)
+    if not plan or plan.user_id != current_user.id:
+        return jsonify({'error': 'Plan not found'}), 404
+
+    if request.method == 'GET':
+        return jsonify([item.to_dict() for item in plan.items])
+
+    # POST: Add a single item
+    data = request.json
+    if not data or not data.get('plantId') or data.get('plantEquivalent') is None:
+        return jsonify({'error': 'plantId and plantEquivalent are required'}), 400
+
+    item, error = create_plan_item_from_data(data, plan.id)
+    if error:
+        return jsonify({'error': error}), 400
+
+    try:
+        db.session.add(item)
+        db.session.commit()
+        return jsonify(item.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error adding plan item: {e}")
+        return jsonify({'error': 'Failed to add plan item'}), 500
+
+
 # ==================== PLANNING OPERATIONS ====================
 
 @garden_planner_bp.route('/garden-plans/calculate', methods=['POST'])

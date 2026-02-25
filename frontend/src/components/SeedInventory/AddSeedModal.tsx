@@ -58,8 +58,9 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
     try {
       const response = await fetch(`${API_BASE_URL}/api/seed-catalog`, { credentials: 'include' });
       const data = await response.json();
-      // Filter to only seeds for this plant
-      const filtered = data.filter((seed: any) => seed.plantId === plantId);
+      // Filter to only seeds for this plant (API returns { seeds: [], pagination: {} })
+      const seeds = Array.isArray(data) ? data : (data.seeds || []);
+      const filtered = seeds.filter((seed: any) => seed.plantId === plantId);
       setCatalogSeeds(filtered);
     } catch (error) {
       console.error('Error fetching catalog seeds:', error);
