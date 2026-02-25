@@ -25,6 +25,7 @@ export interface PlacementRequest {
   planningMethod?: string; // Planning method (e.g., 'square-foot', 'migardener', 'row')
   plantingStyle?: PlantingStyle; // NEW: Explicit planting style override (e.g., 'grid', 'row', 'broadcast')
   fillDirection?: FillDirection; // Direction to fill cells: 'across' (row-major) or 'down' (column-major)
+  maxRows?: number; // Maximum number of physical rows to generate candidates for
 }
 
 /**
@@ -72,6 +73,7 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
     planningMethod,
     plantingStyle,
     fillDirection = 'across',
+    maxRows,
   } = request;
 
   const positions: { x: number; y: number }[] = [];
@@ -81,14 +83,24 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
   // plant.spacing is in inches, gridSize is inches per cell
   const plantSpacing = plant.spacing || 12;
 
+  // MIGardener: use method-specific spacing from override table
+  let effectivePlantSpacing = plantSpacing;
+  let effectiveRowSpacing: number | null = plant.rowSpacing || plantSpacing;
+
+  if (planningMethod === 'migardener') {
+    const mgSpacing = getMIGardenerSpacing(plant.id, plant.spacing || 12, plant.rowSpacing);
+    effectivePlantSpacing = mgSpacing.plantSpacing;
+    effectiveRowSpacing = mgSpacing.rowSpacing;
+  }
+
   // Dense planting detection: plants with spacing ≤ gridSize can be placed adjacent
   // For SFG (12" grid), plants with 6-12" spacing are "dense" and multiple fit per square
-  const isDensePlanting = plantSpacing <= gridSize;
+  const isDensePlanting = effectivePlantSpacing <= gridSize;
 
   // For dense plants, allow adjacent placement (distance = 0)
   // Each square will contain multiple plants densely packed WITHIN the square
   // For large plants, maintain spacing between squares
-  const requiredDistance = isDensePlanting ? 0 : Math.ceil(plantSpacing / gridSize);
+  const requiredDistance = isDensePlanting ? 0 : Math.ceil(effectivePlantSpacing / gridSize);
 
   // Create a set of occupied positions for O(1) lookup
   const occupiedSet = new Set<string>();
@@ -116,7 +128,7 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
     for (const existing of existingPlants) {
       if (!existing.position) continue;
 
-      const existingSpacing = Math.ceil((plant.spacing || 12) / gridSize);
+      const existingSpacing = Math.ceil(effectivePlantSpacing / gridSize);
       const maxSpacing = Math.max(requiredDistance, existingSpacing);
 
       // Chebyshev distance: max of absolute differences
@@ -154,15 +166,18 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
    */
   const generateMIGardenerCandidates = (): { x: number; y: number }[] => {
     const candidates: { x: number; y: number }[] = [];
-    const rowSpacing = plant.rowSpacing || plant.spacing || 12;
-    const withinRowSpacing = plant.spacing || 12;
 
-    // Calculate spacing in grid cells
-    const rowSpacingCells = Math.max(1, Math.ceil(rowSpacing / gridSize));
-    const withinRowSpacingCells = Math.max(1, Math.ceil(withinRowSpacing / gridSize));
+    // Use effective spacing (already computed with MIGardener overrides if applicable)
+    const rowSpacingCells = effectiveRowSpacing
+      ? Math.max(1, Math.ceil(effectiveRowSpacing / gridSize))
+      : 1; // null = intensive crop, every row
+    const withinRowSpacingCells = Math.max(1, Math.ceil(effectivePlantSpacing / gridSize));
 
     // Determine starting point
-    const startX = (startPosition && startPosition.x >= 0 && startPosition.x < gridWidth)
+    // For explicit row planting style, rows always span full width (x starts at 0)
+    // The click position only determines which row (Y) to start from
+    const isExplicitRowStyle = plantingStyle === 'row';
+    const startX = (!isExplicitRowStyle && startPosition && startPosition.x >= 0 && startPosition.x < gridWidth)
       ? startPosition.x
       : 0;
     const startY = (startPosition && startPosition.y >= 0 && startPosition.y < gridHeight)
@@ -172,13 +187,18 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
     // Generate positions in horizontal rows
     // Each row is separated by rowSpacingCells
     // Within each row, plants are separated by withinRowSpacingCells
+    let rowCount = 0;
     for (let y = startY; y < gridHeight; y += rowSpacingCells) {
-      // For the first row, start from startX; for subsequent rows, start from 0
-      const rowStartX = (y === startY) ? startX : 0;
+      if (maxRows !== undefined && rowCount >= maxRows) break;
+
+      // For explicit row style, always start from 0 (full-width rows)
+      // For MIGardener legacy, first row starts from startX, subsequent rows from 0
+      const rowStartX = isExplicitRowStyle ? 0 : (y === startY) ? startX : 0;
 
       for (let x = rowStartX; x < gridWidth; x += withinRowSpacingCells) {
         candidates.push({ x, y });
       }
+      rowCount++;
     }
 
     return candidates;

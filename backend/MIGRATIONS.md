@@ -1,6 +1,53 @@
 # Database Migrations Guide
 
-This app uses **Flask-Migrate** (Alembic) for database schema changes without losing data.
+This app uses multiple migration systems depending on the type of change:
+
+1. **Flask-Migrate (Alembic)** - For model schema changes (recommended for production)
+2. **Custom Scripts** - For plant data and specialized migrations (see `migrations/custom/`)
+3. **AST Plant Database Updates** - For modifying `plant_database.py` (see `MIGRATION_GUIDE.md`)
+
+## Custom Migration Scripts
+
+For plant data additions and specialized schema changes that don't fit the Flask-Migrate workflow, see:
+- `migrations/custom/README.md` - Custom migration documentation
+- `MIGRATION_GUIDE.md` - Plant database update guide
+
+Custom scripts are organized in:
+- `migrations/custom/schema/` - Database schema changes
+- `migrations/custom/data/` - Plant and seed data additions
+
+Run custom scripts from the backend directory:
+```bash
+cd backend
+python migrations/custom/schema/add_position_fields.py
+python migrations/custom/schema/add_seeds_per_packet.py
+python migrations/custom/data/add_spinach.py
+```
+
+### Recent Migrations
+
+**2026-01-24**: Deprecated `garden_plan` strategy fields (UI only)
+- **Status**: Fields retained in database, removed from wizard UI
+- **Affected Fields**:
+  - `garden_plan.strategy` - Now uses hardcoded 'balanced' default in UI
+  - `garden_plan.succession_preference` - Now uses hardcoded 'moderate' default in UI
+- **Reason**: Step 2 "Configure Strategy" removed from Garden Season Planner wizard UI. Manual quantities in Step 1 now control all planning decisions. Fields retained for:
+  1. Backward compatibility with existing saved plans
+  2. Potential future "recalculate" or "optimize" features
+  3. Historical data preservation
+- **Migration**: None required (UI-only change, database schema unchanged)
+- **Impact**: Existing saved plans load and display correctly. New plans use hardcoded defaults but still store them in the database for consistency.
+
+**2026-01-22**: Added `seeds_per_packet` column to `seed_inventory` table
+- Script: `migrations/custom/schema/add_seeds_per_packet.py`
+- Purpose: Track number of seeds per packet for better inventory management
+- Default value: 50 seeds per packet
+
+---
+
+## Flask-Migrate (Alembic) Workflow
+
+This section covers **Flask-Migrate** (Alembic) for database schema changes without losing data.
 
 ## Initial Setup (One-time)
 

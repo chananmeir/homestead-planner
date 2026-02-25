@@ -149,6 +149,7 @@ const GardenDesigner: React.FC = () => {
   const [plantingEvents, setPlantingEvents] = useState<PlantingEvent[]>([]);
   const [futurePlantingEvents, setFuturePlantingEvents] = useState<PlantingEvent[]>([]);
   const [showFuturePlantings, setShowFuturePlantings] = useState<boolean>(() => localStorage.getItem('showFuturePlantings') === 'true');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [quickHarvestDays, setQuickHarvestDays] = useState<number | null>(null); // Days to harvest filter from PlantPalette
 
   // Seed saving modal state

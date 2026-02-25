@@ -44,6 +44,7 @@ const HarvestTracker: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadData = async () => {
@@ -267,6 +268,7 @@ const HarvestTracker: React.FC = () => {
     });
 
     return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harvests, searchQuery, activeFilters, dateRange, sortBy, sortDirection, getPlantName]);
 
   const totalHarvested = harvests.reduce((sum, h) => sum + h.quantity, 0);

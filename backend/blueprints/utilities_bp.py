@@ -196,9 +196,12 @@ def calculate_spacing():
 # ==================== PDF EXPORT ====================
 
 @utilities_bp.route('/export-garden-plan/<int:bed_id>')
+@login_required
 def export_garden_plan(bed_id):
     """Export garden plan as PDF"""
     bed = GardenBed.query.get_or_404(bed_id)
+    if bed.user_id != current_user.id:
+        return jsonify({'error': 'Not found'}), 404
 
     buffer = io.BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)

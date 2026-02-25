@@ -8,9 +8,9 @@ Verifies:
 4. Admin endpoints require admin role
 5. Auth flow (register/login/logout) works correctly
 
-Security gaps documented with @pytest.mark.xfail:
-- /health-records GET has no user_id filter (returns ALL users' records)
-- /export-garden-plan/<id> missing @login_required
+Security gaps fixed:
+- /health-records GET now filters by user_id via Livestock join
+- /export-garden-plan/<id> now has @login_required + ownership check
 """
 
 import pytest
@@ -246,10 +246,6 @@ class TestAuthRequired:
             f"GET {url} returned 401 but should be public"
         )
 
-    @pytest.mark.xfail(
-        reason="BUG: /export-garden-plan/<id> missing @login_required",
-        strict=True,
-    )
     def test_export_garden_plan_requires_auth(self, client, user_a):
         bed = _create_bed(user_a.id)
         resp = client.get(f'/api/export-garden-plan/{bed.id}')
@@ -331,10 +327,6 @@ class TestUserIsolation:
         assert resp.status_code == 200
         assert resp.get_json() == []
 
-    @pytest.mark.xfail(
-        reason="BUG: /health-records GET has no user_id filter — returns ALL users' records",
-        strict=True,
-    )
     def test_health_records_isolated(self, auth_client_a, auth_client_b, user_a):
         animal = _create_livestock(user_a.id)
         _create_health_record(animal.id)

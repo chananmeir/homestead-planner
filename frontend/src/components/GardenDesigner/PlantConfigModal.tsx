@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Modal } from '../common/Modal';
-import { Plant, PlantedItem, ValidationWarning, ValidationResult, DateSuggestion, GardenBed, SeedInventoryItem, TrellisStructure, TrellisCapacity } from '../../types';
+import { Plant, PlantedItem, ValidationWarning, ValidationResult, DateSuggestion, GardenBed, SeedInventoryItem } from '../../types';
 import { API_BASE_URL } from '../../config';
 import WarningDisplay from '../common/WarningDisplay';
 import { extractCropName } from '../../utils/plantUtils';
@@ -470,6 +470,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     setPlantsPerSquare(newPlantsPerSquare);
     setNumberOfSquares(1);
     setQuantity(newQuantity);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlantingStyle]);
 
   // Matching seed lots for the currently selected variety (personal seeds only)
@@ -685,6 +686,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     };
 
     validatePlanting();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [representativePlant, plantingDate, plantingMethod, isOpen, bedId, variety]);
 
   // Calculate grid dimensions from bed
@@ -833,8 +835,6 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             const plantsKeptPerSpot = mgData.plantsKeptPerSpot || 1;
             const totalSeeds = spotsNeeded * seedsPerSpot;
 
-            const expectedGermination = totalSeeds * mgData.germinationRate;
-            const expectedSurvival = expectedGermination * mgData.survivalRate;
             const finalPlantsAfterThinning = spotsNeeded * plantsKeptPerSpot;
 
             // Store plant-spacing metadata
@@ -941,6 +941,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       // can detect user-driven changes (null would cause first change to be skipped)
       prevPlantingStyleRef.current = getEffectivePlantingStyle(representativePlant, bed);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, representativePlant, planningMethod, initialVariety]);
 
   // Sync handlers for dual-input UI (squares <-> plants)

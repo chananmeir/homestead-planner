@@ -275,8 +275,10 @@ test.describe.serial('Garden Designer — E2E Tests', () => {
     // Confirm in the dialog
     await page.locator('[data-testid="confirm-dialog-confirm"]').click();
 
-    // Wait for the operation to complete
-    await page.waitForTimeout(1000);
+    // Wait for the clear operation to complete — button disappears when bed is empty
+    await expect(
+      page.locator('[data-testid="clear-bed-btn"]'),
+    ).not.toBeVisible({ timeout: 15000 });
 
     // Verify via API that the bed is empty
     const bedAfter = await getBedDetail(bedId);

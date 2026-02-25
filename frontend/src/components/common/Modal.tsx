@@ -18,6 +18,7 @@ export const Modal: React.FC<ModalProps> = ({
   showCloseButton = true,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  const mouseDownTarget = useRef<EventTarget | null>(null);
 
   // Handle ESC key to close
   useEffect(() => {
@@ -39,11 +40,20 @@ export const Modal: React.FC<ModalProps> = ({
     };
   }, [isOpen, onClose]);
 
-  // Handle click outside to close
+  // Track where mouse down started
+  const handleBackdropMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    mouseDownTarget.current = event.target;
+  };
+
+  // Only close if both mousedown and click happened on backdrop
   const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
+    if (
+      event.target === event.currentTarget &&
+      mouseDownTarget.current === event.currentTarget
+    ) {
       onClose();
     }
+    mouseDownTarget.current = null;
   };
 
   if (!isOpen) return null;
@@ -58,6 +68,7 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 backdrop-blur-sm"
+      onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
