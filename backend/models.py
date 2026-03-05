@@ -1124,6 +1124,13 @@ class IndoorSeedStart(db.Model):
 
         current_count = sum(event.quantity or 0 for event in matching_events)
 
+        # Collect destination bed names from matching events
+        bed_ids = set(e.garden_bed_id for e in matching_events if e.garden_bed_id is not None)
+        destination_beds = []
+        if bed_ids:
+            beds = GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all()
+            destination_beds = [bed.name for bed in beds]
+
         # Calculate what the seeds_started should be based on current count
         # Using same logic as backend: count / 0.85 * 1.15
         import math
@@ -1142,7 +1149,8 @@ class IndoorSeedStart(db.Model):
             'count': current_count,
             'expectedSeeds': expected_seeds,
             'inSync': in_sync,
-            'warning': warning
+            'warning': warning,
+            'destinationBeds': destination_beds
         }
 
     def to_dict(self):
@@ -1175,7 +1183,8 @@ class IndoorSeedStart(db.Model):
             'gardenPlanCount': garden_sync['count'],
             'gardenPlanExpectedSeeds': garden_sync['expectedSeeds'],
             'gardenPlanInSync': garden_sync['inSync'],
-            'gardenPlanWarning': garden_sync['warning']
+            'gardenPlanWarning': garden_sync['warning'],
+            'destinationBeds': garden_sync.get('destinationBeds', [])
         }
 
     def calculate_actual_germination_rate(self):

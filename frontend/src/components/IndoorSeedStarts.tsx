@@ -53,6 +53,7 @@ interface IndoorSeedStart {
   gardenPlanExpectedSeeds?: number;
   gardenPlanInSync?: boolean;
   gardenPlanWarning?: string;
+  destinationBeds?: string[];
 }
 
 const IndoorSeedStarts: React.FC = () => {
@@ -393,6 +394,12 @@ const IndoorSeedStarts: React.FC = () => {
                     <div className="flex justify-between">
                       <span className="text-gray-600">Location:</span>
                       <span className="font-medium">{start.location}</span>
+                    </div>
+                  )}
+                  {start.destinationBeds && start.destinationBeds.length > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Destination:</span>
+                      <span className="font-medium text-green-700">{start.destinationBeds.join(', ')}</span>
                     </div>
                   )}
                 </div>
