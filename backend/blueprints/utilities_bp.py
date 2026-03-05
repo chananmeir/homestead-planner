@@ -763,6 +763,21 @@ def calculate_indoor_quantity():
         return jsonify({'error': str(e)}), 400
 
 
+@utilities_bp.route('/indoor-seed-starts/by-planting-event/<int:event_id>', methods=['GET'])
+@login_required
+def get_indoor_start_by_planting_event(event_id):
+    """Look up an IndoorSeedStart by its linked planting_event_id."""
+    seed_start = IndoorSeedStart.query.filter_by(
+        planting_event_id=event_id,
+        user_id=current_user.id
+    ).first()
+
+    if not seed_start:
+        return jsonify({'error': 'No indoor seed start linked to this event'}), 404
+
+    return jsonify(seed_start.to_dict())
+
+
 @utilities_bp.route('/indoor-seed-starts/from-planting-event', methods=['POST'])
 @login_required
 def create_indoor_start_from_planting_event():

@@ -13,6 +13,7 @@ import AddMapleTappingModal from './AddMapleTappingModal';
 import SoilTemperatureCard from './SoilTemperatureCard';
 import MapleTappingSeasonCard from './MapleTappingSeasonCard';
 import TimelineView from './TimelineView';
+import EventDetailModal from './CalendarGrid/EventDetailModal';
 
 const PlantingCalendar: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'grid' | 'timeline'>('list');
@@ -36,6 +37,9 @@ const PlantingCalendar: React.FC = () => {
 
   // Maple Tapping Modal state
   const [mapleTappingModalOpen, setMapleTappingModalOpen] = useState(false);
+
+  // Event Detail Modal state
+  const [detailEvent, setDetailEvent] = useState<PlantingCalendarType | null>(null);
 
   // Available Spaces state (for Timeline view)
   const [showAvailableSpaces, setShowAvailableSpaces] = useState(false);
@@ -182,27 +186,28 @@ const PlantingCalendar: React.FC = () => {
   }, []);
 
   // Fetch planting events from API
-  useEffect(() => {
-    const fetchPlantingEvents = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await apiGet('/api/planting-events');
-        if (response.ok) {
-          const data = await response.json();
-          setPlantingEvents(data);
-        } else {
-          throw new Error('Failed to load planting events');
-        }
-      } catch (err) {
-        console.error('Error loading planting events:', err);
-        setError('Failed to load planting events. Please try refreshing the page.');
-      } finally {
-        setLoading(false);
+  const fetchPlantingEvents = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await apiGet('/api/planting-events');
+      if (response.ok) {
+        const data = await response.json();
+        setPlantingEvents(data);
+      } else {
+        throw new Error('Failed to load planting events');
       }
-    };
+    } catch (err) {
+      console.error('Error loading planting events:', err);
+      setError('Failed to load planting events. Please try refreshing the page.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchPlantingEvents();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -368,12 +373,7 @@ const PlantingCalendar: React.FC = () => {
                 events={plantingEvents}
                 onDateClick={handleDateClick}
                 onEventClick={(event) => {
-                  // For now, open the add modal with the event's plant and date
-                  // TODO: Implement proper edit functionality
-                  const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
-                  setModalInitialPlant(plant);
-                  setModalInitialDate(event.directSeedDate || event.transplantDate || event.expectedHarvestDate);
-                  setModalOpen(true);
+                  setDetailEvent(event);
                 }}
               />
 
@@ -500,6 +500,15 @@ const PlantingCalendar: React.FC = () => {
           };
           fetchPlantingEvents();
         }}
+      />
+
+      {/* Event Detail Modal */}
+      <EventDetailModal
+        isOpen={!!detailEvent}
+        event={detailEvent}
+        onClose={() => setDetailEvent(null)}
+        gardenBeds={gardenBeds}
+        onEventUpdated={fetchPlantingEvents}
       />
     </>
   );
