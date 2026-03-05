@@ -1109,7 +1109,7 @@ class IndoorSeedStart(db.Model):
             PlantingEvent.transplant_date.between(date_min, date_max)
         ).all()
 
-        current_count = len(matching_events)
+        current_count = sum(event.quantity or 0 for event in matching_events)
 
         # Calculate what the seeds_started should be based on current count
         # Using same logic as backend: count / 0.85 * 1.15
