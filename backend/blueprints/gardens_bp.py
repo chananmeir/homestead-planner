@@ -1796,6 +1796,13 @@ def get_planting_events_needing_indoor_starts():
 
         grouped = filtered_groups
 
+        # Collect unique bed IDs and fetch names
+        bed_ids = {g['gardenBedId'] for g in grouped.values() if g['gardenBedId']}
+        bed_names = {}
+        if bed_ids:
+            beds = GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all()
+            bed_names = {b.id: b.name for b in beds}
+
         # Convert grouped data to results
         results = []
         for group_key, group_data in grouped.items():
@@ -1824,6 +1831,7 @@ def get_planting_events_needing_indoor_starts():
                 'plantIcon': plant.get('icon', '🌱'),
                 'variety': group_data['variety'],
                 'gardenBedId': group_data['gardenBedId'],
+                'gardenBedName': bed_names.get(group_data['gardenBedId']),
                 'transplantDate': transplant_date.isoformat(),
                 'weeksIndoors': weeks_indoors,
                 'germinationDays': germination_days,
