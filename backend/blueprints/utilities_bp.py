@@ -490,6 +490,7 @@ def indoor_seed_starts():
                 user_id=current_user.id,
                 plant_id=data['plantId'],
                 variety=data.get('variety'),
+                quantity=desired_plants,
                 seed_start_date=start_date,
                 transplant_date=expected_transplant_date,
                 expected_harvest_date=expected_harvest_date,

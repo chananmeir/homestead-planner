@@ -1102,12 +1102,25 @@ class IndoorSeedStart(db.Model):
         date_min = transplant_date - timedelta(days=1)
         date_max = transplant_date + timedelta(days=1)
 
-        matching_events = PlantingEvent.query.filter(
+        # Build variety filter: SQL NULL == NULL returns NULL, so handle explicitly
+        if self.variety is None:
+            variety_filter = PlantingEvent.variety.is_(None)
+        else:
+            variety_filter = PlantingEvent.variety == self.variety
+
+        query = PlantingEvent.query.filter(
             PlantingEvent.user_id == self.user_id,
             PlantingEvent.plant_id == self.plant_id,
-            PlantingEvent.variety == self.variety,
+            variety_filter,
             PlantingEvent.transplant_date.between(date_min, date_max)
-        ).all()
+        )
+
+        # Exclude the self-linked timeline PlantingEvent — it's a placeholder,
+        # not a garden plan entry, and would skew the count
+        if self.planting_event_id is not None:
+            query = query.filter(PlantingEvent.id != self.planting_event_id)
+
+        matching_events = query.all()
 
         current_count = sum(event.quantity or 0 for event in matching_events)
 
@@ -1116,13 +1129,14 @@ class IndoorSeedStart(db.Model):
         import math
         expected_seeds = math.ceil(current_count / 0.85 * 1.15) if current_count > 0 else 0
 
-        in_sync = (current_count > 0) and (abs(expected_seeds - self.seeds_started) <= 1)
-
         warning = None
         if current_count == 0:
-            warning = f"All {self.plant_id} plantings removed from garden plan"
-        elif not in_sync:
-            warning = f"Garden plan changed: now {current_count} plants (was ~{math.ceil(self.seeds_started / 1.15 * 0.85)} when created)"
+            # No garden plan events found — user may not have exported yet, not a warning
+            in_sync = True
+        else:
+            in_sync = abs(expected_seeds - self.seeds_started) <= 1
+            if not in_sync:
+                warning = f"Garden plan changed: now {current_count} plants (was ~{math.ceil(self.seeds_started / 1.15 * 0.85)} when created)"
 
         return {
             'count': current_count,
