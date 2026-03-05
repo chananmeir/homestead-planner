@@ -1124,12 +1124,35 @@ class IndoorSeedStart(db.Model):
 
         current_count = sum(event.quantity or 0 for event in matching_events)
 
-        # Collect destination bed names from matching events
+        # Collect destination bed names from matching PlantingEvents
         bed_ids = set(e.garden_bed_id for e in matching_events if e.garden_bed_id is not None)
+
+        # If no beds found from PlantingEvents, fall back to GardenPlanItem bed_assignments
+        if not bed_ids:
+            if self.variety is None:
+                plan_variety_filter = GardenPlanItem.variety.is_(None)
+            else:
+                plan_variety_filter = GardenPlanItem.variety == self.variety
+            plan_items = GardenPlanItem.query.join(GardenPlan).filter(
+                GardenPlan.user_id == self.user_id,
+                GardenPlanItem.plant_id == self.plant_id,
+                plan_variety_filter
+            ).all()
+            for item in plan_items:
+                if item.bed_assignments:
+                    try:
+                        assignments = json.loads(item.bed_assignments)
+                        for a in assignments:
+                            bid = a.get('bedId')
+                            if bid is not None:
+                                bed_ids.add(int(bid))
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        pass
+
         destination_beds = []
         if bed_ids:
             beds = GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all()
-            destination_beds = [bed.name for bed in beds]
+            destination_beds = sorted(bed.name for bed in beds)
 
         # Calculate what the seeds_started should be based on current count
         # Using same logic as backend: count / 0.85 * 1.15
