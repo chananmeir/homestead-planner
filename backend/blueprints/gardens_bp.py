@@ -1779,7 +1779,7 @@ def get_planting_events_needing_indoor_starts():
                 }
 
             grouped[group_key]['plantingEventIds'].append(event.id)
-            grouped[group_key]['totalQuantity'] += (event.space_required or 1)
+            grouped[group_key]['totalQuantity'] += (event.quantity or event.space_required or 1)
 
         # Filter out groups that already have indoor starts
         # Check if ANY event in the group has an indoor start linked
