@@ -98,11 +98,11 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                     {group.events.map(event => {
                       const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
                       const bedName = gardenBeds?.find(b => b.id === event.gardenBedId)?.name;
-                      // Phase-aware completion: seed starts are "done" if date has passed,
-                      // other phases use the event's completed flag
+                      // Seed starts don't auto-complete (tracked via Indoor Seed Starts page)
+                      // Other phases use the event's completed flag
                       const isSeedStartPhase = group.info.label === 'Start Seeds (Indoor)';
                       const isCompleted = isSeedStartPhase
-                        ? date < new Date()
+                        ? false
                         : (event.completed || event.isComplete);
 
                       return (
