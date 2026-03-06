@@ -122,10 +122,25 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
   const variety = isGrouped ? marker.variety : marker.event.variety;
   const count = isGrouped ? marker.count : 1;
 
-  // Check completion status
+  // Check phase-specific completion:
+  // - 'seed-start': done if seed start date is in the past (seeds have been started)
+  // - 'transplant': done only if event.completed (actually transplanted)
+  // - 'direct-seed': done only if event.completed
+  // - 'harvest': done only if event.completed
+  const now = new Date();
+  const isPhaseComplete = (event: { completed: boolean; isComplete?: boolean; seedStartDate?: Date }) => {
+    if (marker.type === 'seed-start') {
+      // Seed start is done if the date has passed (you already started them)
+      const startDate = isGrouped ? marker.date : marker.date;
+      return startDate < now;
+    }
+    // Other phases use the event's completed flag
+    return event.completed || event.isComplete;
+  };
+
   const isCompleted = isGrouped
-    ? marker.events.every(e => e.completed || e.isComplete)
-    : (marker.event.completed || marker.event.isComplete);
+    ? marker.events.every(e => isPhaseComplete(e))
+    : isPhaseComplete(marker.event);
 
   // Get color based on plant category
   const colorClass = getCategoryColor(plant.category);

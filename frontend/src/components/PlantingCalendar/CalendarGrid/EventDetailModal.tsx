@@ -216,17 +216,19 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
 
           {/* Footer */}
           <div className="p-4 border-t flex gap-2">
-            <button
-              onClick={toggleComplete}
-              disabled={togglingComplete}
-              className={`px-4 py-2 font-medium rounded-lg transition-colors ${
-                isCompleted
-                  ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border border-yellow-300'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              }`}
-            >
-              {togglingComplete ? '...' : isCompleted ? 'Undo' : 'Mark Done'}
-            </button>
+            {!isIndoorStart && (
+              <button
+                onClick={toggleComplete}
+                disabled={togglingComplete}
+                className={`px-4 py-2 font-medium rounded-lg transition-colors ${
+                  isCompleted
+                    ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border border-yellow-300'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                {togglingComplete ? '...' : isCompleted ? 'Undo' : 'Mark Done'}
+              </button>
+            )}
             {isIndoorStart && seedStart && (
               <button
                 onClick={() => setShowEditModal(true)}
