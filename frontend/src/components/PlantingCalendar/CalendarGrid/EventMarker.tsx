@@ -122,6 +122,11 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
   const variety = isGrouped ? marker.variety : marker.event.variety;
   const count = isGrouped ? marker.count : 1;
 
+  // Check completion status
+  const isCompleted = isGrouped
+    ? marker.events.every(e => e.completed || e.isComplete)
+    : (marker.event.completed || marker.event.isComplete);
+
   // Get color based on plant category
   const colorClass = getCategoryColor(plant.category);
   const icon = getEventIcon(marker.type);
@@ -129,6 +134,7 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
 
   // Build tooltip text with variety if available
   const tooltipText = [
+    isCompleted ? '[Done]' : null,
     label,
     plant.name,
     variety ? `(${variety})` : null,
@@ -141,14 +147,15 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
         ${colorClass} text-white text-xs px-2 py-1 rounded
         flex items-center gap-1 cursor-pointer
         hover:opacity-80 transition-opacity
+        ${isCompleted ? 'opacity-60' : ''}
       `}
       title={tooltipText}
     >
-      {/* Event type icon - always visible */}
-      <span className="flex-shrink-0">{icon}</span>
+      {/* Completion checkmark or event type icon */}
+      <span className="flex-shrink-0">{isCompleted ? '\u2713' : icon}</span>
 
-      {/* Plant name - truncate if too long */}
-      <span className="truncate flex-1 min-w-0">
+      {/* Plant name - strikethrough if completed */}
+      <span className={`truncate flex-1 min-w-0 ${isCompleted ? 'line-through' : ''}`}>
         {plant.name}
         {variety && <span className="text-[10px] ml-1">({variety})</span>}
         {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}

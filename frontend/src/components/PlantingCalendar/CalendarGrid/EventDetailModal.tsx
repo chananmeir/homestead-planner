@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { PlantingCalendar } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import PlantIcon from '../../common/PlantIcon';
-import { apiGet } from '../../../utils/api';
+import { apiGet, apiPut } from '../../../utils/api';
 import { EditSeedStartModal, IndoorSeedStart } from '../../IndoorSeedStarts/EditSeedStartModal';
 
 interface EventDetailModalProps {
@@ -19,6 +19,8 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
   const [seedStart, setSeedStart] = useState<IndoorSeedStart | null>(null);
   const [loadingSeedStart, setLoadingSeedStart] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [togglingComplete, setTogglingComplete] = useState(false);
 
   const isIndoorStart = !!event?.seedStartDate;
 
@@ -46,12 +48,32 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
 
   useEffect(() => {
     if (isOpen && event) {
+      setIsCompleted(!!event.completed || !!event.isComplete);
       fetchSeedStart();
     } else {
       setSeedStart(null);
       setShowEditModal(false);
     }
   }, [isOpen, event, fetchSeedStart]);
+
+  const toggleComplete = async () => {
+    if (!event) return;
+    setTogglingComplete(true);
+    try {
+      const newCompleted = !isCompleted;
+      const response = await apiPut(`/api/planting-events/${event.id}`, {
+        completed: newCompleted,
+      });
+      if (response.ok) {
+        setIsCompleted(newCompleted);
+        if (onEventUpdated) onEventUpdated();
+      }
+    } catch (err) {
+      console.error('Failed to toggle completion:', err);
+    } finally {
+      setTogglingComplete(false);
+    }
+  };
 
   if (!isOpen || !event) return null;
 
@@ -80,7 +102,12 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
         <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b">
-            <h3 className="text-lg font-semibold text-gray-800">Event Details</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-800">Event Details</h3>
+              {isCompleted && (
+                <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs font-medium rounded-full">Done</span>
+              )}
+            </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
               <X size={20} />
             </button>
@@ -189,6 +216,17 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
 
           {/* Footer */}
           <div className="p-4 border-t flex gap-2">
+            <button
+              onClick={toggleComplete}
+              disabled={togglingComplete}
+              className={`px-4 py-2 font-medium rounded-lg transition-colors ${
+                isCompleted
+                  ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border border-yellow-300'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              {togglingComplete ? '...' : isCompleted ? 'Undo' : 'Mark Done'}
+            </button>
             {isIndoorStart && seedStart && (
               <button
                 onClick={() => setShowEditModal(true)}

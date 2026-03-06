@@ -14,6 +14,7 @@ import SoilTemperatureCard from './SoilTemperatureCard';
 import MapleTappingSeasonCard from './MapleTappingSeasonCard';
 import TimelineView from './TimelineView';
 import EventDetailModal from './CalendarGrid/EventDetailModal';
+import DayDetailModal from './CalendarGrid/DayDetailModal';
 
 const PlantingCalendar: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'grid' | 'timeline'>('list');
@@ -41,6 +42,9 @@ const PlantingCalendar: React.FC = () => {
   // Event Detail Modal state
   const [detailEvent, setDetailEvent] = useState<PlantingCalendarType | null>(null);
 
+  // Day Detail Modal state
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+
   // Available Spaces state (for Timeline view)
   const [showAvailableSpaces, setShowAvailableSpaces] = useState(false);
 
@@ -67,9 +71,7 @@ const PlantingCalendar: React.FC = () => {
   };
 
   const handleDateClick = (date: Date) => {
-    setModalInitialDate(date);
-    setModalInitialPlant(undefined);
-    setModalOpen(true);
+    setSelectedDay(date);
   };
 
   const handlePlantSelect = (plant: Plant) => {
@@ -500,6 +502,25 @@ const PlantingCalendar: React.FC = () => {
           };
           fetchPlantingEvents();
         }}
+      />
+
+      {/* Day Detail Modal */}
+      <DayDetailModal
+        isOpen={!!selectedDay}
+        date={selectedDay}
+        events={plantingEvents}
+        onClose={() => setSelectedDay(null)}
+        onEventClick={(event) => {
+          setSelectedDay(null);
+          setDetailEvent(event);
+        }}
+        onAddEvent={() => {
+          setModalInitialDate(selectedDay || undefined);
+          setModalInitialPlant(undefined);
+          setSelectedDay(null);
+          setModalOpen(true);
+        }}
+        gardenBeds={gardenBeds}
       />
 
       {/* Event Detail Modal */}
