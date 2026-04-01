@@ -19,11 +19,13 @@ Routes:
 - POST /api/validate-planting - Validate planting conditions and return warnings/suggestions
 - POST /api/validate-plants-batch - Batch validate multiple plants for Plant Palette icons
 - POST /api/validate-planting-date - Forward-looking validation using historical data
+- GET /api/germination-history - Aggregated germination history per plant
+- GET /api/germination-history/<plant_id>/prediction - Germination days prediction for a plant
 """
 from flask import Blueprint, request, jsonify, send_file
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta, date
-from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, Property, Settings, SeedInventory
+from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, Property, PlacedStructure, Settings, SeedInventory
 from plant_database import get_plant_by_id, PLANT_DATABASE
 from garden_methods import (
     get_sfg_quantity,
@@ -34,7 +36,11 @@ from garden_methods import (
 )
 from soil_temperature import (
     get_soil_temperature_with_adjustments,
-    calculate_crop_readiness
+    get_soil_temperature_forecast_with_adjustments,
+    get_soil_temperatures_all_depths_with_adjustments,
+    get_soil_temperature_forecast_all_depths_with_adjustments,
+    calculate_crop_readiness,
+    calculate_crop_readiness_forecast
 )
 from maple_tapping_calculator import calculate_tapping_season
 from services.geocoding_service import geocoding_service
@@ -54,9 +60,27 @@ logger = logging.getLogger(__name__)
 
 utilities_bp = Blueprint('utilities', __name__, url_prefix='/api')
 
-# Default coordinates (New York City)
-DEFAULT_LATITUDE = 40.7128
-DEFAULT_LONGITUDE = -74.0060
+# Default coordinates (Milwaukee, WI - 53209)
+DEFAULT_LATITUDE = 43.1361
+DEFAULT_LONGITUDE = -87.9456
+
+
+def _get_predicted_germination_days(user_id, plant_id, location=None):
+    """Return avg actual germination days from user history, or plant DB default."""
+    query = IndoorSeedStart.query.filter(
+        IndoorSeedStart.user_id == user_id,
+        IndoorSeedStart.plant_id == plant_id,
+        IndoorSeedStart.actual_germination_date.isnot(None),
+        IndoorSeedStart.start_date.isnot(None)
+    )
+    if location:
+        query = query.filter(IndoorSeedStart.location == location)
+    records = query.all()
+    actual_days = [r.actual_germination_days for r in records if r.actual_germination_days is not None]
+    if actual_days:
+        return round(sum(actual_days) / len(actual_days))
+    plant = get_plant_by_id(plant_id)
+    return plant.get('germination_days', 7) if plant else 7
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -346,26 +370,166 @@ def get_soil_temperature():
             lat = float(DEFAULT_LATITUDE)
             lon = float(DEFAULT_LONGITUDE)
 
-        # Get soil temperature using intelligent multi-tier approach
-        # This tries Open-Meteo first, then falls back to WeatherAPI, then mock
-        result = get_soil_temperature_with_adjustments(lat, lon, soil_type, sun_exposure, mulch_type)
+        # Get soil temperature at all depths (0cm, 6cm, 18cm) in a single API call
+        multi_result = get_soil_temperatures_all_depths_with_adjustments(
+            lat, lon, soil_type, sun_exposure, mulch_type
+        )
+        temps_by_depth = multi_result['temps_by_depth']
 
-        # Calculate crop readiness for all plants
-        final_soil_temp = result['final_soil_temp']
-        crop_readiness = calculate_crop_readiness(final_soil_temp, PLANT_DATABASE)
+        # Calculate protection offset from bed's season extension (cold frame, row cover, etc.)
+        protection_offset = 0
+        protection_label = None
+        if garden_bed and garden_bed.season_extension:
+            try:
+                season_ext = json.loads(garden_bed.season_extension)
+                ext_type = season_ext.get('type')
+                inner_type = season_ext.get('innerType')
+                protection_offset, protection_label = calculate_protection_offset(
+                    ext_type, inner_type
+                )
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Apply protection offset to all depth temperatures
+        if protection_offset:
+            for depth_info in temps_by_depth.values():
+                depth_info['final_soil_temp'] += protection_offset
+
+        # Primary display temp is 6cm (the general seed-depth reading)
+        final_soil_temp = temps_by_depth[6]['final_soil_temp']
+        base_temp = temps_by_depth[6]['base_temp']
+
+        # Build depth-aware final temps dict for crop readiness
+        depth_finals = {d: info['final_soil_temp'] for d, info in temps_by_depth.items()}
+
+        # Calculate crop readiness using depth-appropriate temps per plant
+        crop_readiness = calculate_crop_readiness(final_soil_temp, PLANT_DATABASE, temps_by_depth=depth_finals)
+
+        # Fetch multi-day soil temperature forecast at all depths
+        try:
+            import math
+            forecast_multi = get_soil_temperature_forecast_all_depths_with_adjustments(
+                lat, lon, soil_type, sun_exposure, mulch_type, forecast_days=16
+            )
+            forecast_by_depth = forecast_multi['forecast_by_depth']
+
+            # Apply protection offset to forecast temperatures
+            if protection_offset:
+                for depth_cm, daily_temps in forecast_by_depth.items():
+                    for day in daily_temps:
+                        day['soil_temp'] += protection_offset
+                        day['min_soil_temp'] += protection_offset
+                        day['max_soil_temp'] += protection_offset
+
+            def safe_float(v):
+                """Replace NaN/Inf with None for JSON safety."""
+                if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                    return None
+                return v
+
+            # Primary forecast uses 6cm (the headline depth)
+            soil_temp_forecast = [
+                {'date': d['date'], 'soilTemp': safe_float(d['soil_temp']),
+                 'minSoilTemp': safe_float(d['min_soil_temp']),
+                 'maxSoilTemp': safe_float(d['max_soil_temp'])}
+                for d in forecast_by_depth.get(6, [])
+            ]
+
+            # Build multi-depth forecast for frontend calendar warnings
+            forecast_by_depth_response = {}
+            for depth_cm, daily_temps in forecast_by_depth.items():
+                forecast_by_depth_response[str(depth_cm)] = [
+                    {'date': d['date'], 'soilTemp': safe_float(d['soil_temp']),
+                     'minSoilTemp': safe_float(d['min_soil_temp']),
+                     'maxSoilTemp': safe_float(d['max_soil_temp'])}
+                    for d in daily_temps
+                ]
+
+            def sanitize_forecast(raw):
+                """Sanitize NaN values in forecast readiness data and convert to camelCase."""
+                sanitized = {}
+                for plant_id, info in raw.items():
+                    sanitized_daily = []
+                    for day in info.get('daily_readiness', []):
+                        sanitized_daily.append({
+                            'date': day['date'],
+                            'soilTemp': safe_float(day['soilTemp']),
+                            'status': day['status'],
+                        })
+                    sanitized[plant_id] = {
+                        **info,
+                        'daily_readiness': sanitized_daily,
+                    }
+                    # Frost risk fields (camelCase for API response)
+                    if 'frost_risk' in info:
+                        sanitized[plant_id]['frostRisk'] = info['frost_risk']
+                        sanitized[plant_id]['frostRiskDays'] = info.get('frost_risk_days', [])
+                        sanitized[plant_id]['frostTolerance'] = info.get('frost_tolerance', 'tender')
+                return sanitized
+
+            # Fetch air temperature forecast for frost risk integration
+            air_temp_forecast = None
+            try:
+                from weather_service import get_forecast
+                weather_data = get_forecast(lat, lon, days=16)
+                if not weather_data.get('isMock'):
+                    air_temp_forecast = weather_data.get('forecast', [])
+            except Exception as e:
+                logger.warning(f"Air temp forecast for frost risk failed: {e}")
+
+            # Calculate forecast readiness using depth-aware temps per plant
+            raw_seed, _ = calculate_crop_readiness_forecast(
+                forecast_by_depth.get(6, []), PLANT_DATABASE, mode='seed',
+                forecast_by_depth=forecast_by_depth,
+                air_temp_forecast=air_temp_forecast,
+                protection_offset=protection_offset,
+            )
+            crop_readiness_forecast = sanitize_forecast(raw_seed)
+
+            raw_transplant, direct_sow_only = calculate_crop_readiness_forecast(
+                forecast_by_depth.get(6, []), PLANT_DATABASE, mode='transplant',
+                forecast_by_depth=forecast_by_depth,
+                air_temp_forecast=air_temp_forecast,
+                protection_offset=protection_offset,
+            )
+            crop_readiness_transplant = sanitize_forecast(raw_transplant)
+        except Exception as e:
+            logger.warning(f"Soil temp forecast failed, skipping: {e}")
+            soil_temp_forecast = None
+            forecast_by_depth_response = None
+            crop_readiness_forecast = None
+            crop_readiness_transplant = None
+            direct_sow_only = {}
+
+        # Build temps_by_depth for response (string keys for JSON)
+        temps_by_depth_response = {
+            str(d): {'finalSoilTemp': info['final_soil_temp'], 'baseTemp': info['base_temp']}
+            for d, info in temps_by_depth.items()
+        }
 
         # Build comprehensive response
         response = {
             'final_soil_temp': final_soil_temp,
-            'base_temp': result['base_temp'],
-            'adjustments': result['adjustments'],
-            'method': result['method'],
-            'source': result['source'],
-            'using_mock_data': result['using_mock_data'],
+            'base_temp': base_temp,
+            'adjustments': multi_result['adjustments'],
+            'method': multi_result['method'],
+            'source': multi_result['source'],
+            'using_mock_data': multi_result['using_mock_data'],
             'crop_readiness': crop_readiness,
+            # Multi-depth data
+            'temps_by_depth': temps_by_depth_response,
+            # Forecast data for germination window readiness
+            'soil_temp_forecast': soil_temp_forecast,
+            'forecast_by_depth': forecast_by_depth_response,
+            'crop_readiness_forecast': crop_readiness_forecast,
+            'crop_readiness_transplant': crop_readiness_transplant,
+            'directSowOnly': direct_sow_only,
+            # Protection offset from season extension (cold frame, greenhouse, etc.)
+            'protection_offset': protection_offset,
+            'protection_label': protection_label,
             # For backward compatibility (deprecated fields)
-            'estimated_soil_temp': final_soil_temp,  # Alias for final_soil_temp
-            'soil_adjustments': result['adjustments']  # Alias for adjustments
+            'estimated_soil_temp': final_soil_temp,
+            'soil_adjustments': multi_result['adjustments']
         }
 
         return jsonify(response), 200
@@ -395,11 +559,31 @@ def get_maple_tapping_season():
         JSON with season information and recommendations
     """
     try:
-        # Get location - use property location or defaults
+        # Only show tapping data if user has tappable trees placed on their property
+        TAPPABLE_PREFIXES = ('maple', 'sugar-maple', 'birch', 'walnut', 'boxelder', 'sycamore')
+        has_tappable = PlacedStructure.query.filter(
+            PlacedStructure.user_id == current_user.id
+        ).all()
+        has_tappable_trees = any(
+            ps.structure_id and any(ps.structure_id.startswith(prefix) for prefix in TAPPABLE_PREFIXES)
+            for ps in has_tappable
+        )
+        # Get location - prefer zipcode, then lat/lon, then property, then defaults
+        zipcode = request.args.get('zipcode')
         latitude = request.args.get('latitude')
         longitude = request.args.get('longitude')
 
-        if latitude and longitude:
+        if zipcode and not (latitude and longitude):
+            try:
+                geo_result = geocoding_service.validate_address(zipcode)
+                if geo_result:
+                    lat = geo_result['latitude']
+                    lon = geo_result['longitude']
+                else:
+                    return jsonify({'error': 'Could not geocode zipcode'}), 400
+            except Exception as e:
+                return jsonify({'error': f'Geocoding error: {str(e)}'}), 500
+        elif latitude and longitude:
             lat = float(latitude)
             lon = float(longitude)
         else:
@@ -415,6 +599,10 @@ def get_maple_tapping_season():
 
         # Calculate tapping season
         season_data = calculate_tapping_season(lat, lon)
+
+        # Flag if no tappable trees placed (informational, doesn't block data)
+        if not has_tappable_trees:
+            season_data['no_tappable_trees'] = True
 
         return jsonify(season_data), 200
 
@@ -444,7 +632,9 @@ def indoor_seed_starts():
 
             # Calculate expected dates
             start_date = parse_iso_date(data['startDate'])
-            germination_days = plant.get('germination_days', 7)
+            germination_days = _get_predicted_germination_days(
+                current_user.id, data['plantId'], data.get('location')
+            )
             weeks_indoors = plant.get('weeksIndoors', 4)
 
             expected_germination_date = start_date + timedelta(days=germination_days)
@@ -459,8 +649,8 @@ def indoor_seed_starts():
             if 'seedsStarted' in data and data['seedsStarted'] is not None:
                 seeds_to_start = int(data['seedsStarted'])
 
-            # Set initial status based on whether start date is in the future
-            initial_status = 'planned' if start_date.date() > datetime.utcnow().date() else 'seeded'
+            # Always start as 'planned' — user explicitly updates status when they seed
+            initial_status = 'planned'
 
             seed_start = IndoorSeedStart(
                 user_id=current_user.id,
@@ -600,10 +790,21 @@ def indoor_seed_start_detail(id):
                 # Recalculate expected dates from new start date
                 plant = get_plant_by_id(seed_start.plant_id)
                 if plant:
-                    germination_days = plant.get('germination_days', 7)
+                    germination_days = _get_predicted_germination_days(
+                        current_user.id, seed_start.plant_id, seed_start.location
+                    )
                     weeks_indoors = plant.get('weeksIndoors', 4)
                     seed_start.expected_germination_date = new_start_date + timedelta(days=germination_days)
                     seed_start.expected_transplant_date = new_start_date + timedelta(weeks=weeks_indoors)
+
+                    # Sync updated dates to linked PlantingEvent
+                    if seed_start.planting_event_id:
+                        linked_event = PlantingEvent.query.get(seed_start.planting_event_id)
+                        if linked_event:
+                            linked_event.seed_start_date = new_start_date
+                            linked_event.transplant_date = seed_start.expected_transplant_date
+                            days_to_maturity = plant.get('daysToMaturity', 70)
+                            linked_event.expected_harvest_date = seed_start.expected_transplant_date + timedelta(days=days_to_maturity)
 
             if 'status' in data:
                 seed_start.status = data['status']
@@ -626,8 +827,27 @@ def indoor_seed_start_detail(id):
             if 'temperature' in data:
                 seed_start.temperature = data['temperature']
 
+            if 'actualGerminationDate' in data:
+                if data['actualGerminationDate'] is not None:
+                    seed_start.actual_germination_date = parse_iso_date(data['actualGerminationDate'])
+                else:
+                    seed_start.actual_germination_date = None
+
+            if 'variety' in data:
+                seed_start.variety = data['variety'] or None
+
+            if 'seedInventoryId' in data:
+                seed_start.seed_inventory_id = data['seedInventoryId']
+
             if 'notes' in data:
                 seed_start.notes = data['notes']
+
+            if 'destinationBedIds' in data:
+                val = data['destinationBedIds']
+                if val is None or val == []:
+                    seed_start.destination_bed_ids = None  # Clear override, revert to computed
+                else:
+                    seed_start.destination_bed_ids = json.dumps([int(bid) for bid in val])
 
             db.session.commit()
             return jsonify(seed_start.to_dict())
@@ -637,6 +857,107 @@ def indoor_seed_start_detail(id):
 
     # GET request
     return jsonify(seed_start.to_dict())
+
+
+@utilities_bp.route('/indoor-seed-starts/<int:id>/mark-failed', methods=['POST'])
+@login_required
+def mark_indoor_seed_start_failed(id):
+    """
+    Mark an indoor seed start as failed with optional cascade to linked PlantingEvent.
+    Request body: { "cascade": "direct-seed" | "abandon" }
+    - direct-seed: Convert linked PlantingEvent from transplant to direct seed
+    - abandon: Mark linked PlantingEvent as completed with quantity_completed=0
+    If no cascade field, just marks the seed start as failed.
+    """
+    seed_start = IndoorSeedStart.query.filter_by(id=id, user_id=current_user.id).first_or_404()
+
+    if seed_start.status in ('failed', 'transplanted'):
+        return jsonify({'error': f'Seed start is already {seed_start.status}'}), 400
+
+    data = request.json or {}
+    cascade = data.get('cascade')
+
+    if cascade and not seed_start.planting_event_id:
+        return jsonify({'error': 'No linked planting event for cascade action'}), 400
+
+    try:
+        seed_start.status = 'failed'
+
+        event_dict = None
+        if seed_start.planting_event_id and cascade:
+            event = PlantingEvent.query.get(seed_start.planting_event_id)
+            if not event:
+                return jsonify({'error': 'Linked planting event not found'}), 404
+
+            # Skip cascade if event already completed
+            if not event.completed:
+                if cascade == 'direct-seed':
+                    # Calculate indoor head start before clearing dates
+                    if event.transplant_date and event.seed_start_date:
+                        indoor_days = (event.transplant_date - event.seed_start_date).days
+                    else:
+                        plant_lookup = get_plant_by_id(event.plant_id) if event.plant_id else None
+                        indoor_days = (plant_lookup.get('weeksIndoors', 0) * 7) if plant_lookup else 0
+
+                    # Convert to direct seed
+                    event.direct_seed_date = event.transplant_date
+                    event.seed_start_date = None
+                    event.transplant_date = None
+
+                    # Recalculate expected harvest date
+                    if event.direct_seed_date:
+                        dtm = None
+                        if event.plant_id and event.variety:
+                            seed = SeedInventory.query.filter_by(
+                                user_id=current_user.id,
+                                plant_id=event.plant_id,
+                                variety=event.variety
+                            ).first()
+                            if seed and seed.days_to_maturity is not None:
+                                dtm = seed.days_to_maturity
+                        if dtm is None and event.plant_id:
+                            plant = get_plant_by_id(event.plant_id)
+                            if plant and plant.get('daysToMaturity') is not None:
+                                dtm = plant['daysToMaturity']
+                        if dtm is None:
+                            dtm = 60
+                        event.expected_harvest_date = event.direct_seed_date + timedelta(days=dtm + indoor_days)
+
+                elif cascade == 'abandon':
+                    event.completed = True
+                    event.quantity_completed = 0
+
+                    # Free allocated space
+                    event.position_x = None
+                    event.position_y = None
+                    event.space_required = None
+                    event.garden_bed_id = None
+
+                    # Free trellis allocation
+                    if event.trellis_structure_id is not None:
+                        event.trellis_structure_id = None
+                        event.trellis_position_start_inches = None
+                        event.trellis_position_end_inches = None
+                        event.linear_feet_allocated = None
+
+                else:
+                    return jsonify({'error': f'Invalid cascade value: {cascade}'}), 400
+
+            event_dict = event.to_dict()
+
+        db.session.commit()
+
+        result = {
+            'seedStart': seed_start.to_dict(),
+            'action': cascade or 'none',
+        }
+        if event_dict:
+            result['plantingEvent'] = event_dict
+        return jsonify(result)
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 
 @utilities_bp.route('/indoor-seed-starts/<int:id>/transplant', methods=['POST'])
@@ -822,7 +1143,9 @@ def create_indoor_start_from_planting_event():
             warning_message = f'Note: Calculated indoor start date ({indoor_start_date.date()}) is in the past. You may be starting late.'
 
         # Calculate expected dates
-        germination_days = plant.get('germination_days', 7)
+        germination_days = _get_predicted_germination_days(
+            current_user.id, data['plantId'], data.get('location')
+        )
         expected_germination_date = indoor_start_date + timedelta(days=germination_days)
         expected_transplant_date = indoor_start_date + timedelta(weeks=weeks_indoors)
 
@@ -831,8 +1154,8 @@ def create_indoor_start_from_planting_event():
         expected_rate = data.get('expectedGerminationRate', 85.0)
         seeds_to_start = calculate_seed_quantity(desired_plants, expected_rate)
 
-        # Create indoor seed start
-        initial_status = 'planned' if indoor_start_date.date() > datetime.utcnow().date() else 'seeded'
+        # Always start as 'planned' — user explicitly updates status when they seed
+        initial_status = 'planned'
         seed_start = IndoorSeedStart(
             user_id=current_user.id,
             plant_id=data['plantId'],
@@ -863,7 +1186,10 @@ def create_indoor_start_from_planting_event():
             ).first()
             if planting_event:
                 planting_event.seed_start_date = indoor_start_date
-                # Note: transplant_date should already be set from planting event creation
+                planting_event.transplant_date = expected_transplant_date
+                # Recalculate harvest date from new transplant date
+                days_to_maturity = plant.get('daysToMaturity', 70)
+                planting_event.expected_harvest_date = expected_transplant_date + timedelta(days=days_to_maturity)
             else:
                 return jsonify({'error': 'Planting event not found'}), 404
 
@@ -1303,3 +1629,105 @@ def validate_planting_date_api():
     except Exception as e:
         logger.error(f"Error in validate planting date endpoint: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+
+@utilities_bp.route('/germination-history', methods=['GET'])
+@login_required
+def germination_history():
+    """
+    GET: Aggregated germination history per plant.
+    Query params: plantId (optional), variety (optional), location (optional)
+    """
+    try:
+        query = IndoorSeedStart.query.filter(
+            IndoorSeedStart.user_id == current_user.id,
+            IndoorSeedStart.actual_germination_date.isnot(None),
+            IndoorSeedStart.start_date.isnot(None)
+        )
+
+        plant_id = request.args.get('plantId')
+        if plant_id:
+            query = query.filter(IndoorSeedStart.plant_id == plant_id)
+
+        variety = request.args.get('variety')
+        if variety:
+            query = query.filter(IndoorSeedStart.variety == variety)
+
+        location = request.args.get('location')
+        if location:
+            query = query.filter(IndoorSeedStart.location == location)
+
+        records = query.order_by(IndoorSeedStart.start_date.desc()).all()
+
+        # Group by plant_id
+        grouped = {}
+        for r in records:
+            key = r.plant_id
+            if key not in grouped:
+                grouped[key] = []
+            entry = {
+                'id': r.id,
+                'variety': r.variety,
+                'startDate': r.start_date.isoformat() if r.start_date else None,
+                'actualGerminationDate': r.actual_germination_date.isoformat() if r.actual_germination_date else None,
+                'actualGerminationDays': r.actual_germination_days,
+                'actualGerminationRate': r.actual_germination_rate,
+                'location': r.location,
+                'temperature': r.temperature,
+                'seedsStarted': r.seeds_started,
+                'seedsGerminated': r.seeds_germinated,
+            }
+            grouped[key].append(entry)
+
+        result = []
+        for pid, entries in grouped.items():
+            days_list = [e['actualGerminationDays'] for e in entries if e['actualGerminationDays'] is not None]
+            rates = [e['actualGerminationRate'] for e in entries if e['actualGerminationRate'] is not None]
+            result.append({
+                'plantId': pid,
+                'avgGerminationDays': round(sum(days_list) / len(days_list)) if days_list else None,
+                'avgGerminationRate': round(sum(rates) / len(rates), 1) if rates else None,
+                'sampleCount': len(entries),
+                'entries': entries,
+            })
+
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in germination history: {e}")
+        return jsonify({'error': str(e)}), 400
+
+
+@utilities_bp.route('/germination-history/<plant_id>/prediction', methods=['GET'])
+@login_required
+def germination_prediction(plant_id):
+    """
+    GET: Lightweight prediction for a specific plant.
+    Query params: location (optional)
+    """
+    try:
+        location = request.args.get('location')
+        predicted = _get_predicted_germination_days(current_user.id, plant_id, location)
+
+        # Determine source
+        query = IndoorSeedStart.query.filter(
+            IndoorSeedStart.user_id == current_user.id,
+            IndoorSeedStart.plant_id == plant_id,
+            IndoorSeedStart.actual_germination_date.isnot(None),
+            IndoorSeedStart.start_date.isnot(None)
+        )
+        if location:
+            query = query.filter(IndoorSeedStart.location == location)
+        sample_count = query.count()
+
+        plant = get_plant_by_id(plant_id)
+        default_days = plant.get('germination_days', 7) if plant else 7
+
+        return jsonify({
+            'predictedGerminationDays': predicted,
+            'source': 'history' if sample_count > 0 else 'plantDatabase',
+            'sampleCount': sample_count,
+            'defaultGerminationDays': default_days,
+        })
+    except Exception as e:
+        logger.error(f"Error in germination prediction: {e}")
+        return jsonify({'error': str(e)}), 400

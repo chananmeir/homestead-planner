@@ -5,7 +5,9 @@ import { Modal } from './common/Modal';
 import { ConfirmDialog } from './common/ConfirmDialog';
 import { ImportFromGardenModal } from './IndoorSeedStarts/ImportFromGardenModal';
 import { EditSeedStartModal, IndoorSeedStart as SharedIndoorSeedStart } from './IndoorSeedStarts/EditSeedStartModal';
+import { FailedSeedStartDialog } from './IndoorSeedStarts/FailedSeedStartDialog';
 import PlantIcon from './common/PlantIcon';
+import { parseLocalDate } from '../utils/dateUtils';
 import { API_BASE_URL } from '../config';
 
 interface Plant {
@@ -26,6 +28,11 @@ interface SeedInventoryItem {
   location?: string;
 }
 
+interface DestinationBedDetail {
+  id: number;
+  name: string;
+}
+
 interface IndoorSeedStart {
   id: number;
   plantId: string;
@@ -35,6 +42,7 @@ interface IndoorSeedStart {
   expectedGerminationDate?: string;
   expectedTransplantDate?: string;
   actualGerminationDate?: string;
+  actualGerminationDays?: number;
   actualTransplantDate?: string;
   seedsStarted: number;  // Renamed from quantity to match backend
   seedsGerminated?: number;  // Renamed from germinatedCount to match backend
@@ -47,7 +55,7 @@ interface IndoorSeedStart {
   humidity?: number;
   location?: string;
   notes?: string;
-  status: 'started' | 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
+  status: 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
   plantingEventId?: number;
   // Live sync fields
   gardenPlanCount?: number;
@@ -55,9 +63,14 @@ interface IndoorSeedStart {
   gardenPlanInSync?: boolean;
   gardenPlanWarning?: string;
   destinationBeds?: string[];
+  destinationBedDetails?: DestinationBedDetail[];
 }
 
-const IndoorSeedStarts: React.FC = () => {
+interface IndoorSeedStartsProps {
+  onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number) => void;
+}
+
+const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) => {
   const [seedStarts, setSeedStarts] = useState<IndoorSeedStart[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [seedInventory, setSeedInventory] = useState<SeedInventoryItem[]>([]);
@@ -68,6 +81,7 @@ const IndoorSeedStarts: React.FC = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [failedCascadeSeedStart, setFailedCascadeSeedStart] = useState<IndoorSeedStart | null>(null);
   const { showSuccess, showError } = useToast();
 
   useEffect(() => {
@@ -140,7 +154,6 @@ const IndoorSeedStarts: React.FC = () => {
     const colors: Record<string, string> = {
       planned: 'bg-indigo-100 text-indigo-800',
       seeded: 'bg-gray-100 text-gray-800',
-      started: 'bg-blue-100 text-blue-800',
       germinating: 'bg-yellow-100 text-yellow-800',
       growing: 'bg-green-100 text-green-800',
       hardening: 'bg-purple-100 text-purple-800',
@@ -249,7 +262,7 @@ const IndoorSeedStarts: React.FC = () => {
 
         {/* Filters */}
         <div className="mt-4 flex gap-2 flex-wrap">
-          {['all', 'seeded', 'started', 'germinating', 'growing', 'hardening', 'transplanted', 'failed'].map(status => (
+          {['all', 'seeded', 'germinating', 'growing', 'hardening', 'transplanted', 'failed'].map(status => (
             <button
               key={status}
               onClick={() => setFilterStatus(status)}
@@ -375,19 +388,32 @@ const IndoorSeedStarts: React.FC = () => {
                       </span>
                     </div>
                   )}
-                  {daysToGermination !== null && daysToGermination > 0 && start.status === 'started' && (
+                  {start.actualGerminationDate && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Expected germination:</span>
-                      <span className="font-medium text-yellow-600">
-                        {daysToGermination} days
+                      <span className="text-gray-600">Germinated on:</span>
+                      <span className="font-medium text-green-600">
+                        {new Date(start.actualGerminationDate).toLocaleDateString()}
+                        {start.actualGerminationDays != null && (
+                          <span className="text-gray-500 ml-1">({start.actualGerminationDays}d)</span>
+                        )}
                       </span>
                     </div>
                   )}
-                  {daysToTransplant !== null && daysToTransplant > 0 && start.status !== 'transplanted' && (
+                  {daysToGermination !== null && start.status === 'seeded' && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Transplant in:</span>
-                      <span className="font-medium text-blue-600">
-                        {daysToTransplant} days
+                      <span className="text-gray-600">Expected germination:</span>
+                      <span className={`font-medium ${daysToGermination > 0 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {daysToGermination > 0 ? `${daysToGermination} days` : daysToGermination === 0 ? 'Today' : `${Math.abs(daysToGermination)} days overdue`}
+                      </span>
+                    </div>
+                  )}
+                  {daysToTransplant !== null && start.status !== 'transplanted' && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">
+                        {daysToTransplant > 0 ? 'Transplant in:' : 'Transplant:'}
+                      </span>
+                      <span className={`font-medium ${daysToTransplant > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                        {daysToTransplant > 0 ? `${daysToTransplant} days` : daysToTransplant === 0 ? 'Today!' : `${Math.abs(daysToTransplant)} days overdue`}
                       </span>
                     </div>
                   )}
@@ -397,16 +423,55 @@ const IndoorSeedStarts: React.FC = () => {
                       <span className="font-medium">{start.location}</span>
                     </div>
                   )}
-                  {start.destinationBeds && start.destinationBeds.length > 0 && (
+                  {start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Destination:</span>
+                      <span className="font-medium">
+                        {start.destinationBedDetails.map((bed, idx) => (
+                          <React.Fragment key={bed.id}>
+                            {idx > 0 && ', '}
+                            {onNavigateToBed ? (
+                              <button
+                                onClick={() => onNavigateToBed(bed.id, start.expectedTransplantDate || undefined)}
+                                className="text-green-700 hover:text-green-900 underline decoration-dotted hover:decoration-solid cursor-pointer"
+                                title={`Open ${bed.name} in Garden Designer${start.expectedTransplantDate ? ` on ${parseLocalDate(start.expectedTransplantDate).toLocaleDateString()}` : ''}`}
+                              >
+                                {bed.name}
+                              </button>
+                            ) : (
+                              <span className="text-green-700">{bed.name}</span>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </span>
+                    </div>
+                  ) : start.destinationBeds && start.destinationBeds.length > 0 ? (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Destination:</span>
                       <span className="font-medium text-green-700">{start.destinationBeds.join(', ')}</span>
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Actions */}
                 <div className="mt-4 flex gap-2">
+                  {start.status !== 'transplanted' && start.status !== 'failed' &&
+                   start.destinationBedDetails && start.destinationBedDetails.length > 0 &&
+                   onNavigateToBed && (
+                    <button
+                      onClick={() => {
+                        const firstBed = start.destinationBedDetails![0];
+                        onNavigateToBed(
+                          firstBed.id,
+                          start.expectedTransplantDate || undefined,
+                          start.id
+                        );
+                      }}
+                      className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Transplant Now
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setSelectedSeedStart(start);
@@ -461,6 +526,31 @@ const IndoorSeedStarts: React.FC = () => {
             loadData();
           }}
           plants={plants}
+          seedInventory={seedInventory}
+          showSuccess={showSuccess}
+          showError={showError}
+          onRequestFailedCascade={(ss) => {
+            setShowEditModal(false);
+            setFailedCascadeSeedStart(ss as IndoorSeedStart);
+          }}
+        />
+      )}
+
+      {/* Failed Seed Start Cascade Dialog */}
+      {failedCascadeSeedStart && (
+        <FailedSeedStartDialog
+          isOpen={!!failedCascadeSeedStart}
+          seedStart={failedCascadeSeedStart}
+          plantName={getPlantName(failedCascadeSeedStart.plantId)}
+          onClose={() => {
+            setFailedCascadeSeedStart(null);
+            setSelectedSeedStart(null);
+          }}
+          onComplete={() => {
+            setFailedCascadeSeedStart(null);
+            setSelectedSeedStart(null);
+            loadData();
+          }}
           showSuccess={showSuccess}
           showError={showError}
         />
@@ -530,6 +620,31 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
     location: '',
     notes: '',
   });
+  const [predictionHint, setPredictionHint] = useState<string | null>(null);
+
+  // Fetch germination prediction when plant or location changes
+  useEffect(() => {
+    if (!formData.plantId) {
+      setPredictionHint(null);
+      return;
+    }
+    const params = new URLSearchParams({ });
+    if (formData.location) params.set('location', formData.location);
+    apiGet(`/api/germination-history/${formData.plantId}/prediction?${params.toString()}`)
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          if (data.source === 'history' && data.sampleCount > 0) {
+            setPredictionHint(
+              `Based on your ${data.sampleCount} previous start${data.sampleCount > 1 ? 's' : ''} (avg ${data.predictedGerminationDays}d vs default ${data.defaultGerminationDays}d)`
+            );
+          } else {
+            setPredictionHint(null);
+          }
+        }
+      })
+      .catch(() => setPredictionHint(null));
+  }, [formData.plantId, formData.location]);
 
   // Reset start date to current date whenever modal opens
   useEffect(() => {
@@ -685,6 +800,13 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
             required
           />
         </div>
+
+        {/* Germination Prediction Hint */}
+        {predictionHint && (
+          <p className="text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded-md">
+            {predictionHint}
+          </p>
+        )}
 
         {/* Quantity */}
         <div>

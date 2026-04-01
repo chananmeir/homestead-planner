@@ -39,6 +39,26 @@ const riskThresholds: Record<FrostTolerance, number> = {
   'very-hardy': -10, // Very cold tolerant
 };
 
+// Protection structure temperature boosts (°F) — mirrors backend calculate_protection_offset()
+const PROTECTION_TEMPS: Record<string, number> = {
+  'row-cover': 4,
+  'low-tunnel': 6,
+  'cold-frame': 10,
+  'high-tunnel': 8,
+  'greenhouse': 10,
+};
+
+const getProtectionOffset = (bed: GardenBed): number => {
+  if (!bed.seasonExtension || bed.seasonExtension.type === 'none') return 0;
+  const outerTemp = PROTECTION_TEMPS[bed.seasonExtension.type] || 0;
+  let total = outerTemp;
+  if (bed.seasonExtension.innerType && bed.seasonExtension.innerType !== 'none') {
+    const innerTemp = PROTECTION_TEMPS[bed.seasonExtension.innerType] || 0;
+    total += innerTemp * 0.65;
+  }
+  return Math.round(total);
+};
+
 // Heat stress thresholds by heat_tolerance level (air temperature, °F)
 const heatThresholds: Record<HeatTolerance, { advisory: number; warning: number; critical: number }> = {
   'low':       { advisory: 80, warning: 85, critical: 90 },
@@ -149,11 +169,14 @@ const WeatherAlertBanner: React.FC<WeatherAlertBannerProps> = ({
       const bedCritical: AtRiskPlant[] = [];
       const bedWarning: AtRiskPlant[] = [];
 
+      const protectionOffset = getProtectionOffset(bed);
+      const effectiveLow = forecastDay.lowTemp + protectionOffset;
+
       plantIds.forEach((plantId) => {
         const plant = plants.find((p) => p.id === plantId);
         if (!plant) return;
         const threshold = riskThresholds[plant.frostTolerance || 'tender'];
-        const isAtRisk = forecastDay.lowTemp <= threshold;
+        const isAtRisk = effectiveLow <= threshold;
         if (isAtRisk) {
           const atRiskPlant = { ...plant, isAtRisk };
           atRiskPlants.push(atRiskPlant);
@@ -165,8 +188,9 @@ const WeatherAlertBanner: React.FC<WeatherAlertBannerProps> = ({
         }
       });
 
-      if (bedCritical.length > 0) criticalByBed.set(bedId, { bedName: bed.name, plants: bedCritical });
-      if (bedWarning.length > 0) warningByBed.set(bedId, { bedName: bed.name, plants: bedWarning });
+      const bedLabel = protectionOffset > 0 ? `${bed.name} (+${protectionOffset}°F protection)` : bed.name;
+      if (bedCritical.length > 0) criticalByBed.set(bedId, { bedName: bedLabel, plants: bedCritical });
+      if (bedWarning.length > 0) warningByBed.set(bedId, { bedName: bedLabel, plants: bedWarning });
     });
 
     return { atRiskPlants, criticalByBed, warningByBed };

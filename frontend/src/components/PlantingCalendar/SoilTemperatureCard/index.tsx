@@ -2,15 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Thermometer, AlertCircle } from 'lucide-react';
 import { apiGet } from '../../../utils/api';
 import { SoilConfig, SoilTempResponse } from './types';
-import { PlantingCalendar } from '../../../types';
+import { PlantingCalendar, GardenBed } from '../../../types';
 import SoilConfigForm from './SoilConfigForm';
 import ReadinessIndicator from './ReadinessIndicator';
 
 interface SoilTemperatureCardProps {
   plantingEvents: PlantingCalendar[];
+  onDataLoaded?: (data: SoilTempResponse) => void;
+  gardenBeds?: GardenBed[];
 }
 
-const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvents }) => {
+const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvents, onDataLoaded, gardenBeds = [] }) => {
   // Expanded/collapsed state (persisted in localStorage)
   const [expanded, setExpanded] = useState(() => {
     const saved = localStorage.getItem('soilTemperatureCard.expanded');
@@ -34,6 +36,16 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
     localStorage.setItem('soilTemperatureCard.expanded', String(expanded));
   }, [expanded]);
 
+  // Validate persisted gardenBedId against available beds
+  useEffect(() => {
+    if (config.gardenBedId != null && gardenBeds.length > 0) {
+      const bedExists = gardenBeds.some(b => b.id === config.gardenBedId);
+      if (!bedExists) {
+        setConfig(prev => ({ ...prev, gardenBedId: undefined }));
+      }
+    }
+  }, [gardenBeds, config.gardenBedId]);
+
   // Fetch soil temperature data whenever config changes
   useEffect(() => {
     const fetchSoilTemperature = async () => {
@@ -41,12 +53,21 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
         setLoading(true);
         setError(null);
 
-        // Build query string
-        const params = new URLSearchParams({
-          soil_type: config.soilType,
-          sun_exposure: config.sunExposure,
-          has_mulch: String(config.hasMulch)
-        });
+        const params = new URLSearchParams();
+
+        // Use the weather zip code so soil temp matches user's actual location
+        const zipCode = localStorage.getItem('weatherZipCode') || '53209';
+        params.set('zipcode', zipCode);
+
+        if (config.gardenBedId != null) {
+          // When a bed is selected, let backend resolve soil/sun/mulch from the bed
+          params.set('garden_bed_id', String(config.gardenBedId));
+        } else {
+          // Property-wide: use manual config
+          params.set('soil_type', config.soilType);
+          params.set('sun_exposure', config.sunExposure);
+          params.set('has_mulch', String(config.hasMulch));
+        }
 
         const response = await apiGet(`/api/soil-temperature?${params}`);
 
@@ -56,6 +77,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
 
         const data: SoilTempResponse = await response.json();
         setSoilTempData(data);
+        if (onDataLoaded) onDataLoaded(data);
       } catch (err) {
         console.error('Error fetching soil temperature:', err);
         const errorMessage = err instanceof Error
@@ -141,7 +163,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
             <h4 className="text-sm font-semibold text-gray-700 mb-3">
               Soil Conditions
             </h4>
-            <SoilConfigForm config={config} onChange={setConfig} />
+            <SoilConfigForm config={config} onChange={setConfig} gardenBeds={gardenBeds} />
           </div>
 
           {/* Loading State */}
@@ -167,14 +189,22 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
                   {/* Base Temperature (from API) */}
                   <div className="text-center">
                     <p className="text-sm text-gray-600 mb-1">
-                      {soilTempData.method === 'measured' ? 'Measured Soil Temp (6cm)' : 'Air Temperature'}
+                      {soilTempData.method === 'measured' ? 'Measured Soil Temp (6cm / 2.4in)' : 'Air Temperature'}
                     </p>
                     <p className="text-4xl font-bold text-gray-800">
                       {soilTempData.base_temp?.toFixed(1) || soilTempData.air_temp}°F
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {soilTempData.method === 'measured' ? 'From soil sensors' : 'From weather station'}
-                    </p>
+                    {soilTempData.temps_by_depth && soilTempData.method === 'measured' && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Surface: {soilTempData.temps_by_depth['0']?.baseTemp?.toFixed(1)}°F
+                        {' | '}Deep (18cm): {soilTempData.temps_by_depth['18']?.baseTemp?.toFixed(1)}°F
+                      </p>
+                    )}
+                    {!soilTempData.temps_by_depth && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {soilTempData.method === 'measured' ? 'From soil sensors' : 'From weather station'}
+                      </p>
+                    )}
                   </div>
 
                   {/* Final Soil Temperature (with adjustments) */}
@@ -184,7 +214,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
                       {soilTempData.final_soil_temp || soilTempData.estimated_soil_temp}°F
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      After local adjustments
+                      At seed depth (6cm) after adjustments
                     </p>
                   </div>
                 </div>
@@ -198,6 +228,9 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
                     {soilTempData.soil_adjustments.sun_exposure}°F, Mulch{' '}
                     {soilTempData.soil_adjustments.mulch > 0 ? '+' : ''}
                     {soilTempData.soil_adjustments.mulch}°F
+                    {soilTempData.protection_offset != null && soilTempData.protection_offset > 0 && (
+                      <>, Protection ({soilTempData.protection_label}) +{soilTempData.protection_offset}°F</>
+                    )}
                   </p>
                 </div>
               </div>
@@ -209,7 +242,10 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
                 </h4>
                 <ReadinessIndicator
                   cropReadiness={soilTempData.crop_readiness}
+                  cropReadinessForecast={soilTempData.crop_readiness_forecast}
+                  cropReadinessTransplant={soilTempData.crop_readiness_transplant}
                   plantingEvents={plantingEvents}
+                  directSowOnly={soilTempData.directSowOnly}
                 />
               </div>
             </>
