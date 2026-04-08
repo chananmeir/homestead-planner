@@ -49,7 +49,7 @@ class User(UserMixin, db.Model):
 
 class GardenBed(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     name = db.Column(db.String(100), nullable=False)
     width = db.Column(db.Float, nullable=False)
     length = db.Column(db.Float, nullable=False)
@@ -96,10 +96,10 @@ class GardenBed(db.Model):
 
 class PlantedItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    plant_id = db.Column(db.String(50), nullable=False)  # Reference to plant in database
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    plant_id = db.Column(db.String(50), nullable=False, index=True)  # Reference to plant in database
     variety = db.Column(db.String(100))  # Specific variety (e.g., "Buttercrunch", "Romaine", "Red Leaf")
-    garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'), nullable=False)
+    garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'), nullable=False, index=True)
     planted_date = db.Column(db.DateTime, default=datetime.utcnow)
     transplant_date = db.Column(db.DateTime)
     harvest_date = db.Column(db.DateTime)
@@ -149,16 +149,16 @@ class PlantedItem(db.Model):
 
 class PlantingEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
 
     # Event type discriminator - supports different types of garden events
     event_type = db.Column(db.String(50), default='planting')  # 'planting', 'mulch', 'fertilizing', 'irrigation', etc.
     event_details = db.Column(db.Text)  # JSON string with event-specific data
 
     # Plant-specific fields (nullable for non-planting events like mulch)
-    plant_id = db.Column(db.String(50))  # Required for 'planting' events, null for others
+    plant_id = db.Column(db.String(50), index=True)  # Required for 'planting' events, null for others
     variety = db.Column(db.String(100))  # Specific variety (e.g., "Brandywine", "Roma", "Red Leaf")
-    garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'))
+    garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'), index=True)
     seed_start_date = db.Column(db.DateTime)
     transplant_date = db.Column(db.DateTime)
     direct_seed_date = db.Column(db.DateTime)
@@ -166,7 +166,7 @@ class PlantingEvent(db.Model):
     actual_harvest_date = db.Column(db.DateTime)
     succession_planting = db.Column(db.Boolean, default=False)
     succession_interval = db.Column(db.Integer)  # days
-    succession_group_id = db.Column(db.String(50))  # UUID linking events in succession series
+    succession_group_id = db.Column(db.String(50), index=True)  # UUID linking events in succession series
     position_x = db.Column(db.Integer)  # Grid X coordinate (nullable)
     position_y = db.Column(db.Integer)  # Grid Y coordinate (nullable)
     space_required = db.Column(db.Integer)  # Grid cells needed (nullable)
@@ -221,6 +221,7 @@ class PlantingEvent(db.Model):
     linear_feet_allocated = db.Column(db.Float)          # Linear feet used on trellis
 
     completed = db.Column(db.Boolean, default=False)
+    harvest_completed = db.Column(db.Boolean, default=False)  # Separate completion tracking for harvest phase
     quantity_completed = db.Column(db.Integer, nullable=True, default=None)  # How many actually planted (None=not started, 0-quantity=partial, >=quantity=complete)
     notes = db.Column(db.Text)
 
@@ -281,6 +282,7 @@ class PlantingEvent(db.Model):
             'spaceRequired': self.space_required,
             'conflictOverride': self.conflict_override,
             'completed': self.completed,
+            'harvestCompleted': self.harvest_completed,
             'quantityCompleted': self.quantity_completed,
             'notes': self.notes,
             # NEW: Seed density fields
@@ -1046,7 +1048,7 @@ class IndoorSeedStart(db.Model):
     and growing conditions. Links to outdoor PlantingEvent when transplanted.
     """
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
 
     # Basic Info
     plant_id = db.Column(db.String(50), nullable=False)  # Reference to plant_database
@@ -1056,6 +1058,7 @@ class IndoorSeedStart(db.Model):
     # Dates
     start_date = db.Column(db.DateTime, nullable=False)  # When seeds were started
     expected_germination_date = db.Column(db.DateTime)  # Calculated from germination_days
+    actual_germination_date = db.Column(db.DateTime)  # When seeds actually germinated
     expected_transplant_date = db.Column(db.DateTime)  # Calculated from weeksIndoors
 
     # Relationships
@@ -1077,6 +1080,10 @@ class IndoorSeedStart(db.Model):
     status = db.Column(db.String(20), default='planned')  # planned, seeded, germinating, growing, ready, transplanted
     hardening_off_started = db.Column(db.DateTime)  # When hardening off began
     transplant_ready = db.Column(db.Boolean, default=False)  # User-marked ready flag
+
+    # Manual destination bed override (JSON array of bed IDs, e.g. "[1, 3]")
+    # NULL = compute from garden plan; set = user override
+    destination_bed_ids = db.Column(db.Text, nullable=True)
 
     # Linking to Outdoor Planting
     planting_event_id = db.Column(db.Integer, db.ForeignKey('planting_event.id'))  # Outdoor event created after transplant
@@ -1124,20 +1131,63 @@ class IndoorSeedStart(db.Model):
 
         current_count = sum(event.quantity or 0 for event in matching_events)
 
-        # Collect destination bed names from matching PlantingEvents
-        bed_ids = set(e.garden_bed_id for e in matching_events if e.garden_bed_id is not None)
+        # Collect destination bed IDs
+        # Priority: manual override > PlantingEvents > GardenPlanItem fallback
+        manual_override = False
+        bed_ids = set()
+        if self.destination_bed_ids:
+            try:
+                override_ids = json.loads(self.destination_bed_ids)
+                bed_ids = set(int(bid) for bid in override_ids if bid is not None)
+                manual_override = True
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
 
-        # If no beds found from PlantingEvents, fall back to GardenPlanItem bed_assignments
-        if not bed_ids:
+        if not manual_override:
+            bed_ids = set(e.garden_bed_id for e in matching_events if e.garden_bed_id is not None)
+
+        # If no beds found from PlantingEvents (and no manual override),
+        # fall back to GardenPlanItem bed_assignments.
+        # Filter by date proximity: only match plan items whose planting window
+        # overlaps with this seed start's expected transplant date (+/- 30 days)
+        if not bed_ids and not manual_override:
             if self.variety is None:
                 plan_variety_filter = GardenPlanItem.variety.is_(None)
             else:
                 plan_variety_filter = GardenPlanItem.variety == self.variety
-            plan_items = GardenPlanItem.query.join(GardenPlan).filter(
+
+            plan_query = GardenPlanItem.query.join(GardenPlan).filter(
                 GardenPlan.user_id == self.user_id,
                 GardenPlanItem.plant_id == self.plant_id,
                 plan_variety_filter
-            ).all()
+            )
+
+            # Narrow to plan items whose planting window is near our transplant date
+            if self.expected_transplant_date:
+                window = timedelta(days=30)
+                tp_date = self.expected_transplant_date
+                # Match if first_plant_date is within 30 days of transplant,
+                # OR if transplant falls between first_plant_date and last_plant_date
+                plan_query = plan_query.filter(
+                    db.or_(
+                        # first_plant_date is near our transplant date
+                        db.and_(
+                            GardenPlanItem.first_plant_date.isnot(None),
+                            GardenPlanItem.first_plant_date.between(
+                                tp_date - window, tp_date + window
+                            )
+                        ),
+                        # Our transplant date falls within the plan item's full window
+                        db.and_(
+                            GardenPlanItem.first_plant_date.isnot(None),
+                            GardenPlanItem.last_plant_date.isnot(None),
+                            GardenPlanItem.first_plant_date <= tp_date + window,
+                            GardenPlanItem.last_plant_date >= tp_date - window
+                        )
+                    )
+                )
+
+            plan_items = plan_query.all()
             for item in plan_items:
                 if item.bed_assignments:
                     try:
@@ -1150,9 +1200,12 @@ class IndoorSeedStart(db.Model):
                         pass
 
         destination_beds = []
+        destination_bed_details = []
         if bed_ids:
             beds = GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all()
-            destination_beds = sorted(bed.name for bed in beds)
+            beds_sorted = sorted(beds, key=lambda b: b.name)
+            destination_beds = [bed.name for bed in beds_sorted]
+            destination_bed_details = [{'id': bed.id, 'name': bed.name} for bed in beds_sorted]
 
         # Calculate what the seeds_started should be based on current count
         # Using same logic as backend: count / 0.85 * 1.15
@@ -1173,7 +1226,9 @@ class IndoorSeedStart(db.Model):
             'expectedSeeds': expected_seeds,
             'inSync': in_sync,
             'warning': warning,
-            'destinationBeds': destination_beds
+            'destinationBeds': destination_beds,
+            'destinationBedDetails': destination_bed_details,
+            'hasManualDestination': manual_override
         }
 
     def to_dict(self):
@@ -1186,6 +1241,8 @@ class IndoorSeedStart(db.Model):
             'seedInventoryId': self.seed_inventory_id,
             'startDate': self.start_date.isoformat() if self.start_date else None,
             'expectedGerminationDate': self.expected_germination_date.isoformat() if self.expected_germination_date else None,
+            'actualGerminationDate': self.actual_germination_date.isoformat() if self.actual_germination_date else None,
+            'actualGerminationDays': self.actual_germination_days,
             'expectedTransplantDate': self.expected_transplant_date.isoformat() if self.expected_transplant_date else None,
             'actualTransplantDate': self.actual_transplant_date.isoformat() if self.actual_transplant_date else None,
             'seedsStarted': self.seeds_started,
@@ -1207,14 +1264,33 @@ class IndoorSeedStart(db.Model):
             'gardenPlanExpectedSeeds': garden_sync['expectedSeeds'],
             'gardenPlanInSync': garden_sync['inSync'],
             'gardenPlanWarning': garden_sync['warning'],
-            'destinationBeds': garden_sync.get('destinationBeds', [])
+            'destinationBeds': garden_sync.get('destinationBeds', []),
+            'destinationBedDetails': garden_sync.get('destinationBedDetails', []),
+            'hasManualDestination': garden_sync.get('hasManualDestination', False),
+            'destinationBedIds': self._parse_destination_bed_ids()
         }
+
+    def _parse_destination_bed_ids(self):
+        """Safely parse destination_bed_ids JSON, returning None on failure."""
+        if not self.destination_bed_ids:
+            return None
+        try:
+            return json.loads(self.destination_bed_ids)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def calculate_actual_germination_rate(self):
         """Calculate actual germination percentage"""
         if self.seeds_started and self.seeds_started > 0:
             self.actual_germination_rate = (self.seeds_germinated / self.seeds_started) * 100
         return self.actual_germination_rate
+
+    @property
+    def actual_germination_days(self):
+        """Days from start to actual germination"""
+        if self.actual_germination_date is not None and self.start_date is not None:
+            return max((self.actual_germination_date - self.start_date).days, 0)
+        return None
 
 class GardenPlan(db.Model):
     """
@@ -1224,7 +1300,7 @@ class GardenPlan(db.Model):
     __tablename__ = 'garden_plan'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)  # User-defined plan name
     season = db.Column(db.String(20))  # 'spring', 'summer', 'fall', 'year-round'
     year = db.Column(db.Integer, nullable=False)
@@ -1267,9 +1343,9 @@ class GardenPlanItem(db.Model):
     __tablename__ = 'garden_plan_item'
 
     id = db.Column(db.Integer, primary_key=True)
-    garden_plan_id = db.Column(db.Integer, db.ForeignKey('garden_plan.id'), nullable=False)
+    garden_plan_id = db.Column(db.Integer, db.ForeignKey('garden_plan.id'), nullable=False, index=True)
     seed_inventory_id = db.Column(db.Integer, db.ForeignKey('seed_inventory.id'))  # Nullable - may not have seeds yet
-    plant_id = db.Column(db.String(50), nullable=False)  # From plant database
+    plant_id = db.Column(db.String(50), nullable=False, index=True)  # From plant database
     variety = db.Column(db.String(100))
 
     # Quantity representation - dual system (natural units + normalized plant equivalents)
@@ -1304,6 +1380,10 @@ class GardenPlanItem(db.Model):
     # Export tracking
     status = db.Column(db.String(20), default='planned')  # 'planned', 'exported', 'completed'
     export_key = db.Column(db.String(100))  # Idempotency key for preventing duplicate exports
+
+    # Source tracking
+    source = db.Column(db.String(30))  # None = manual, 'indoor-seed-start' = auto-created from seed start
+    indoor_seed_start_id = db.Column(db.Integer, db.ForeignKey('indoor_seed_start.id', ondelete='SET NULL'), nullable=True, index=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -1361,6 +1441,8 @@ class GardenPlanItem(db.Model):
             'trellisAssignments': trellis_assignments_parsed,
             'status': self.status,
             'exportKey': self.export_key,
+            'source': self.source,
+            'indoorSeedStartId': self.indoor_seed_start_id,
             'createdAt': self.created_at.isoformat() if self.created_at else None,
             'updatedAt': self.updated_at.isoformat() if self.updated_at else None
         }

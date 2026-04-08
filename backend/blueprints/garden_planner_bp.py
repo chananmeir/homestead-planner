@@ -902,6 +902,8 @@ def api_get_planned_items_for_bed(plan_id, bed_id):
                 'totalQuantity': item.plant_equivalent,
                 'successionCount': item.succession_count if item.succession_enabled else None,
                 'notes': None,  # GardenPlanItem doesn't have a notes field
+                'source': item.source,
+                'indoorSeedStartId': item.indoor_seed_start_id,
                 'firstPlantDate': item.first_plant_date.isoformat() if item.first_plant_date else None,
                 'successionIntervalDays': item.succession_interval_days,
                 'harvestWindowStart': item.harvest_window_start.isoformat() if item.harvest_window_start else None,

@@ -25,7 +25,7 @@ Routes:
 from flask import Blueprint, request, jsonify, send_file
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta, date
-from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, Property, PlacedStructure, Settings, SeedInventory
+from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, Property, PlacedStructure, Settings, SeedInventory, GardenPlan, GardenPlanItem
 from plant_database import get_plant_by_id, PLANT_DATABASE
 from garden_methods import (
     get_sfg_quantity,
@@ -81,6 +81,96 @@ def _get_predicted_germination_days(user_id, plant_id, location=None):
         return round(sum(actual_days) / len(actual_days))
     plant = get_plant_by_id(plant_id)
     return plant.get('germination_days', 7) if plant else 7
+
+
+def _get_or_create_current_year_plan(user_id):
+    """Find the user's plan for the current year, or create one."""
+    current_year = datetime.now().year
+    plan = GardenPlan.query.filter_by(user_id=user_id, year=current_year).first()
+    if not plan:
+        plan = GardenPlan(
+            user_id=user_id,
+            name=f'{current_year} Garden Plan',
+            year=current_year,
+            strategy='manual',
+            succession_preference='per-seed'
+        )
+        db.session.add(plan)
+        db.session.flush()
+    return plan
+
+
+def _auto_create_garden_plan_item(seed_start, destination_bed_ids, desired_plants):
+    """
+    Auto-create or update a GardenPlanItem for an indoor seed start.
+
+    Args:
+        seed_start: IndoorSeedStart instance (must have id, user_id, plant_id, variety set)
+        destination_bed_ids: list of int bed IDs
+        desired_plants: int number of plants desired
+
+    Returns:
+        GardenPlanItem or None
+    """
+    if not destination_bed_ids:
+        return None
+
+    plan = _get_or_create_current_year_plan(seed_start.user_id)
+
+    # Check if a GardenPlanItem already exists for this seed start
+    existing = GardenPlanItem.query.filter_by(
+        garden_plan_id=plan.id,
+        indoor_seed_start_id=seed_start.id
+    ).first()
+
+    if existing:
+        # Update quantity and bed assignments
+        existing.plant_equivalent = desired_plants
+        existing.target_value = float(desired_plants)
+        bed_assignments = [{'bedId': bid, 'quantity': desired_plants} for bid in destination_bed_ids]
+        existing.bed_assignments = json.dumps(bed_assignments)
+        existing.beds_allocated = json.dumps(destination_bed_ids)
+        if seed_start.expected_transplant_date is not None:
+            existing.first_plant_date = seed_start.expected_transplant_date.date() if hasattr(seed_start.expected_transplant_date, 'date') else seed_start.expected_transplant_date
+        return existing
+
+    # Build bed_assignments JSON
+    # If multiple beds, divide evenly
+    if len(destination_bed_ids) == 1:
+        bed_assignments = [{'bedId': destination_bed_ids[0], 'quantity': desired_plants}]
+    else:
+        per_bed = desired_plants // len(destination_bed_ids)
+        remainder = desired_plants % len(destination_bed_ids)
+        bed_assignments = []
+        for i, bid in enumerate(destination_bed_ids):
+            qty = per_bed + (1 if i < remainder else 0)
+            bed_assignments.append({'bedId': bid, 'quantity': qty})
+
+    # Determine first_plant_date from transplant date
+    first_plant_date = None
+    if seed_start.expected_transplant_date is not None:
+        first_plant_date = seed_start.expected_transplant_date.date() if hasattr(seed_start.expected_transplant_date, 'date') else seed_start.expected_transplant_date
+
+    item = GardenPlanItem(
+        garden_plan_id=plan.id,
+        seed_inventory_id=seed_start.seed_inventory_id,
+        plant_id=seed_start.plant_id,
+        variety=seed_start.variety,
+        unit_type='plants',
+        target_value=float(desired_plants),
+        plant_equivalent=desired_plants,
+        succession_enabled=False,
+        succession_count=1,
+        first_plant_date=first_plant_date,
+        beds_allocated=json.dumps(destination_bed_ids),
+        bed_assignments=json.dumps(bed_assignments),
+        allocation_mode='custom' if len(destination_bed_ids) > 1 else 'even',
+        status='planned',
+        source='indoor-seed-start',
+        indoor_seed_start_id=seed_start.id
+    )
+    db.session.add(item)
+    return item
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -469,12 +559,17 @@ def get_soil_temperature():
 
             # Fetch air temperature forecast for frost risk integration
             air_temp_forecast = None
+            frost_data_unavailable = False
             try:
                 from weather_service import get_forecast
                 weather_data = get_forecast(lat, lon, days=16)
                 if not weather_data.get('isMock'):
                     air_temp_forecast = weather_data.get('forecast', [])
+                else:
+                    frost_data_unavailable = True
+                    logger.warning("Air temp forecast returned mock data — frost risk checks skipped")
             except Exception as e:
+                frost_data_unavailable = True
                 logger.warning(f"Air temp forecast for frost risk failed: {e}")
 
             # Calculate forecast readiness using depth-aware temps per plant
@@ -500,6 +595,7 @@ def get_soil_temperature():
             crop_readiness_forecast = None
             crop_readiness_transplant = None
             direct_sow_only = {}
+            frost_data_unavailable = True
 
         # Build temps_by_depth for response (string keys for JSON)
         temps_by_depth_response = {
@@ -524,6 +620,7 @@ def get_soil_temperature():
             'crop_readiness_forecast': crop_readiness_forecast,
             'crop_readiness_transplant': crop_readiness_transplant,
             'directSowOnly': direct_sow_only,
+            'frostDataUnavailable': frost_data_unavailable,
             # Protection offset from season extension (cold frame, greenhouse, etc.)
             'protection_offset': protection_offset,
             'protection_label': protection_label,
@@ -694,6 +791,13 @@ def indoor_seed_starts():
             # Link them together
             seed_start.planting_event_id = planting_event.id
 
+            # Auto-create GardenPlanItem if destination beds specified
+            destination_bed_ids = data.get('destinationBedIds')
+            if destination_bed_ids:
+                bed_id_list = [int(bid) for bid in destination_bed_ids]
+                seed_start.destination_bed_ids = json.dumps(bed_id_list)
+                _auto_create_garden_plan_item(seed_start, bed_id_list, desired_plants)
+
             db.session.commit()
 
             # Check seed inventory availability and warn if insufficient
@@ -762,6 +866,13 @@ def indoor_seed_start_detail(id):
 
     if request.method == 'DELETE':
         try:
+            # Clean up auto-created GardenPlanItem linked to this seed start
+            linked_plan_items = GardenPlanItem.query.filter_by(
+                indoor_seed_start_id=seed_start.id
+            ).all()
+            for item in linked_plan_items:
+                db.session.delete(item)
+
             db.session.delete(seed_start)
             db.session.commit()
             return jsonify({'message': 'Deleted successfully'}), 200
@@ -846,8 +957,21 @@ def indoor_seed_start_detail(id):
                 val = data['destinationBedIds']
                 if val is None or val == []:
                     seed_start.destination_bed_ids = None  # Clear override, revert to computed
+                    # Remove auto-created GardenPlanItem if destination cleared
+                    existing_item = GardenPlanItem.query.filter_by(
+                        indoor_seed_start_id=seed_start.id,
+                        source='indoor-seed-start'
+                    ).first()
+                    if existing_item is not None:
+                        db.session.delete(existing_item)
                 else:
-                    seed_start.destination_bed_ids = json.dumps([int(bid) for bid in val])
+                    bed_id_list = [int(bid) for bid in val]
+                    seed_start.destination_bed_ids = json.dumps(bed_id_list)
+                    # Calculate desired_plants from seeds_started and germination rate
+                    desired_plants = seed_start.seeds_started or 1
+                    if seed_start.expected_germination_rate is not None and seed_start.expected_germination_rate > 0:
+                        desired_plants = max(1, round(seed_start.seeds_started * seed_start.expected_germination_rate / 100))
+                    _auto_create_garden_plan_item(seed_start, bed_id_list, desired_plants)
 
             db.session.commit()
             return jsonify(seed_start.to_dict())

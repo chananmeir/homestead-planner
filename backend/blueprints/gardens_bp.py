@@ -18,6 +18,27 @@ from blueprints.garden_planner_bp import _adjust_auto_plan_item
 from garden_methods import GARDEN_METHODS
 from conflict_checker import has_conflict, validate_planting_conflict, get_primary_planting_date, query_candidate_items
 from services.space_calculator import calculate_space_requirement
+
+
+def _sync_indoor_start_on_completion(event):
+    """Sync linked IndoorSeedStart to 'transplanted' when PlantingEvent is completed.
+
+    When a PlantingEvent is marked complete via any path (batch placement, PUT,
+    bulk update, harvest), the linked IndoorSeedStart should reflect that the
+    transplant happened.  Without this, the indoor-starts page shows the entry
+    as overdue even though the calendar event is done.
+    """
+    if not event.completed:
+        return
+    seed_start = IndoorSeedStart.query.filter_by(
+        planting_event_id=event.id,
+        user_id=event.user_id
+    ).first()
+    if seed_start and seed_start.status != 'transplanted':
+        seed_start.status = 'transplanted'
+        seed_start.actual_transplant_date = (
+            event.transplant_date or event.direct_seed_date or datetime.utcnow()
+        )
 from utils.helpers import parse_iso_date
 
 # Validation constants
@@ -242,7 +263,7 @@ def add_planted_item():
             planted_date=planted_date,
             harvest_date=expected_harvest if expected_harvest != planted_date else None,
             quantity=data.get('quantity', 1),
-            status=data.get('status', 'planned'),
+            status=data.get('status', 'transplanted' if planting_method == 'transplant' else 'seeded'),
             notes=data.get('notes', ''),
             position_x=position.get('x', 0),
             position_y=position.get('y', 0),
@@ -261,7 +282,9 @@ def add_planted_item():
             expected_harvest_date=expected_harvest,
             position_x=position.get('x', 0),
             position_y=position.get('y', 0),
-            notes=data.get('notes', '')
+            notes=data.get('notes', ''),
+            completed=False,
+            quantity_completed=None
         )
 
         # Server-side conflict enforcement for auto-created planting event
@@ -433,7 +456,7 @@ def batch_add_planted_items():
                 planted_date=pos_planted_date,
                 harvest_date=pos_expected_harvest if pos_expected_harvest != pos_planted_date else None,
                 quantity=pos.get('quantity', 1),
-                status=data.get('status', 'planned'),
+                status=data.get('status', 'transplanted' if planting_method == 'transplant' else 'seeded'),
                 notes=data.get('notes', ''),
                 position_x=pos['x'],
                 position_y=pos['y'],
@@ -481,7 +504,9 @@ def batch_add_planted_items():
                 seeds_per_spot=seed_density_data.get('seedsPerSpot'),
                 plants_kept_per_spot=seed_density_data.get('plantsKeptPerSpot'),
                 # MIGardener physical row number
-                row_number=data.get('rowNumber')
+                row_number=data.get('rowNumber'),
+                completed=True,
+                quantity_completed=pos.get('quantity', 1)
             )
 
             # Server-side conflict enforcement for batch operation
@@ -528,6 +553,24 @@ def batch_add_planted_items():
             db.session.add(item)
             db.session.add(planting_event)
             created_items.append(item)
+
+        # Mark original exported PlantingEvents as completed when placing from a plan.
+        # The export creates events with export_key like "{userId}_{planItemId}_{bedId}_{date}_{idx}".
+        # Without this, the original stays incomplete while new duplicates are created,
+        # causing the calendar grouped marker to show as incomplete.
+        source_plan_item_id = data.get('sourcePlanItemId')
+        if source_plan_item_id:
+            export_key_prefix = f"{current_user.id}_{source_plan_item_id}_{data['gardenBedId']}_"
+            original_events = PlantingEvent.query.filter(
+                PlantingEvent.user_id == current_user.id,
+                PlantingEvent.export_key.like(f"{export_key_prefix}%"),
+                PlantingEvent.completed == False  # noqa: E712
+            ).all()
+            total_placed = sum(pos.get('quantity', 1) for pos in data['positions'])
+            for evt in original_events:
+                evt.completed = True
+                evt.quantity_completed = evt.quantity or total_placed
+                _sync_indoor_start_on_completion(evt)
 
         # Commit transaction (all-or-nothing)
         db.session.commit()
@@ -858,7 +901,7 @@ def planted_item(item_id):
         # Filter by plant_id to avoid deleting events for other plants at the same position
         # (succession planting can leave multiple PlantingEvents at the same cell)
         events = PlantingEvent.query.filter_by(
-            garden_bed_id=str(item.garden_bed_id),
+            garden_bed_id=item.garden_bed_id,
             plant_id=item.plant_id,
             position_x=item.position_x,
             position_y=item.position_y,
@@ -897,7 +940,7 @@ def planted_item(item_id):
     # Filter by plant_id to avoid picking up a stale event from a previous crop
     # at the same position (succession planting leaves old PlantingEvents behind)
     planting_event = PlantingEvent.query.filter_by(
-        garden_bed_id=str(item.garden_bed_id),
+        garden_bed_id=item.garden_bed_id,
         plant_id=item.plant_id,
         position_x=item.position_x,
         position_y=item.position_y,
@@ -969,6 +1012,7 @@ def planted_item(item_id):
         planting_event.completed = True
         if planting_event.quantity is not None:
             planting_event.quantity_completed = planting_event.quantity
+        _sync_indoor_start_on_completion(planting_event)
     if 'variety' in data:
         item.variety = data.get('variety')  # Allow updating variety
     if 'plantedDate' in data and data['plantedDate']:
@@ -1336,6 +1380,11 @@ def planting_events():
     # Filter by current user
     query = PlantingEvent.query.filter_by(user_id=current_user.id)
 
+    # Exclude abandoned events (completed with 0 quantity — never planted)
+    query = query.filter(
+        ~and_(PlantingEvent.completed == True, PlantingEvent.quantity_completed == 0)
+    )
+
     # Filter by date range if provided
     # Lifecycle filtering: show events that are ACTIVE during the date range
     # An event is active if: plant_date <= end_date AND harvest_date >= start_date
@@ -1438,7 +1487,22 @@ def planting_events():
         )
 
     events = query.all()
-    return jsonify([event.to_dict() for event in events])
+
+    # Batch-lookup IndoorSeedStart statuses for seed-start phase completion
+    from models import IndoorSeedStart
+    event_ids = [e.id for e in events]
+    seed_starts = IndoorSeedStart.query.filter(
+        IndoorSeedStart.planting_event_id.in_(event_ids),
+        IndoorSeedStart.user_id == current_user.id
+    ).all() if event_ids else []
+    seed_start_map = {ss.planting_event_id: ss.status for ss in seed_starts}
+
+    result = []
+    for event in events:
+        event_dict = event.to_dict()
+        event_dict['indoorSeedStartStatus'] = seed_start_map.get(event.id)
+        result.append(event_dict)
+    return jsonify(result)
 
 
 @gardens_bp.route('/planting-events/orphaned', methods=['GET', 'DELETE'])
@@ -1502,26 +1566,80 @@ def orphaned_planting_events():
     }), 200
 
 
-@gardens_bp.route('/planting-events/<int:event_id>', methods=['PUT', 'DELETE'])
+@gardens_bp.route('/planting-events/<int:event_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 def planting_event(event_id):
-    """Update or delete a planting event"""
+    """Get, update, or delete a planting event"""
     event = PlantingEvent.query.get_or_404(event_id)
 
     # Verify ownership
     if event.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
 
-    if request.method == 'DELETE':
-        # BUGFIX: Delete related indoor seed start FIRST (before deleting PlantingEvent)
-        IndoorSeedStart.query.filter_by(
-            planting_event_id=event_id,
-            user_id=current_user.id
-        ).delete(synchronize_session=False)
+    if request.method == 'GET':
+        return jsonify(event.to_dict())
 
-        db.session.delete(event)
+    if request.method == 'DELETE':
+        scope = request.args.get('scope', 'single')
+
+        # Determine which events to delete
+        if scope == 'series' and event.succession_group_id:
+            events_to_delete = PlantingEvent.query.filter_by(
+                succession_group_id=event.succession_group_id,
+                user_id=current_user.id
+            ).all()
+        else:
+            events_to_delete = [event]
+
+        event_ids = [e.id for e in events_to_delete]
+
+        # Collect plan item IDs from export keys before deletion
+        plan_item_ids_affected = set()
+        for e in events_to_delete:
+            if e.export_key:
+                try:
+                    plan_item_id = int(e.export_key.split('_')[1])
+                    plan_item_ids_affected.add(plan_item_id)
+                except (ValueError, IndexError):
+                    pass
+
+        # Delete linked IndoorSeedStarts and their auto-created GardenPlanItems
+        seed_starts = IndoorSeedStart.query.filter(
+            IndoorSeedStart.planting_event_id.in_(event_ids),
+            IndoorSeedStart.user_id == current_user.id
+        ).all()
+        seed_start_ids = [ss.id for ss in seed_starts]
+
+        if seed_start_ids:
+            GardenPlanItem.query.filter(
+                GardenPlanItem.indoor_seed_start_id.in_(seed_start_ids),
+                GardenPlanItem.source == 'indoor-seed-start'
+            ).delete(synchronize_session=False)
+
+        for ss in seed_starts:
+            db.session.delete(ss)
+
+        # Delete the planting events
+        for e in events_to_delete:
+            db.session.delete(e)
+
+        db.session.flush()
+
+        # Reset GardenPlanItem status if all exported events for that item are now gone
+        plan_items_reset = 0
+        for pid in plan_item_ids_affected:
+            remaining = PlantingEvent.query.filter(
+                PlantingEvent.export_key.like(f"{current_user.id}_{pid}_%"),
+                PlantingEvent.user_id == current_user.id
+            ).count()
+            if remaining == 0:
+                plan_item = db.session.get(GardenPlanItem, pid)
+                if plan_item and plan_item.status == 'exported':
+                    plan_item.status = 'planned'
+                    plan_items_reset += 1
+
         db.session.commit()
-        return '', 204
+        return jsonify({'deleted': len(event_ids), 'planItemsReset': plan_items_reset}), 200
 
     data = request.json
     event.completed = data.get('completed', event.completed)
@@ -1540,6 +1658,10 @@ def planting_event(event_id):
         # Auto-update completed flag based on quantity
         if event.quantity and event.quantity_completed is not None:
             event.completed = (event.quantity_completed >= event.quantity)
+
+    # Handle harvest phase completion (independent of planting completion)
+    if 'harvestCompleted' in data:
+        event.harvest_completed = data['harvestCompleted']
 
     # Handle actual harvest date update
     if 'actualHarvestDate' in data:
@@ -1576,8 +1698,208 @@ def planting_event(event_id):
         else:
             event.seed_start_date = None
 
+    # Handle garden bed reassignment
+    if 'gardenBedId' in data:
+        new_bed_id = data['gardenBedId']
+        old_bed_id = event.garden_bed_id
+        if new_bed_id is not None:
+            bed = GardenBed.query.get(new_bed_id)
+            if not bed or bed.user_id != current_user.id:
+                return jsonify({'error': 'Garden bed not found'}), 404
+        event.garden_bed_id = new_bed_id
+
+        # Propagate bed change to succession siblings + GardenPlanItem
+        if old_bed_id != new_bed_id:
+            # Move succession siblings to the new bed too
+            moved_events = [event]
+            if event.succession_group_id:
+                siblings = PlantingEvent.query.filter(
+                    PlantingEvent.succession_group_id == event.succession_group_id,
+                    PlantingEvent.user_id == current_user.id,
+                    PlantingEvent.id != event.id
+                ).all()
+                for sib in siblings:
+                    sib.garden_bed_id = new_bed_id
+                    moved_events.append(sib)
+
+            # Compute total quantity being moved
+            total_qty = sum(e.quantity or 0 for e in moved_events)
+
+            # Propagate to GardenPlanItem via export_key
+            if event.export_key:
+                try:
+                    plan_item_id = int(event.export_key.split('_')[1])
+                    plan_item = GardenPlanItem.query.get(plan_item_id)
+                    if plan_item and plan_item.bed_assignments:
+                        assignments = json.loads(plan_item.bed_assignments)
+
+                        # Reduce quantity on old bed
+                        if old_bed_id is not None:
+                            for a in assignments:
+                                if a.get('bedId') == old_bed_id:
+                                    a['quantity'] = max(0, a.get('quantity', 0) - total_qty)
+                                    break
+                            assignments = [a for a in assignments if a.get('quantity', 0) > 0]
+
+                        # Add quantity to new bed
+                        if new_bed_id is not None:
+                            found = False
+                            for a in assignments:
+                                if a.get('bedId') == new_bed_id:
+                                    a['quantity'] = a.get('quantity', 0) + total_qty
+                                    found = True
+                                    break
+                            if not found:
+                                assignments.append({'bedId': new_bed_id, 'quantity': total_qty})
+
+                        plan_item.bed_assignments = json.dumps(assignments)
+                        # Update legacy beds_allocated
+                        plan_item.beds_allocated = json.dumps(list(set(
+                            a['bedId'] for a in assignments if a.get('bedId') is not None
+                        )))
+                except (ValueError, IndexError, json.JSONDecodeError) as e:
+                    logging.warning(f"Could not propagate bed change to plan item from export_key {event.export_key}: {e}")
+
+            # Update export_keys to reflect new bed (prevents duplicates on re-export)
+            for ev in moved_events:
+                if ev.export_key:
+                    parts = ev.export_key.split('_')
+                    # Bed-allocated format: {user}_{item}_{bed}_{date}_{i} — parts[2] is bed_id
+                    if len(parts) == 5 and parts[2].isdigit():
+                        parts[2] = str(new_bed_id) if new_bed_id is not None else '0'
+                        ev.export_key = '_'.join(parts)
+
+    # Sync linked IndoorSeedStart if event just became completed
+    if event.completed:
+        _sync_indoor_start_on_completion(event)
+
     db.session.commit()
     return jsonify(event.to_dict())
+
+
+@gardens_bp.route('/planting-events/<int:event_id>/switch-to-direct-seed', methods=['PATCH'])
+@login_required
+def switch_to_direct_seed(event_id):
+    """Switch an indoor start planting event to direct seed."""
+    event = PlantingEvent.query.get_or_404(event_id)
+
+    if event.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if not event.seed_start_date:
+        return jsonify({'error': 'Event is not an indoor start'}), 400
+
+    # Calculate indoor head start BEFORE clearing dates
+    if event.transplant_date and event.seed_start_date:
+        indoor_days = (event.transplant_date - event.seed_start_date).days
+    else:
+        # Fallback to plant DB weeksIndoors
+        plant_lookup = get_plant_by_id(event.plant_id) if event.plant_id else None
+        indoor_days = (plant_lookup.get('weeksIndoors', 0) * 7) if plant_lookup else 0
+
+    # Use transplant date as the new direct seed date
+    event.direct_seed_date = event.transplant_date
+    event.seed_start_date = None
+    event.transplant_date = None
+
+    # Recalculate expected harvest date: direct_seed_date + DTM + indoor head start
+    if event.direct_seed_date:
+        dtm = None
+        # Check seed inventory for variety-specific DTM override
+        if event.plant_id and event.variety:
+            seed = SeedInventory.query.filter_by(
+                user_id=current_user.id,
+                plant_id=event.plant_id,
+                variety=event.variety
+            ).first()
+            if seed and seed.days_to_maturity is not None:
+                dtm = seed.days_to_maturity
+        # Fall back to plant database DTM
+        if dtm is None and event.plant_id:
+            plant = get_plant_by_id(event.plant_id)
+            if plant and plant.get('daysToMaturity') is not None:
+                dtm = plant['daysToMaturity']
+        # Final fallback
+        if dtm is None:
+            dtm = 60
+        event.expected_harvest_date = event.direct_seed_date + timedelta(days=dtm + indoor_days)
+
+    # Delete linked IndoorSeedStart record
+    IndoorSeedStart.query.filter_by(
+        planting_event_id=event_id,
+        user_id=current_user.id
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+    return jsonify(event.to_dict())
+
+
+@gardens_bp.route('/planting-events/bulk-switch-to-direct-seed', methods=['PATCH'])
+@login_required
+def bulk_switch_to_direct_seed():
+    """Switch multiple indoor start planting events to direct seed at once."""
+    data = request.get_json()
+    event_ids = data.get('eventIds', [])
+    if not event_ids:
+        return jsonify({'error': 'No event IDs provided'}), 400
+
+    events = PlantingEvent.query.filter(
+        PlantingEvent.id.in_(event_ids),
+        PlantingEvent.user_id == current_user.id
+    ).all()
+
+    if not events:
+        return jsonify({'error': 'No matching events found'}), 404
+
+    switched = []
+    skipped = []
+
+    for event in events:
+        if not event.seed_start_date:
+            skipped.append({'id': event.id, 'reason': 'Not an indoor start'})
+            continue
+
+        # Calculate indoor head start BEFORE clearing dates
+        if event.transplant_date and event.seed_start_date:
+            indoor_days = (event.transplant_date - event.seed_start_date).days
+        else:
+            plant_lookup = get_plant_by_id(event.plant_id) if event.plant_id else None
+            indoor_days = (plant_lookup.get('weeksIndoors', 0) * 7) if plant_lookup else 0
+
+        # Use transplant date as the new direct seed date
+        event.direct_seed_date = event.transplant_date
+        event.seed_start_date = None
+        event.transplant_date = None
+
+        # Recalculate expected harvest date
+        if event.direct_seed_date:
+            dtm = None
+            if event.plant_id and event.variety:
+                seed = SeedInventory.query.filter_by(
+                    user_id=current_user.id,
+                    plant_id=event.plant_id,
+                    variety=event.variety
+                ).first()
+                if seed and seed.days_to_maturity is not None:
+                    dtm = seed.days_to_maturity
+            if dtm is None and event.plant_id:
+                plant = get_plant_by_id(event.plant_id)
+                if plant and plant.get('daysToMaturity') is not None:
+                    dtm = plant['daysToMaturity']
+            if dtm is None:
+                dtm = 60
+            event.expected_harvest_date = event.direct_seed_date + timedelta(days=dtm + indoor_days)
+
+        # Delete linked IndoorSeedStart record
+        IndoorSeedStart.query.filter_by(
+            planting_event_id=event.id,
+            user_id=current_user.id
+        ).delete(synchronize_session=False)
+
+        switched.append(event.id)
+
+    db.session.commit()
+    return jsonify({'switched': switched, 'skipped': skipped})
 
 
 @gardens_bp.route('/planting-events/<int:event_id>/harvest', methods=['PATCH'])
@@ -1603,9 +1925,83 @@ def mark_event_harvested(event_id):
     event.completed = True
     if event.quantity is not None:
         event.quantity_completed = event.quantity
+    _sync_indoor_start_on_completion(event)
 
     db.session.commit()
     return jsonify(event.to_dict())
+
+
+@gardens_bp.route('/planting-events/<int:event_id>/variety', methods=['PATCH'])
+@login_required
+def update_event_variety(event_id):
+    """Update variety on a planting event and propagate to succession siblings, plan item, and placed plants."""
+    event = PlantingEvent.query.get_or_404(event_id)
+    if event.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    new_variety = data.get('variety') or None
+
+    updated_event_ids = []
+    updated_plan_item_id = None
+    updated_planted_ids = []
+
+    # 1. Update this event + succession siblings
+    if event.succession_group_id:
+        siblings = PlantingEvent.query.filter_by(
+            succession_group_id=event.succession_group_id,
+            user_id=current_user.id
+        ).all()
+        for sib in siblings:
+            sib.variety = new_variety
+            updated_event_ids.append(sib.id)
+    else:
+        event.variety = new_variety
+        updated_event_ids.append(event.id)
+
+    # 2. Propagate to GardenPlanItem via export_key
+    # Export key format: {user_id}_{item_id}_{bed_id}_{date}_{i} (bed path)
+    #                  or {user_id}_{item_id}_trellis_{trellis_id}_{date}_{i}
+    #                  or {user_id}_{item_id}_{date}_{i} (legacy path)
+    # Plan item ID is always at index [1].
+    plan_item = None
+    if event.export_key:
+        try:
+            plan_item_id = int(event.export_key.split('_')[1])
+            plan_item = GardenPlanItem.query.get(plan_item_id)
+            if plan_item:
+                plan_item.variety = new_variety
+                updated_plan_item_id = plan_item.id
+        except (ValueError, IndexError):
+            logging.warning(f"Could not parse plan item ID from export_key: {event.export_key}")
+
+    # 3. Propagate to PlantedItems via source_plan_item_id
+    if plan_item:
+        placed = PlantedItem.query.filter_by(
+            source_plan_item_id=plan_item.id,
+            user_id=current_user.id
+        ).all()
+        for item in placed:
+            item.variety = new_variety
+            updated_planted_ids.append(item.id)
+
+    # 4. Propagate to linked IndoorSeedStart records
+    for eid in updated_event_ids:
+        seed_start = IndoorSeedStart.query.filter_by(
+            planting_event_id=eid,
+            user_id=current_user.id
+        ).first()
+        if seed_start:
+            seed_start.variety = new_variety
+
+    db.session.commit()
+    return jsonify({
+        'updated': {
+            'plantingEvents': updated_event_ids,
+            'gardenPlanItemId': updated_plan_item_id,
+            'plantedItems': updated_planted_ids,
+        }
+    })
 
 
 @gardens_bp.route('/planting-events/bulk-update', methods=['PATCH'])
@@ -1646,6 +2042,9 @@ def bulk_update_events():
                 event.completed = (event.quantity_completed >= event.quantity)
         if 'quantity' in updates:  # Adjust target quantity
             event.quantity = updates['quantity']
+
+        # Sync linked IndoorSeedStart if event is now completed
+        _sync_indoor_start_on_completion(event)
 
     db.session.commit()
 
