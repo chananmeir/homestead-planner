@@ -12,6 +12,7 @@ import PlantIcon from '../common/PlantIcon';
 import { determineRowContinuity, getRowContinuityMessage } from './utils/rowContinuity';
 import { getIntensiveSpacing, HEX_ROW_OFFSET } from '../../utils/intensiveSpacing';
 import { getEffectivePlantingStyle, PlantingStyle, PLANTING_STYLES, requiresSeedDensity, getQuantityTerminology } from '../../utils/plantingStyles';
+import { getSFGPlantsPerCell } from '../../utils/sfgSpacing';
 
 /**
  * Determine if plant should use dense planting (multiple plants in one cell)
@@ -199,6 +200,12 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   const [selectedTrellisId, setSelectedTrellisId] = useState<number | null>(null);
   const [availableTrellises, setAvailableTrellises] = useState<any[]>([]);
   const [trellisCapacity, setTrellisCapacity] = useState<any>(null);
+  const [showQuickTrellis, setShowQuickTrellis] = useState(false);
+  const [quickTrellisName, setQuickTrellisName] = useState('');
+  const [quickTrellisType, setQuickTrellisType] = useState('post_wire');
+  const [quickTrellisLength, setQuickTrellisLength] = useState(8);
+  const [quickTrellisHeight, setQuickTrellisHeight] = useState(72);
+  const [creatingTrellis, setCreatingTrellis] = useState(false);
 
   // Planting style selection state (NEW: Enable for ALL methods, not just MIGardener)
   const [selectedPlantingStyle, setSelectedPlantingStyle] = useState<PlantingStyle>('grid');
@@ -288,6 +295,41 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     fetchCapacity();
   }, [selectedTrellisId]);
 
+  // Quick-create a trellis from inline form
+  const handleQuickCreateTrellis = async () => {
+    if (!quickTrellisName.trim() || quickTrellisLength <= 0) return;
+    setCreatingTrellis(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/trellis-structures`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: quickTrellisName.trim(),
+          trellisType: quickTrellisType,
+          startX: 0,
+          startY: 0,
+          endX: quickTrellisLength,
+          endY: 0,
+          heightInches: quickTrellisHeight,
+        }),
+      });
+      if (response.ok) {
+        const newTrellis = await response.json();
+        setAvailableTrellises(prev => [...prev, newTrellis]);
+        setSelectedTrellisId(newTrellis.id);
+        setShowQuickTrellis(false);
+        setQuickTrellisName('');
+        setQuickTrellisLength(8);
+        setQuickTrellisHeight(72);
+      }
+    } catch (error) {
+      console.error('Error creating trellis:', error);
+    } finally {
+      setCreatingTrellis(false);
+    }
+  };
+
   // Initialize planting style based on effective planting style (NEW: Enable for ALL methods)
   useEffect(() => {
     if (!representativePlant || !isOpen) return;
@@ -308,9 +350,26 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     if (prevPlantingStyleRef.current === selectedPlantingStyle) return;
     prevPlantingStyleRef.current = selectedPlantingStyle;
 
-    // Not a MIGardener bed - recalculate for permaculture row/grid switch, otherwise just update label
+    // Not a MIGardener bed - recalculate for row/grid switch
     if (planningMethod !== 'migardener') {
-      if (planningMethod === 'permaculture' && representativePlant.spacing && bed) {
+      if (planningMethod === 'square-foot' && representativePlant.spacing && bed) {
+        let newPlantsPerSquare: number;
+        const spacing = representativePlant.spacing;
+
+        if (selectedPlantingStyle === 'row') {
+          // Row placement: plants per row along bed length
+          const bedLengthInches = (bed.length || 4) * 12;
+          newPlantsPerSquare = Math.floor(bedLengthInches / spacing);
+        } else {
+          // Grid: use SFG lookup table
+          newPlantsPerSquare = getSFGPlantsPerCell(representativePlant.id);
+        }
+
+        const newQuantity = Math.max(1, Math.floor(newPlantsPerSquare));
+        setPlantsPerSquare(newPlantsPerSquare);
+        setNumberOfSquares(1);
+        setQuantity(newQuantity);
+      } else if (planningMethod === 'permaculture' && representativePlant.spacing && bed) {
         const spacing = representativePlant.spacing;
         let newPlantsPerSquare: number;
 
@@ -328,6 +387,14 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         setPlantsPerSquare(newPlantsPerSquare);
         setNumberOfSquares(1);
         setQuantity(newQuantity);
+      } else if (selectedPlantingStyle === 'row' && representativePlant.spacing && bed) {
+        // Row placement on any bed type: plants per row along bed length
+        const bedLengthInches = (bed.length || 4) * 12;
+        const spacing = representativePlant.spacing;
+        const newPlantsPerSquare = Math.max(1, Math.floor(bedLengthInches / spacing));
+        setPlantsPerSquare(newPlantsPerSquare);
+        setNumberOfSquares(1);
+        setQuantity(newPlantsPerSquare);
       }
 
       setSeedDensityMetadata(prev => prev ? {
@@ -751,12 +818,19 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       let calculatedPlantsPerSquare = 1;
       let defaultQuantity = 1;
 
-      if (planningMethod === 'square-foot' && representativePlant.spacing) {
-        // Square foot gardening: (12 / spacing)²
-        // Works for both dense (>1) and spread (<1) planting
-        const spacing = representativePlant.spacing;
-        calculatedPlantsPerSquare = Math.pow(12 / spacing, 2);
-        defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+      if (planningMethod === 'square-foot') {
+        const effectiveStyle = getEffectivePlantingStyle(representativePlant, bed);
+        if (effectiveStyle === 'row' && bed && representativePlant.spacing) {
+          // SFG Row placement: plants per row along bed length
+          const bedLengthInches = (bed.length || 4) * 12;
+          const spacing = representativePlant.spacing;
+          calculatedPlantsPerSquare = Math.floor(bedLengthInches / spacing);
+          defaultQuantity = Math.max(1, calculatedPlantsPerSquare);
+        } else {
+          // SFG Grid: use the SFG lookup table (authoritative for SFG spacing)
+          calculatedPlantsPerSquare = getSFGPlantsPerCell(representativePlant.id);
+          defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
+        }
       } else if (planningMethod === 'migardener') {
         // MIGardener: Seed density planting (row-based or broadcast)
         if (representativePlant.migardener) {
@@ -902,8 +976,17 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           calculatedPlantsPerSquare = Math.pow(12 / spacing, 2);
           defaultQuantity = Math.max(1, Math.floor(calculatedPlantsPerSquare));
         }
+      } else if (representativePlant.spacing && bed) {
+        // Other methods (row, raised-bed, etc.): check if row placement applies
+        const effectiveStyle = getEffectivePlantingStyle(representativePlant, bed);
+        if (effectiveStyle === 'row') {
+          const bedLengthInches = (bed.length || 4) * 12;
+          const spacing = representativePlant.spacing;
+          calculatedPlantsPerSquare = Math.max(1, Math.floor(bedLengthInches / spacing));
+          defaultQuantity = calculatedPlantsPerSquare;
+        }
       }
-      // For other methods (row, raised-bed, etc.), default to 1
+      // For remaining cases, default to 1
 
       setQuantity(defaultQuantity);
       setPlantsPerSquare(calculatedPlantsPerSquare); // Store actual plants per square (can be < 1)
@@ -1010,7 +1093,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     if (isRowMode) {
       const plantsPerCell = result.placed > 0 ? Math.ceil(quantity / result.placed) : 0;
       const fittablePlants = result.placed * plantsPerCell;
-      if (result.placed < numPositions) {
+      if (result.placed < numPositions && fittablePlants < quantity) {
         showWarning(
           `Only ${result.placed} cells available in ${numberOfSquares} row(s) — fits ~${fittablePlants} of ${quantity} plants. Increase rows or reduce total plants.`
         );
@@ -1645,24 +1728,107 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             <label htmlFor="trellis" className="block text-sm font-medium text-gray-700 mb-1">
               Trellis Structure <span className="text-red-500">*</span>
             </label>
-            <select
-              id="trellis"
-              value={selectedTrellisId || ''}
-              onChange={(e) => setSelectedTrellisId(e.target.value ? parseInt(e.target.value) : null)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              required
-            >
-              <option value="">-- Select a trellis --</option>
-              {availableTrellises.map((trellis) => (
-                <option key={trellis.id} value={trellis.id}>
-                  {trellis.name} ({trellis.totalLengthFeet}ft - {trellis.trellisType.replace('_', ' ')})
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                id="trellis"
+                value={selectedTrellisId || ''}
+                onChange={(e) => setSelectedTrellisId(e.target.value ? parseInt(e.target.value) : null)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                required
+              >
+                <option value="">-- Select a trellis --</option>
+                {availableTrellises.map((trellis) => (
+                  <option key={trellis.id} value={trellis.id}>
+                    {trellis.name} ({trellis.totalLengthFeet}ft - {trellis.trellisType.replace('_', ' ')})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowQuickTrellis(!showQuickTrellis)}
+                className="px-3 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 whitespace-nowrap"
+              >
+                + New
+              </button>
+            </div>
 
-            {availableTrellises.length === 0 && (
+            {/* Quick Create Trellis Form */}
+            {showQuickTrellis && (
+              <div className="mt-2 p-3 bg-green-50 rounded-lg border border-green-200 space-y-3">
+                <p className="text-sm font-medium text-green-800">Quick Create Trellis</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-600 mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={quickTrellisName}
+                      onChange={(e) => setQuickTrellisName(e.target.value)}
+                      placeholder="e.g. Pea Trellis"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Type</label>
+                    <select
+                      value={quickTrellisType}
+                      onChange={(e) => setQuickTrellisType(e.target.value)}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                    >
+                      <option value="post_wire">Post & Wire</option>
+                      <option value="fence">Fence</option>
+                      <option value="a-frame">A-Frame</option>
+                      <option value="arbor">Arbor</option>
+                      <option value="espalier">Espalier</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Length (feet)</label>
+                    <input
+                      type="number"
+                      value={quickTrellisLength}
+                      onChange={(e) => setQuickTrellisLength(Number(e.target.value))}
+                      min={1}
+                      max={100}
+                      step={1}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Height (inches)</label>
+                    <input
+                      type="number"
+                      value={quickTrellisHeight}
+                      onChange={(e) => setQuickTrellisHeight(Number(e.target.value))}
+                      min={24}
+                      max={240}
+                      step={6}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleQuickCreateTrellis}
+                    disabled={!quickTrellisName.trim() || quickTrellisLength <= 0 || creatingTrellis}
+                    className="px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {creatingTrellis ? 'Creating...' : 'Create Trellis'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickTrellis(false)}
+                    className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!showQuickTrellis && availableTrellises.length === 0 && (
               <p className="mt-2 text-sm text-orange-600">
-                No trellis structures available. Create one in the Property Designer first.
+                No trellis structures available. Click "+ New" to create one.
               </p>
             )}
 
@@ -1810,13 +1976,13 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           />
         )}
 
-        {/* Quantity - Dual Input for SFG/MIGardener, Single for Others */}
+        {/* Quantity - Dual Input for SFG/MIGardener/Row Placement, Single for Others */}
         <div>
-          {(planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive' || planningMethod === 'permaculture') && !rowNumber ? (
-            // Dual-input UI for succession planting (both dense and spread)
+          {((planningMethod === 'square-foot' || planningMethod === 'migardener' || planningMethod === 'intensive' || planningMethod === 'permaculture') || selectedPlantingStyle === 'row') && !rowNumber ? (
+            // Dual-input UI for row/grid quantity configuration
             <>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Succession Planting
+                {selectedPlantingStyle === 'row' ? 'Row Layout' : 'Planting Quantity'}
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>

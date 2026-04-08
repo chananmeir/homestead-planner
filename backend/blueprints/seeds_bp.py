@@ -135,8 +135,15 @@ def get_varieties_by_plant(plant_id):
     """Get all varieties for a specific plant from seed inventory"""
     try:
         catalog_only = request.args.get('catalogOnly', 'false').lower() == 'true'
+        my_seeds_only = request.args.get('mySeedsOnly', 'false').lower() == 'true'
 
-        if catalog_only:
+        if my_seeds_only:
+            # Return only the current user's personal seeds
+            seeds = SeedInventory.query.filter_by(
+                plant_id=plant_id,
+                user_id=current_user.id
+            ).all()
+        elif catalog_only:
             # Return only global catalog varieties
             seeds = SeedInventory.query.filter_by(
                 plant_id=plant_id,

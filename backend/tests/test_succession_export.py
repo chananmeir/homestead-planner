@@ -39,13 +39,19 @@ def _make_item(db_session, plan, **kwargs):
 
 
 def _get_events(user_id):
-    """Query all PlantingEvents for a user, ordered by direct_seed_date."""
+    """Query all PlantingEvents for a user, ordered by planting date."""
+    from sqlalchemy import func
     return (
         PlantingEvent.query
         .filter_by(user_id=user_id)
-        .order_by(PlantingEvent.direct_seed_date, PlantingEvent.id)
+        .order_by(func.coalesce(PlantingEvent.transplant_date, PlantingEvent.direct_seed_date), PlantingEvent.id)
         .all()
     )
+
+
+def _planting_date(event):
+    """Get the effective planting date (transplant_date or direct_seed_date)."""
+    return event.transplant_date or event.direct_seed_date
 
 
 # ===================================================================
@@ -70,7 +76,10 @@ class TestLegacyExportPath:
         ev = events[0]
         assert ev.plant_id == 'tomato-1'
         assert ev.quantity == 10
-        assert ev.direct_seed_date == datetime(2026, 5, 1)
+        # tomato-1 has weeksIndoors > 0, so it gets transplant_date
+        assert ev.transplant_date == datetime(2026, 5, 1)
+        assert ev.direct_seed_date is None
+        assert ev.seed_start_date is not None
         assert ev.garden_bed_id is None
         assert ev.succession_planting is False
         assert ev.succession_group_id is None
@@ -96,10 +105,10 @@ class TestLegacyExportPath:
         # Quantities all equal
         assert [e.quantity for e in events] == [5, 5, 5, 5]
 
-        # Dates offset by 14 days
+        # Dates offset by 14 days (tomato-1 is transplant, so check transplant_date)
         base = datetime(2026, 5, 1)
         for i, ev in enumerate(events):
-            assert ev.direct_seed_date == base + timedelta(days=14 * i)
+            assert _planting_date(ev) == base + timedelta(days=14 * i)
             assert ev.succession_planting is True
             assert ev.succession_interval == 14
 
@@ -159,7 +168,7 @@ class TestLegacyExportPath:
         assert ev.expected_harvest_date == expected
 
     def test_export_key_format_legacy(self, db_session, sample_user, sample_plan):
-        """Export key format: {item.id}_{date}_{i}."""
+        """Export key format: {user_id}_{item.id}_{date}_{i}."""
         item = _make_item(
             db_session, sample_plan,
             target_value=10, succession_count=2, succession_interval_days=14,
@@ -168,8 +177,8 @@ class TestLegacyExportPath:
 
         export_to_calendar(sample_plan.id, sample_user.id)
         events = _get_events(sample_user.id)
-        assert events[0].export_key == f"{item.id}_2026-05-01_0"
-        assert events[1].export_key == f"{item.id}_2026-05-15_1"
+        assert events[0].export_key == f"{sample_user.id}_{item.id}_2026-05-01_0"
+        assert events[1].export_key == f"{sample_user.id}_{item.id}_2026-05-15_1"
 
 
 # ===================================================================
@@ -266,7 +275,7 @@ class TestBedAllocatedExportPath:
         assert qtys == [8, 7]
 
     def test_export_key_includes_bed_id(self, db_session, sample_user, sample_plan, sample_bed):
-        """Export key format for bed path: {item.id}_{bed_id}_{date}_{i}."""
+        """Export key format for bed path: {user_id}_{item.id}_{bed_id}_{date}_{i}."""
         item = _make_item(
             db_session, sample_plan,
             target_value=5, succession_count=1,
@@ -276,7 +285,7 @@ class TestBedAllocatedExportPath:
 
         export_to_calendar(sample_plan.id, sample_user.id)
         ev = _get_events(sample_user.id)[0]
-        assert ev.export_key == f"{item.id}_{sample_bed.id}_2026-05-01_0"
+        assert ev.export_key == f"{sample_user.id}_{item.id}_{sample_bed.id}_2026-05-01_0"
 
     def test_mixed_beds_custom_quantities(self, db_session, sample_user, sample_plan, sample_bed, second_bed):
         """Custom allocation: bed1=30, bed2=10, succession_count=1."""
@@ -344,10 +353,10 @@ class TestTrellisExportPath:
         assert all(e.quantity == 3 for e in events)
         assert all(e.trellis_structure_id == sample_trellis.id for e in events)
 
-        # Dates offset by 21 days
+        # Dates offset by 21 days (tomato-1 is transplant)
         base = datetime(2026, 5, 1)
         for i, ev in enumerate(events):
-            assert ev.direct_seed_date == base + timedelta(days=21 * i)
+            assert _planting_date(ev) == base + timedelta(days=21 * i)
 
     def test_two_trellises_remainder(self, db_session, sample_user, sample_plan, sample_trellis, second_trellis):
         """7 plants / 2 trellises → [4, 3], each with succession_count=1."""
@@ -404,7 +413,7 @@ class TestTrellisExportPath:
         assert ev.quantity == 5
 
     def test_trellis_export_key_format(self, db_session, sample_user, sample_plan, sample_trellis):
-        """Export key format: {item.id}_trellis_{trellis_id}_{date}_{i}."""
+        """Export key format: {user_id}_{item.id}_trellis_{trellis_id}_{date}_{i}."""
         item = _make_item(
             db_session, sample_plan,
             plant_id='pole-beans-1', target_value=4, succession_count=1,
@@ -414,7 +423,7 @@ class TestTrellisExportPath:
 
         export_to_calendar(sample_plan.id, sample_user.id)
         ev = _get_events(sample_user.id)[0]
-        assert ev.export_key == f"{item.id}_trellis_{sample_trellis.id}_2026-05-01_0"
+        assert ev.export_key == f"{sample_user.id}_{item.id}_trellis_{sample_trellis.id}_2026-05-01_0"
 
 
 # ===================================================================
@@ -625,9 +634,10 @@ class TestEdgeCases:
         export_to_calendar(sample_plan.id, sample_user.id)
         events = _get_events(sample_user.id)
 
-        assert events[0].direct_seed_date == datetime(2026, 6, 1)
-        assert events[1].direct_seed_date == datetime(2026, 6, 22)
-        assert events[2].direct_seed_date == datetime(2026, 7, 13)
+        # tomato-1 is transplant, so dates are on transplant_date
+        assert _planting_date(events[0]) == datetime(2026, 6, 1)
+        assert _planting_date(events[1]) == datetime(2026, 6, 22)
+        assert _planting_date(events[2]) == datetime(2026, 7, 13)
 
     def test_variety_field_propagated(self, db_session, sample_user, sample_plan):
         """Variety from plan item is propagated to PlantingEvent."""

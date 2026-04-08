@@ -15,6 +15,7 @@ interface SeasonData {
   confidence: 'high' | 'medium' | 'low';
   message: string;
   notes: string;
+  no_tappable_trees?: boolean;
 }
 
 const MapleTappingSeasonCard: React.FC = () => {
@@ -29,7 +30,9 @@ const MapleTappingSeasonCard: React.FC = () => {
   const fetchSeasonData = async () => {
     try {
       setLoading(true);
-      const response = await apiGet('/api/maple-tapping/season-estimate');
+      const zipCode = localStorage.getItem('weatherZipCode') || '53209';
+      const params = `?zipcode=${encodeURIComponent(zipCode)}`;
+      const response = await apiGet(`/api/maple-tapping/season-estimate${params}`);
 
       if (!response.ok) {
         throw new Error('Failed to fetch tapping season data');
@@ -53,7 +56,10 @@ const MapleTappingSeasonCard: React.FC = () => {
     return null; // Don't show card if there's an error
   }
 
-  // Don't show if we're not in the season window at all
+  // Don't show if user has no tappable trees or we're not in season window
+  if (seasonData.no_tappable_trees) {
+    return null;
+  }
   if (!seasonData.in_season_window && seasonData.forecast_days.length === 0) {
     return null;
   }

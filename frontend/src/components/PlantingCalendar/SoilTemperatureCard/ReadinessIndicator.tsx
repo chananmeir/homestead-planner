@@ -12,6 +12,7 @@ interface ReadinessIndicatorProps {
   cropReadinessTransplant?: CropReadinessForecastMap;
   plantingEvents: PlantingCalendar[];
   directSowOnly?: DirectSowOnlyMap;
+  frostDataUnavailable?: boolean;
 }
 
 const statusDotColor = (status: string) => {
@@ -121,7 +122,7 @@ const CropCard: React.FC<CropCardProps> = ({ name, minTemp, status, windowDays, 
                 <div key={i} className="flex flex-col items-center group relative">
                   <div
                     className={`w-4 h-4 rounded-sm ${statusDotColor(day.status)} cursor-default`}
-                    title={`${dateLabel}: ${day.soilTemp.toFixed(1)}°F (${statusLabel(day.status)})`}
+                    title={`${dateLabel}: ${day.soilTemp != null ? day.soilTemp.toFixed(1) : '?'}°F (${statusLabel(day.status)})`}
                   />
                   <span className="text-[9px] text-gray-400 mt-0.5 leading-none">
                     {i === 0 ? 'Today' : i < 7 ? `D${i + 1}` : ''}
@@ -248,6 +249,7 @@ const ReadinessIndicator: React.FC<ReadinessIndicatorProps> = ({
   cropReadinessTransplant,
   plantingEvents,
   directSowOnly,
+  frostDataUnavailable,
 }) => {
   const [mode, setMode] = useState<PlantingMode>('seed');
 
@@ -321,6 +323,12 @@ const ReadinessIndicator: React.FC<ReadinessIndicatorProps> = ({
           }
           {' '}Hover over squares for daily details.
         </p>
+      )}
+
+      {frostDataUnavailable && (
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+          &#x26A0; Frost risk data unavailable — weather forecast could not be loaded. Readiness is based on soil temperature only. Check the Weather tab for frost alerts before transplanting.
+        </div>
       )}
 
       {hasNoData && (

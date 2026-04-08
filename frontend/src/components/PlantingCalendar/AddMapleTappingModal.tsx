@@ -84,12 +84,34 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isLoadingTrees, setIsLoadingTrees] = useState(false);
 
-  // Fetch maple trees on mount
+  // Season conditions
+  const [seasonInfo, setSeasonInfo] = useState<{
+    in_season: boolean;
+    message: string;
+    forecast_days: { date: string; max_temp: number; min_temp: number; ideal: boolean }[];
+    no_tappable_trees?: boolean;
+  } | null>(null);
+
+  // Fetch maple trees and season data on mount
   useEffect(() => {
     if (isOpen) {
       fetchMapleTrees();
+      fetchSeasonConditions();
     }
   }, [isOpen]);
+
+  const fetchSeasonConditions = async () => {
+    try {
+      const zipCode = localStorage.getItem('weatherZipCode') || '53209';
+      const response = await apiGet(`/api/maple-tapping/season-estimate?zipcode=${encodeURIComponent(zipCode)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setSeasonInfo(data);
+      }
+    } catch {
+      // Non-critical — just don't show the banner
+    }
+  };
 
   const fetchMapleTrees = async () => {
     setIsLoadingTrees(true);
@@ -241,6 +263,41 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="🍁 Track Maple Tapping">
       <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+        {/* Season Conditions Banner */}
+        {seasonInfo && (
+          <div className={`rounded-lg p-3 border ${
+            seasonInfo.in_season
+              ? 'bg-green-50 border-green-300'
+              : seasonInfo.forecast_days?.some(d => d.ideal)
+                ? 'bg-yellow-50 border-yellow-300'
+                : 'bg-red-50 border-red-300'
+          }`}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">
+                {seasonInfo.in_season ? '🟢' : seasonInfo.forecast_days?.some(d => d.ideal) ? '🟡' : '🔴'}
+              </span>
+              <span className={`font-semibold text-sm ${
+                seasonInfo.in_season ? 'text-green-800' : seasonInfo.forecast_days?.some(d => d.ideal) ? 'text-yellow-800' : 'text-red-800'
+              }`}>
+                {seasonInfo.in_season ? 'Good Tapping Conditions!' : seasonInfo.forecast_days?.some(d => d.ideal) ? 'Tapping Conditions Coming Soon' : 'Not Ideal for Tapping'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-700 ml-7">{seasonInfo.message}</p>
+            {seasonInfo.forecast_days && seasonInfo.forecast_days.length > 0 && (
+              <div className="mt-2 ml-7 flex gap-1 flex-wrap">
+                {seasonInfo.forecast_days.slice(0, 7).map((day, i) => (
+                  <div key={i} className={`text-xs px-2 py-1 rounded ${
+                    day.ideal ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    <div className="font-medium">{new Date(day.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                    <div>{Math.round(day.min_temp)}°/{Math.round(day.max_temp)}°F</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Maple Tree Selection */}
         <div>
           <label htmlFor="maplTree" className="block text-sm font-medium text-gray-700 mb-1">

@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { WeatherAlert, WeatherData } from '../types';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../contexts/AuthContext';
 
 const WeatherAlerts: React.FC = () => {
+  const { user } = useAuth();
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [forecast, setForecast] = useState<WeatherData[]>([]);
   const [zipCode, setZipCode] = useState(() => {
@@ -50,6 +52,7 @@ const WeatherAlerts: React.FC = () => {
       const forecastData = await forecastResponse.json();
 
       // Convert forecast data to WeatherData format
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const formattedForecast: WeatherData[] = forecastData.forecast.map((day: any) => ({
         date: new Date(day.date),
         highTemp: day.highTemp,
@@ -187,7 +190,12 @@ const WeatherAlerts: React.FC = () => {
                     onClick={() => {
                       if (zipCode) {
                         localStorage.setItem('weatherZipCode', zipCode);
-                        // City will be set when weather data loads
+                        // Also persist per-user so it survives logout/login cycles
+                        if (user) {
+                          localStorage.setItem(`weatherZipCode__user_${user.id}`, zipCode);
+                        }
+                        // Notify same-tab listeners (StorageEvent only fires cross-tab)
+                        window.dispatchEvent(new CustomEvent('weatherZipCodeChanged', { detail: zipCode }));
                       }
                       setShowSettings(false);
                     }}

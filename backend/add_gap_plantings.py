@@ -1,12 +1,17 @@
 """
-Add ~30 new GardenPlanItem records to fill gaps in Plan 44.
+Add gap-filling GardenPlanItem records to Plan 44.
 
-Fills unused bed capacity with unplanted seed-inventory varieties:
+Round 1 (~32 items): Fills unused bed capacity with unplanted seed-inventory varieties:
   - SFG Beds 37-40: fall greens (Jul-Aug plantings)
   - MIG Bed 1 (41): warm-season crops + sunflowers
   - MIG Bed 2 (42): melons, cucumbers, herbs
   - Raised Bed (44): watermelons, celery, perennials
   - Permaculture (43): fall crops + long-season herbs
+
+Round 2 (~38 items): Summer warm-season + fall cool-season crops for underused beds:
+  - MIG Bed 1 (41): beans, pumpkins, squash, cucumber + fall greens
+  - MIG Bed 2 (42): corn, squash, pumpkin + fall greens
+  - Raised Bed (44): corn, squash, herbs, chia + fall greens
 
 Idempotent: skips items whose (plant_id, variety, bed_id) already exists in plan 44.
 
@@ -73,6 +78,60 @@ ITEMS = [
     ('shungiku-1',   'Small Leaf Shungiku',  60,  43, date(2026, 8, 15), 66, 2, 21),
     ('mullein-1',    'Common Mullein',       12,  43, date(2026, 4, 15), 49, 1, None),
     ('caraway-1',    'Caraway',              25,  43, date(2026, 8, 1),  20, 1, None),
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Round 2 — Fill MIG Beds 1 & 2 + Raised Bed (summer + fall crops)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── MIG Bed 1 (41) — Summer warm-season ────────────────────────────────
+    ('bean-1',       'Contender',            40,  41, date(2026, 6, 1),  12, 1, None),
+    ('pumpkin-1',    'Cinderella',            6,  41, date(2026, 6, 1),  60, 1, None),
+    ('squash-1',     'Spaghetti Squash',      4,  41, date(2026, 6, 1),  71, 1, None),
+    ('cucumber-1',   'Painted Serpent',       10,  41, date(2026, 6, 1),  29, 1, None),
+
+    # ── MIG Bed 1 (41) — Fall cool-season ─────────────────────────────────
+    ('radish-1',     'Cherry Belle',         80,  41, date(2026, 8, 1),  63, 1, None),
+    ('kale-1',       'Bare Necessities',     20,  41, date(2026, 8, 1),  34, 1, None),
+    ('collard-greens-1', 'Vates',            20,  41, date(2026, 8, 1),  26, 1, None),
+    ('mustard-1',    'Tokyo Bekana',         40,  41, date(2026, 8, 15), 50, 1, None),
+    ('lettuce-1',    'Red Sails',            30,  41, date(2026, 8, 15), 39, 1, None),
+    ('bok-choy-1',   'Choko',               30,  41, date(2026, 8, 15), 15, 1, None),
+    ('carrot-1',     'Royal Chantenay',      40,  41, date(2026, 8, 1),  21, 1, None),
+    ('beet-1',       'Formanova',            30,  41, date(2026, 8, 1),  13, 1, None),
+
+    # ── MIG Bed 2 (42) — Summer warm-season ────────────────────────────────
+    ('corn-1',       "Stowell's Evergreen",  40,  42, date(2026, 5, 20), 28, 1, None),
+    ('corn-1',       'Dakota Black Popcorn', 30,  42, date(2026, 5, 20), 27, 1, None),
+    ('squash-1',     'Green Stripe Cushaw',   4,  42, date(2026, 6, 1),  72, 1, None),
+    ('pumpkin-1',    'Cinderella',            4,  42, date(2026, 6, 1),  60, 1, None),
+
+    # ── MIG Bed 2 (42) — Fall cool-season ─────────────────────────────────
+    ('radish-1',     'Cherry Belle',         80,  42, date(2026, 8, 1),  63, 1, None),
+    ('kale-1',       'Red Ursa',             20,  42, date(2026, 8, 1),  35, 1, None),
+    ('chard-1',      'Fordhook Giant',       20,  42, date(2026, 8, 1),  74, 1, None),
+    ('broccoli-1',   'De Cicco',             15,  42, date(2026, 8, 1),  16, 1, None),
+    ('cabbage-1',    'Danish Ballhead',      15,  42, date(2026, 8, 1),  19, 1, None),
+    ('spinach-1',    'Bloomsdale',           50,  42, date(2026, 8, 15), 68, 1, None),
+    ('spinach-1',    'Viroflay',             50,  42, date(2026, 8, 15), 69, 1, None),
+    ('lettuce-1',    'Heirloom Bronze Arrowhead', 30, 42, date(2026, 8, 15), 37, 1, None),
+
+    # ── Raised Bed (44) — Summer warm-season ───────────────────────────────
+    ('corn-1',       "Stowell's Evergreen",  30,  44, date(2026, 5, 20), 28, 1, None),
+    ('squash-1',     'Spaghetti Squash',      4,  44, date(2026, 6, 1),  71, 1, None),
+    ('pea-1',        'Super Sugar Snap',     40,  44, date(2026, 8, 15), 55, 1, None),
+    ('sage-1',       'Common Sage',           6,  44, date(2026, 5, 1),  65, 1, None),
+    ('thyme-1',      'Caraway Thyme',         6,  44, date(2026, 5, 1),  75, 1, None),
+    ('chia-1',       'White Chia',           30,  44, date(2026, 5, 15), 24, 1, None),
+
+    # ── Raised Bed (44) — Fall cool-season ─────────────────────────────────
+    ('radish-1',     'Cherry Belle',         80,  44, date(2026, 8, 1),  63, 1, None),
+    ('kale-1',       'Bare Necessities',     20,  44, date(2026, 8, 1),  34, 1, None),
+    ('collard-greens-1', 'Vates',            20,  44, date(2026, 8, 1),  26, 1, None),
+    ('broccoli-1',   'Calabrese',            15,  44, date(2026, 8, 1),  17, 1, None),
+    ('chard-1',      'Fordhook Giant',       20,  44, date(2026, 8, 1),  74, 1, None),
+    ('cabbage-1',    'Danish Ballhead',      15,  44, date(2026, 8, 1),  19, 1, None),
+    ('beet-1',       'Zwaan Sugar Beet',     30,  44, date(2026, 8, 1),  14, 1, None),
+    ('carrot-1',     'Royal Chantenay',      40,  44, date(2026, 8, 1),  21, 1, None),
 ]
 
 

@@ -60,7 +60,7 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
       const data = await response.json();
       // Filter to only seeds for this plant (API returns { seeds: [], pagination: {} })
       const seeds = Array.isArray(data) ? data : (data.seeds || []);
-      const filtered = seeds.filter((seed: any) => seed.plantId === plantId);
+      const filtered = seeds.filter((seed: { plantId?: string }) => seed.plantId === plantId);
       setCatalogSeeds(filtered);
     } catch (error) {
       console.error('Error fetching catalog seeds:', error);
@@ -114,11 +114,11 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
       newErrors.quantity = 'Quantity must be greater than 0';
     }
 
-    if (formData.germinationRate && (Number(formData.germinationRate) < 0 || Number(formData.germinationRate) > 100)) {
+    if (formData.germinationRate !== '' && (Number(formData.germinationRate) < 0 || Number(formData.germinationRate) > 100)) {
       newErrors.germinationRate = 'Germination rate must be between 0 and 100';
     }
 
-    if (formData.price && Number(formData.price) < 0) {
+    if (formData.price !== '' && Number(formData.price) < 0) {
       newErrors.price = 'Price cannot be negative';
     }
 
@@ -133,7 +133,7 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
     try {
       // If using catalog selection, use the from-catalog endpoint
       if (selectedCatalogSeedId && !useCustomVariety) {
-        const payload: any = {
+        const payload: Record<string, unknown> = {
           catalogSeedId: parseInt(selectedCatalogSeedId),
           quantity: formData.quantity,
         };
@@ -159,7 +159,7 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
         }
       } else {
         // Custom variety - use regular endpoint
-        const payload: any = {
+        const payload: Record<string, unknown> = {
           plantId: formData.plantId,
           variety: formData.variety,
           quantity: formData.quantity,
@@ -168,9 +168,9 @@ export const AddSeedModal: React.FC<AddSeedModalProps> = ({ isOpen, onClose, onS
         if (formData.brand) payload.brand = formData.brand;
         if (formData.purchaseDate) payload.purchaseDate = formData.purchaseDate;
         if (formData.expirationDate) payload.expirationDate = formData.expirationDate;
-        if (formData.germinationRate) payload.germinationRate = Number(formData.germinationRate);
+        if (formData.germinationRate !== '') payload.germinationRate = Number(formData.germinationRate);
         if (formData.location) payload.location = formData.location;
-        if (formData.price) payload.price = Number(formData.price);
+        if (formData.price !== '') payload.price = Number(formData.price);
         if (formData.notes) payload.notes = formData.notes;
 
         const response = await fetch(`${API_BASE_URL}/api/seeds`, {

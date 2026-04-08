@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
 import GardenPlanner from './components/GardenPlanner';
-import PlantingCalendar from './components/PlantingCalendar';
-import ErrorBoundary from './components/PlantingCalendar/ErrorBoundary';
+import GrowingHub from './components/GrowingHub';
 import WeatherAlerts from './components/WeatherAlerts';
 import CompostTracker from './components/CompostTracker';
 import GardenDesigner from './components/GardenDesigner';
@@ -10,18 +9,18 @@ import PropertyDesigner from './components/PropertyDesigner';
 import Livestock from './components/Livestock';
 import HarvestTracker from './components/HarvestTracker';
 import PhotoGallery from './components/PhotoGallery';
-import IndoorSeedStarts from './components/IndoorSeedStarts';
-import MySeedInventory from './components/MySeedInventory';
-import SeedCatalog from './components/SeedCatalog';
+import SeedsHub from './components/SeedsHub';
 import NutritionalDashboard from './components/NutritionalDashboard';
-import { ToastProvider } from './components/common';
+import AdminUserManagement from './components/AdminUserManagement';
+import { ToastProvider, ErrorBoundary } from './components/common';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ActivePlanProvider } from './contexts/ActivePlanContext';
 import { LoginModal } from './components/Auth/LoginModal';
 import { RegisterModal } from './components/Auth/RegisterModal';
 import { LoginRequiredMessage } from './components/Auth/LoginRequiredMessage';
+import { API_BASE_URL } from './config';
 
-type Tab = 'garden' | 'designer' | 'property' | 'livestock' | 'calendar' | 'weather' | 'compost' | 'harvests' | 'photos' | 'indoorstarts' | 'seeds' | 'seedcatalog' | 'nutrition';
+type Tab = 'garden' | 'designer' | 'property' | 'livestock' | 'growing' | 'weather' | 'compost' | 'harvests' | 'photos' | 'seeds' | 'nutrition' | 'admin';
 
 // Inner component that uses auth context
 function AppContent() {
@@ -29,21 +28,95 @@ function AppContent() {
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('garden');
+  const [locationInfo, setLocationInfo] = useState<{ zipCode: string; zone: string; city: string } | null>(null);
+  const [designerBedId, setDesignerBedId] = useState<number | null>(null);
+  const [designerDate, setDesignerDate] = useState<string | null>(null);
+  const [transplantSeedStartId, setTransplantSeedStartId] = useState<number | null>(null);
+  const [plantingEventId, setPlantingEventId] = useState<number | null>(null);
+
+  // Load zip code and growing zone for header display — re-runs on user change
+  useEffect(() => {
+    if (!user) {
+      setLocationInfo(null);
+      return;
+    }
+
+    const zipCode = localStorage.getItem('weatherZipCode');
+    if (!zipCode) {
+      setLocationInfo(null);
+      return;
+    }
+
+    const fetchZone = async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/weather/current?zipcode=${zipCode}`,
+          { credentials: 'include' }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setLocationInfo({
+            zipCode,
+            zone: data.location?.zone || '',
+            city: data.location?.city || '',
+          });
+        }
+      } catch {
+        // Still show zip even if zone fetch fails
+        setLocationInfo({ zipCode, zone: '', city: '' });
+      }
+    };
+
+    fetchZone();
+
+    // Listen for localStorage changes (cross-tab via StorageEvent)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'weatherZipCode' && e.newValue) {
+        setLocationInfo(prev => prev ? { ...prev, zipCode: e.newValue! } : null);
+      }
+    };
+    // Listen for same-tab zip changes (StorageEvent doesn't fire in the originating tab)
+    const handleZipChanged = async (e: Event) => {
+      const newZip = (e as CustomEvent).detail;
+      if (newZip) {
+        setLocationInfo({ zipCode: newZip, zone: '', city: '' });
+        try {
+          const resp = await fetch(
+            `${API_BASE_URL}/api/weather/current?zipcode=${newZip}`,
+            { credentials: 'include' }
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            setLocationInfo({
+              zipCode: newZip,
+              zone: data.location?.zone || '',
+              city: data.location?.city || '',
+            });
+          }
+        } catch { /* zip already shown */ }
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('weatherZipCodeChanged', handleZipChanged);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('weatherZipCodeChanged', handleZipChanged);
+    };
+  }, [user]);
 
   const tabs = [
     { id: 'garden' as Tab, name: 'Garden Planner', icon: '🌱' },
     { id: 'designer' as Tab, name: 'Garden Designer', icon: '🎨' },
     { id: 'property' as Tab, name: 'Property Designer', icon: '🗺️' },
-    { id: 'indoorstarts' as Tab, name: 'Indoor Starts', icon: '🌿' },
-    { id: 'seeds' as Tab, name: 'My Seeds', icon: '🌾' },
-    { id: 'seedcatalog' as Tab, name: 'Seed Catalog', icon: '📖' },
+    { id: 'seeds' as Tab, name: 'Seeds', icon: '🌾' },
     { id: 'livestock' as Tab, name: 'Livestock', icon: '🐔' },
-    { id: 'calendar' as Tab, name: 'Planting Calendar', icon: '📅' },
+    { id: 'growing' as Tab, name: 'Growing', icon: '🌿' },
     { id: 'weather' as Tab, name: 'Weather', icon: '🌤️' },
     { id: 'nutrition' as Tab, name: 'Nutrition', icon: '🥗' },
     { id: 'compost' as Tab, name: 'Compost', icon: '♻️' },
     { id: 'harvests' as Tab, name: 'Harvests', icon: '🧺' },
     { id: 'photos' as Tab, name: 'Photos', icon: '📷' },
+    ...(user?.isAdmin ? [{ id: 'admin' as Tab, name: 'Admin', icon: '⚙️' }] : []),
   ];
 
   if (loading) {
@@ -69,7 +142,16 @@ function AppContent() {
           <div className="flex items-center gap-4">
             {isAuthenticated ? (
               <>
-                <span className="text-green-100">Welcome, {user?.username}</span>
+                <div className="text-right">
+                  <span className="text-green-100">Welcome, {user?.username}</span>
+                  {locationInfo && (
+                    <p className="text-green-200 text-xs">
+                      {locationInfo.city && `${locationInfo.city} · `}
+                      {locationInfo.zipCode}
+                      {locationInfo.zone && ` · Zone ${locationInfo.zone}`}
+                    </p>
+                  )}
+                </div>
                 <button
                   onClick={logout}
                   className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors"
@@ -104,7 +186,15 @@ function AppContent() {
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  // Clear designer navigation intent when manually switching tabs
+                  if (tab.id !== 'designer') {
+                    setDesignerBedId(null);
+                    setDesignerDate(null);
+                    setTransplantSeedStartId(null);
+                  }
+                }}
                 className={`px-6 py-4 font-medium transition-colors border-b-2 ${
                   activeTab === tab.id
                     ? 'border-green-600 text-green-700 bg-green-50'
@@ -126,22 +216,23 @@ function AppContent() {
         ) : (
           <>
             {activeTab === 'garden' && <GardenPlanner />}
-            {activeTab === 'designer' && <GardenDesigner />}
+            {activeTab === 'designer' && <GardenDesigner initialBedId={designerBedId} initialDate={designerDate} transplantSeedStartId={transplantSeedStartId} onTransplantComplete={() => setTransplantSeedStartId(null)} plantingEventId={plantingEventId} onPlantingComplete={() => setPlantingEventId(null)} />}
             {activeTab === 'property' && <PropertyDesigner />}
-            {activeTab === 'indoorstarts' && <IndoorSeedStarts />}
-            {activeTab === 'seeds' && <MySeedInventory />}
-            {activeTab === 'seedcatalog' && <SeedCatalog />}
+            {activeTab === 'seeds' && <SeedsHub />}
             {activeTab === 'livestock' && <Livestock />}
-            {activeTab === 'calendar' && (
-              <ErrorBoundary>
-                <PlantingCalendar />
-              </ErrorBoundary>
-            )}
+            {activeTab === 'growing' && <GrowingHub onNavigateToBed={(bedId, date, seedStartId, eventId) => {
+              setDesignerBedId(bedId);
+              setDesignerDate(date || null);
+              setTransplantSeedStartId(seedStartId || null);
+              setPlantingEventId(eventId || null);
+              setActiveTab('designer');
+            }} />}
             {activeTab === 'weather' && <WeatherAlerts />}
             {activeTab === 'nutrition' && <NutritionalDashboard />}
             {activeTab === 'compost' && <CompostTracker />}
             {activeTab === 'harvests' && <HarvestTracker />}
             {activeTab === 'photos' && <PhotoGallery />}
+            {activeTab === 'admin' && user?.isAdmin && <AdminUserManagement />}
           </>
         )}
       </main>
@@ -180,13 +271,15 @@ function AppContent() {
 // Main App component wraps everything with providers
 function App() {
   return (
-    <AuthProvider>
-      <ToastProvider>
-        <ActivePlanProvider>
-          <AppContent />
-        </ActivePlanProvider>
-      </ToastProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <ToastProvider>
+          <ActivePlanProvider>
+            <AppContent />
+          </ActivePlanProvider>
+        </ToastProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

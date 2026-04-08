@@ -662,6 +662,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
 
     events_created = 0
     events_updated = 0
+    trellis_warnings = []
 
     for item in plan.items:
         if not item.first_plant_date:
@@ -711,6 +712,10 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                 trellis_ids = []
 
         plant = get_plant_by_id(item.plant_id)
+
+        # Determine if this is a transplant crop (needs indoor start)
+        weeks_indoors = plant.get('weeksIndoors', 0) if plant else 0
+        is_transplant = weeks_indoors > 0
 
         # Compute days-to-maturity for expected_harvest_date
         dtm = None
@@ -762,7 +767,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     else:
                         plant_date = item.first_plant_date + timedelta(days=i * interval_days)
 
-                    export_key = f"{item.id}_trellis_{trellis_id}_{plant_date.isoformat()}_{i}"
+                    export_key = f"{user_id}_{item.id}_trellis_{trellis_id}_{plant_date.isoformat()}_{i}"
                     qty_this_succession = base_per_succession + (1 if i < remainder_successions else 0)
                     linear_feet = qty_this_succession * linear_ft_per_plant
                     expected_harvest = datetime.combine(plant_date + timedelta(days=dtm), datetime.min.time()) if dtm is not None else None
@@ -780,6 +785,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                             logger.warning(
                                 f"Trellis position out of range for export_key={export_key}: {error_msg}"
                             )
+                            trellis_warnings.append(f"Trellis position out of range for {item.plant_id}: {error_msg}")
                             pos_start = None
                             pos_end = None
 
@@ -787,7 +793,9 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     if pos_end is not None:
                         next_available_position = pos_end
 
-                    existing_event = PlantingEvent.query.filter_by(export_key=export_key).first()
+                    existing_event = PlantingEvent.query.filter_by(export_key=export_key, user_id=user_id).first()
+
+                    plant_date_dt = datetime.combine(plant_date, datetime.min.time())
 
                     if existing_event:
                         existing_event.plant_id = item.plant_id
@@ -798,7 +806,9 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         existing_event.trellis_position_start_inches = pos_start
                         existing_event.trellis_position_end_inches = pos_end
                         existing_event.quantity = qty_this_succession
-                        existing_event.direct_seed_date = datetime.combine(plant_date, datetime.min.time())
+                        existing_event.direct_seed_date = plant_date_dt if not is_transplant else None
+                        existing_event.transplant_date = plant_date_dt if is_transplant else None
+                        existing_event.seed_start_date = datetime.combine(plant_date - timedelta(weeks=weeks_indoors), datetime.min.time()) if is_transplant else None
                         existing_event.expected_harvest_date = expected_harvest
                         existing_event.succession_group_id = succession_group_id
                         existing_event.succession_planting = succession_count > 1
@@ -815,7 +825,9 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                             trellis_position_start_inches=pos_start,
                             trellis_position_end_inches=pos_end,
                             quantity=qty_this_succession,
-                            direct_seed_date=datetime.combine(plant_date, datetime.min.time()),
+                            direct_seed_date=plant_date_dt if not is_transplant else None,
+                            transplant_date=plant_date_dt if is_transplant else None,
+                            seed_start_date=datetime.combine(plant_date - timedelta(weeks=weeks_indoors), datetime.min.time()) if is_transplant else None,
                             expected_harvest_date=expected_harvest,
                             succession_planting=succession_count > 1,
                             succession_interval=interval_days if succession_count > 1 else None,
@@ -849,14 +861,16 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         plant_date = item.first_plant_date + timedelta(days=i * interval_days)
 
                     # Generate export key for idempotency (include bed_id)
-                    export_key = f"{item.id}_{bed_id}_{plant_date.isoformat()}_{i}"
+                    export_key = f"{user_id}_{item.id}_{bed_id}_{plant_date.isoformat()}_{i}"
 
                     # First N successions get +1 to handle remainder (no truncation loss)
                     qty_this_succession = base_per_succession + (1 if i < remainder_successions else 0)
                     expected_harvest = datetime.combine(plant_date + timedelta(days=dtm), datetime.min.time()) if dtm is not None else None
 
+                    plant_date_dt = datetime.combine(plant_date, datetime.min.time())
+
                     # Check if event already exists
-                    existing_event = PlantingEvent.query.filter_by(export_key=export_key).first()
+                    existing_event = PlantingEvent.query.filter_by(export_key=export_key, user_id=user_id).first()
 
                     if existing_event:
                         # Update existing event
@@ -864,7 +878,9 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         existing_event.variety = item.variety
                         existing_event.garden_bed_id = bed_id
                         existing_event.quantity = qty_this_succession
-                        existing_event.direct_seed_date = datetime.combine(plant_date, datetime.min.time())
+                        existing_event.direct_seed_date = plant_date_dt if not is_transplant else None
+                        existing_event.transplant_date = plant_date_dt if is_transplant else None
+                        existing_event.seed_start_date = datetime.combine(plant_date - timedelta(weeks=weeks_indoors), datetime.min.time()) if is_transplant else None
                         existing_event.expected_harvest_date = expected_harvest
                         existing_event.succession_group_id = succession_group_id
                         existing_event.succession_planting = succession_count > 1
@@ -878,7 +894,9 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                             variety=item.variety,
                             garden_bed_id=bed_id,
                             quantity=qty_this_succession,
-                            direct_seed_date=datetime.combine(plant_date, datetime.min.time()),
+                            direct_seed_date=plant_date_dt if not is_transplant else None,
+                            transplant_date=plant_date_dt if is_transplant else None,
+                            seed_start_date=datetime.combine(plant_date - timedelta(weeks=weeks_indoors), datetime.min.time()) if is_transplant else None,
                             expected_harvest_date=expected_harvest,
                             succession_planting=succession_count > 1,
                             succession_interval=interval_days if succession_count > 1 else None,
@@ -902,21 +920,25 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     plant_date = item.first_plant_date + timedelta(days=i * interval_days)
 
                 # Generate export key for idempotency
-                export_key = f"{item.id}_{plant_date.isoformat()}_{i}"
+                export_key = f"{user_id}_{item.id}_{plant_date.isoformat()}_{i}"
 
                 # First N successions get +1 to handle remainder (no truncation loss)
                 qty_this_succession = base_per_succession + (1 if i < remainder_successions else 0)
                 expected_harvest = datetime.combine(plant_date + timedelta(days=dtm), datetime.min.time()) if dtm is not None else None
 
+                plant_date_dt = datetime.combine(plant_date, datetime.min.time())
+
                 # Check if event already exists
-                existing_event = PlantingEvent.query.filter_by(export_key=export_key).first()
+                existing_event = PlantingEvent.query.filter_by(export_key=export_key, user_id=user_id).first()
 
                 if existing_event:
                     # Update existing event
                     existing_event.plant_id = item.plant_id
                     existing_event.variety = item.variety
                     existing_event.quantity = qty_this_succession
-                    existing_event.direct_seed_date = datetime.combine(plant_date, datetime.min.time())
+                    existing_event.direct_seed_date = plant_date_dt if not is_transplant else None
+                    existing_event.transplant_date = plant_date_dt if is_transplant else None
+                    existing_event.seed_start_date = datetime.combine(plant_date - timedelta(weeks=weeks_indoors), datetime.min.time()) if is_transplant else None
                     existing_event.expected_harvest_date = expected_harvest
                     existing_event.succession_group_id = succession_group_id
                     existing_event.succession_planting = succession_count > 1
@@ -929,7 +951,9 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         plant_id=item.plant_id,
                         variety=item.variety,
                         quantity=qty_this_succession,
-                        direct_seed_date=datetime.combine(plant_date, datetime.min.time()),
+                        direct_seed_date=plant_date_dt if not is_transplant else None,
+                        transplant_date=plant_date_dt if is_transplant else None,
+                        seed_start_date=datetime.combine(plant_date - timedelta(weeks=weeks_indoors), datetime.min.time()) if is_transplant else None,
                         expected_harvest_date=expected_harvest,
                         succession_planting=succession_count > 1,
                         succession_interval=interval_days if succession_count > 1 else None,
@@ -944,12 +968,15 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
 
     db.session.commit()
 
-    return {
+    result = {
         'success': True,
         'eventsCreated': events_created,
         'eventsUpdated': events_updated,
         'totalEvents': events_created + events_updated
     }
+    if trellis_warnings:
+        result['trellisWarnings'] = trellis_warnings
+    return result
 
 
 def preview_export_conflicts(plan_id: int, user_id: int) -> Dict:
@@ -1035,7 +1062,7 @@ def preview_export_conflicts(plan_id: int, user_id: int) -> Dict:
                         if isinstance(item.first_plant_date, str) \
                         else item.first_plant_date + timedelta(days=i * interval_days)
                     end_date = plant_date + timedelta(days=dtm)
-                    export_key = f"{item.id}_{bed_id}_{plant_date.isoformat()}_{i}"
+                    export_key = f"{user_id}_{item.id}_{bed_id}_{plant_date.isoformat()}_{i}"
                     prospective.append({
                         'itemId': item.id,
                         'plantId': item.plant_id,

@@ -262,7 +262,6 @@ const GardenPlanner: React.FC = () => {
       const response = await fetch(`${API_BASE_URL}/api/my-seeds`, { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
-        console.log(`[GardenPlanner] Loaded ${data.length} seeds from /api/my-seeds`);
         setSeedInventory(data);
       } else {
         console.error(`[GardenPlanner] Failed to load seeds: ${response.status} ${response.statusText}`);
@@ -292,7 +291,6 @@ const GardenPlanner: React.FC = () => {
       const response = await fetch(`${API_BASE_URL}/api/trellis-structures`, { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
-        console.log(`[GardenPlanner] Loaded ${data.length} trellis structures`);
         setTrellisStructures(data);
       }
     } catch (err) {
@@ -504,10 +502,6 @@ const GardenPlanner: React.FC = () => {
     // Debug logging when enabled
     if (DEBUG_SEASON_PLANNER && compatibleBeds.length === 0) {
       console.group(`[SeasonPlanner] No Compatible Beds Found`);
-      console.log('Seed:', { id: seed.id, plantId: seed.plantId, variety: seed.variety });
-      console.log('Plant:', { name: plant.name, sunRequirement: plant.sunRequirement });
-      console.log('Total beds:', gardenBeds.length);
-      console.log('Bed compatibility analysis:');
       gardenBeds.forEach(bed => {
         const sunCompatibility = checkBedSunCompatibility(seed.plantId, bed);
         console.log(`  - Bed "${bed.name}" (ID: ${bed.id}):`, {
@@ -1140,11 +1134,6 @@ const GardenPlanner: React.FC = () => {
       });
 
       // DEBUG: Log what we're sending
-      console.log('=== SENDING TO BACKEND ===');
-      console.log('Manual Quantities:', manualQuantitiesObj);
-      console.log('Per-Seed Succession:', perSeedSuccessionObj);
-      console.log('Selected Seeds:', seedInventory.filter(s => selectedSeeds.has(s.id)).map(s => ({ id: s.id, plantId: s.plantId, variety: s.variety })));
-      console.log('==========================');
 
       const response = await fetch(`${API_BASE_URL}/api/garden-plans/calculate`, {
         method: 'POST',
@@ -1279,7 +1268,6 @@ const GardenPlanner: React.FC = () => {
 
         // Show success message
         setError(null);
-        console.log(`[GardenPlanner] Successfully ${isEditMode ? 'updated' : 'created'} plan: ${savedPlan.name}`);
       } else {
         const errorData = await response.json().catch(() => ({}));
         setError(`Failed to ${isEditMode ? 'update' : 'save'} plan: ${errorData.error || 'Unknown error'}`);

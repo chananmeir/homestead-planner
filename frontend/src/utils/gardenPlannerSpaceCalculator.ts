@@ -16,6 +16,15 @@ import { getMIGardenerSpacing } from './migardenerSpacing';
 import { getIntensiveSpacing } from './intensiveSpacing';
 import { parseISO, addDays } from 'date-fns';
 
+/** Space breakdown for a single planning method */
+interface MethodBreakdown {
+  cellsNeeded: number;
+  cellsAvailable: number;
+  utilization: number;
+  linearFeet?: number;
+  linearFeetAvailable?: number;
+}
+
 /**
  * Convert succession preference to succession count
  */
@@ -90,7 +99,7 @@ export async function calculateSpaceForQuantities(
   const bedsByMethod = groupBedsByMethod(beds);
 
   // Calculate space needed per method
-  const byMethod: { [method: string]: any } = {};
+  const byMethod: { [method: string]: MethodBreakdown } = {};
 
   // Separate trellis crops from bed-based crops
   let totalTrellisLinearFeet = 0;
@@ -175,11 +184,11 @@ export async function calculateSpaceForQuantities(
   // Calculate overall totals
   const overall = {
     cellsNeeded: Object.values(byMethod)
-      .filter((m: any) => m.cellsNeeded !== undefined)
-      .reduce((sum: number, m: any) => sum + m.cellsNeeded, 0),
+      .filter((m) => m.cellsNeeded !== undefined)
+      .reduce((sum, m) => sum + m.cellsNeeded, 0),
     cellsAvailable: Object.values(byMethod)
-      .filter((m: any) => m.cellsAvailable !== undefined)
-      .reduce((sum: number, m: any) => sum + m.cellsAvailable, 0),
+      .filter((m) => m.cellsAvailable !== undefined)
+      .reduce((sum, m) => sum + m.cellsAvailable, 0),
     utilization: 0, // calculated below
     linearFeetNeeded: totalTrellisLinearFeet > 0 ? totalTrellisLinearFeet : undefined,
     linearFeetAvailable: totalTrellisLinearFeet > 0 ? totalTrellisAvailableFeet : undefined

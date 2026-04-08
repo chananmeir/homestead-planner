@@ -13,13 +13,15 @@ interface GroupedEventsModalProps {
   marker: GroupedDateMarker | null;
   onClose: () => void;
   onEditEvent: (event: PlantingCalendar) => void;
+  onEventUpdated?: () => void;
 }
 
 const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
   isOpen,
   marker,
   onClose,
-  onEditEvent
+  onEditEvent,
+  onEventUpdated
 }) => {
   const [showPartialModal, setShowPartialModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<PlantingCalendar | null>(null);
@@ -47,6 +49,11 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
     return `${completed}/${total} complete${partial > 0 ? `, ${partial} partial` : ''}`;
   };
 
+  const refreshAfterUpdate = () => {
+    if (onEventUpdated) onEventUpdated();
+    onClose();
+  };
+
   // Bulk mark all complete
   const handleBulkMarkComplete = async () => {
     const eventIds = marker.events.map(e => e.id);
@@ -59,12 +66,11 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
       await fetch(`${API_BASE_URL}/api/planting-events/bulk-update`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ eventIds, updates })
       });
 
-      // Refresh events
-      onClose();
-      window.location.reload();
+      refreshAfterUpdate();
     } catch (error) {
       console.error('Error bulk updating events:', error);
     }
@@ -78,16 +84,14 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
       await fetch(`${API_BASE_URL}/api/planting-events/${event.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
-          ...event,
           completed: true,
           quantityCompleted: event.quantity || null
         })
       });
 
-      // Refresh
-      onClose();
-      window.location.reload();
+      refreshAfterUpdate();
     } catch (error) {
       console.error('Error updating event:', error);
     }
@@ -109,16 +113,15 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
       await fetch(`${API_BASE_URL}/api/planting-events/${selectedEvent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
-          ...selectedEvent,
           quantityCompleted: partialQuantity,
           completed: selectedEvent.quantity ? partialQuantity >= selectedEvent.quantity : false
         })
       });
 
       setShowPartialModal(false);
-      onClose();
-      window.location.reload();
+      refreshAfterUpdate();
     } catch (error) {
       console.error('Error saving partial completion:', error);
     }

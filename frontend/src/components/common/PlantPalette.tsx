@@ -46,6 +46,7 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
   const [plantingMethod, setPlantingMethod] = useState<'seed' | 'transplant'>('seed');
   const [daysToHarvestFilter, setDaysToHarvestFilter] = useState<number | null>(null);
   const [showDaysToHarvestFilter, setShowDaysToHarvestFilter] = useState(false);
+  const [showPlantableOnly, setShowPlantableOnly] = useState(false);
 
   // Collapsible section state - Load from localStorage or default to true
   const [isSearchExpanded, setIsSearchExpanded] = useState(() => {
@@ -116,6 +117,20 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
     // Sort alphabetically by crop name
     return representatives.sort((a, b) => a.name.localeCompare(b.name));
   }, [filteredPlants]);
+
+  // Apply "Plantable Now" filter on top of deduplicated plants
+  const displayedPlants = useMemo(() => {
+    if (!showPlantableOnly) return deduplicatedPlants;
+    return deduplicatedPlants.filter(plant => {
+      const status = validationStatus[plant.id];
+      if (!status) return false; // No validation data yet — hide
+      const methodValidation = plantingMethod === 'seed' ? status.seed : status.transplant;
+      if (!methodValidation) return false;
+      // Show only plants with no warnings (green checkmark)
+      const hasWarnings = methodValidation.warnings.some(w => w.severity === 'warning');
+      return methodValidation.valid && !hasWarnings;
+    });
+  }, [deduplicatedPlants, showPlantableOnly, validationStatus, plantingMethod]);
 
   // Batch validate plants when date changes
   useEffect(() => {
@@ -502,15 +517,36 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
         )}
       </div>
 
+      {/* Plantable Now Filter */}
+      <div className="px-4 py-2 border-b border-gray-200 bg-green-50">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showPlantableOnly}
+            onChange={(e) => setShowPlantableOnly(e.target.checked)}
+            disabled={!plantingDate || Object.keys(validationStatus).length === 0}
+            className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 disabled:opacity-50"
+          />
+          <span className="text-sm font-medium text-gray-700">
+            Plantable Now Only
+            {showPlantableOnly && displayedPlants.length !== deduplicatedPlants.length && (
+              <span className="text-xs text-gray-500 ml-1">
+                ({displayedPlants.length}/{deduplicatedPlants.length})
+              </span>
+            )}
+          </span>
+        </label>
+      </div>
+
       {/* Plant List */}
       <div className="flex-1 overflow-y-auto p-2">
-        {deduplicatedPlants.length === 0 ? (
+        {displayedPlants.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            <p className="text-sm">No plants found</p>
+            <p className="text-sm">{showPlantableOnly ? 'No plants with good conditions' : 'No plants found'}</p>
           </div>
         ) : (
           <div className="space-y-1">
-            {deduplicatedPlants.map(plant => (
+            {displayedPlants.map(plant => (
               <DraggablePlantItem
                 key={plant.id}
                 plant={plant}

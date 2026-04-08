@@ -119,7 +119,7 @@ export const AnimalFormModal: React.FC<AnimalFormModalProps> = ({
   };
 
   const buildPayload = () => {
-    const payload: any = { name: formData.name };
+    const payload: Record<string, unknown> = { name: formData.name };
 
     if (category === 'bees') {
       // Beehive specific fields
@@ -132,7 +132,7 @@ export const AnimalFormModal: React.FC<AnimalFormModalProps> = ({
       if (formData.notes) payload.notes = formData.notes;
     } else if (category === 'other') {
       // Other livestock fields
-      if (formData.animalType) payload.animalType = formData.animalType;
+      if (formData.animalType) payload.species = formData.animalType;
       if (formData.breed) payload.breed = formData.breed;
       if (formData.quantity) payload.quantity = formData.quantity;
       if (formData.notes) payload.notes = formData.notes;

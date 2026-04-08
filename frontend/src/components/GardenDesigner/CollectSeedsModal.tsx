@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from '../common/Modal';
-import { PlantedItem, Plant } from '../../types';
+import { PlantedItem, Plant, SeedInventoryItem } from '../../types';
 import { apiPost } from '../../utils/api';
 
 interface CollectSeedsModalProps {
@@ -8,7 +8,7 @@ interface CollectSeedsModalProps {
   onClose: () => void;
   plantedItem: PlantedItem;
   plant: Plant | undefined;
-  onSuccess: (result: { plantedItem: PlantedItem; seedInventory: any }) => void;
+  onSuccess: (result: { plantedItem: PlantedItem; seedInventory: SeedInventoryItem }) => void;
 }
 
 const CollectSeedsModal: React.FC<CollectSeedsModalProps> = ({
@@ -46,8 +46,8 @@ const CollectSeedsModal: React.FC<CollectSeedsModalProps> = ({
       const result = await response.json();
       onSuccess(result);
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to collect seeds');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to collect seeds');
     } finally {
       setSubmitting(false);
     }

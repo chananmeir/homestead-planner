@@ -35,9 +35,9 @@ USERNAME_REGEX = re.compile(r'^[a-zA-Z0-9_-]{3,30}$')
 BLUEPRINT_PREFIX = os.environ.get('BLUEPRINT_PREFIX', '')  # PRODUCTION: Blueprints handle real URLs
 MIN_PASSWORD_LENGTH = 8
 
-# Default coordinates for soil temperature (New York City)
-DEFAULT_LATITUDE = 40.7128
-DEFAULT_LONGITUDE = -74.0060
+# Default coordinates for soil temperature (Milwaukee, WI - 53209)
+DEFAULT_LATITUDE = 43.1361
+DEFAULT_LONGITUDE = -87.9456
 
 def get_mulch_type_on_date(garden_bed_id, user_id, query_date):
     """

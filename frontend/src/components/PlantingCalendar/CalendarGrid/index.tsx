@@ -17,11 +17,13 @@ import { createDateMarkers, groupMarkersByDate } from './utils';
 interface CalendarGridProps {
   currentDate: Date;
   events: PlantingCalendar[];
+  coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
   onDateClick?: (date: Date) => void;
   onEventClick?: (event: PlantingCalendar) => void;
+  onEventUpdated?: () => void;
 }
 
-const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, onDateClick, onEventClick }) => {
+const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, coldWarnings, onDateClick, onEventClick, onEventUpdated }) => {
   // Calculate the days to display in the calendar grid
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
@@ -76,8 +78,10 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, onDate
               isCurrentMonth={isCurrentMonth}
               isToday={isTodayDate}
               markers={dayMarkers}
+              coldWarnings={coldWarnings}
               onClick={() => handleDayClick(day)}
               onEventClick={onEventClick}
+              onEventUpdated={onEventUpdated}
             />
           );
         })}

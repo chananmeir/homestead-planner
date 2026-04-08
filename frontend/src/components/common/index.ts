@@ -10,3 +10,4 @@ export type { FilterOption, FilterGroup, ActiveFilter } from './FilterBar';
 export { DateRangePicker } from './DateRangePicker';
 export type { DateRange } from './DateRangePicker';
 export * from './forms';
+export { default as ErrorBoundary } from './ErrorBoundary';

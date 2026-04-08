@@ -74,8 +74,8 @@ export function getMethodDefaultStyle(planningMethod: string): PlantingStyle {
  * 4. Method default (hardcoded mapping)
  */
 export function getEffectivePlantingStyle(
-  plant: any,
-  bed: any | null,
+  plant: { migardener?: { plantingStyle?: string } } | null | undefined,
+  bed: { planningMethod?: string; defaultPlantingStyle?: string } | null | undefined,
   userOverride?: PlantingStyle
 ): PlantingStyle {
   // Priority 1: User override

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { List, Calendar, Menu, Clock, PlusCircle, MapPin } from 'lucide-react';
+import { format } from 'date-fns';
 import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../types';
 import { apiGet, apiPost } from '../../utils/api';
 import { PLANT_DATABASE } from '../../data/plantDatabase';
@@ -11,12 +12,17 @@ import AddCropModal from './AddCropModal';
 import AddGardenEventModal from './AddGardenEventModal';
 import AddMapleTappingModal from './AddMapleTappingModal';
 import SoilTemperatureCard from './SoilTemperatureCard';
+import { SoilTempResponse } from './SoilTemperatureCard/types';
 import MapleTappingSeasonCard from './MapleTappingSeasonCard';
 import TimelineView from './TimelineView';
 import EventDetailModal from './CalendarGrid/EventDetailModal';
 import DayDetailModal from './CalendarGrid/DayDetailModal';
 
-const PlantingCalendar: React.FC = () => {
+interface PlantingCalendarProps {
+  onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number, plantingEventId?: number) => void;
+}
+
+const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) => {
   const [viewMode, setViewMode] = useState<'list' | 'grid' | 'timeline'>('list');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   // Shared state for both views - lifted up from ListView
@@ -47,6 +53,9 @@ const PlantingCalendar: React.FC = () => {
 
   // Available Spaces state (for Timeline view)
   const [showAvailableSpaces, setShowAvailableSpaces] = useState(false);
+
+  // Bed filter state
+  const [selectedBedId, setSelectedBedId] = useState<number | 'all'>('all');
 
   // Frost dates - fetched from API
   const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date('2024-04-15'));
@@ -170,6 +179,124 @@ const PlantingCalendar: React.FC = () => {
     fetchFrostDates();
   }, []);
 
+  // Soil temp forecast for cold warnings on calendar events
+  const [soilTempForecast, setSoilTempForecast] = useState<Record<string, number>>({});
+  // Multi-depth forecast: date -> {depthCm -> temp}
+  const [soilTempForecastByDepth, setSoilTempForecastByDepth] = useState<Record<string, Record<number, number>>>({});
+  const [plantSoilTemps, setPlantSoilTemps] = useState<Record<string, { soilTempMin: number; transplantSoilTempMin: number | null }>>({});
+
+  // Receive soil temp data from SoilTemperatureCard instead of fetching independently
+  const handleSoilDataLoaded = useCallback((data: SoilTempResponse) => {
+    // Build date -> soil temp map from forecast (6cm default)
+    if (data.soil_temp_forecast) {
+      const tempMap: Record<string, number> = {};
+      for (const day of data.soil_temp_forecast) {
+        if (day.soilTemp != null) {
+          tempMap[day.date] = day.soilTemp;
+        }
+      }
+      setSoilTempForecast(tempMap);
+    }
+    // Build multi-depth forecast: date -> {depth -> temp}
+    if (data.forecast_by_depth) {
+      const byDepth: Record<string, Record<number, number>> = {};
+      for (const [depthStr, days] of Object.entries(data.forecast_by_depth as Record<string, any[]>)) {
+        const depth = parseInt(depthStr, 10);
+        for (const day of days) {
+          if (day.soilTemp != null) {
+            if (!byDepth[day.date]) byDepth[day.date] = {};
+            byDepth[day.date][depth] = day.soilTemp;
+          }
+        }
+      }
+      setSoilTempForecastByDepth(byDepth);
+    }
+    // Build plantId -> soil temp requirements from crop_readiness + crop_readiness_transplant
+    const plantTemps: Record<string, { soilTempMin: number; transplantSoilTempMin: number | null }> = {};
+    if (data.crop_readiness_forecast) {
+      for (const [pid, info] of Object.entries(data.crop_readiness_forecast as Record<string, any>)) {
+        plantTemps[pid] = { soilTempMin: info.min_temp, transplantSoilTempMin: null };
+      }
+    }
+    if (data.crop_readiness_transplant) {
+      for (const [pid, info] of Object.entries(data.crop_readiness_transplant as Record<string, any>)) {
+        if (plantTemps[pid]) {
+          plantTemps[pid].transplantSoilTempMin = info.min_temp;
+        } else {
+          plantTemps[pid] = { soilTempMin: 0, transplantSoilTempMin: info.min_temp };
+        }
+      }
+    }
+    setPlantSoilTemps(plantTemps);
+  }, []);
+
+  // Map plant planting depth (inches) to Open-Meteo depth (cm)
+  const inchesToDepth = (inches: number | undefined): number => {
+    if (inches == null) return 6;
+    if (inches <= 0.5) return 0;
+    if (inches <= 3.0) return 6;
+    return 18;
+  };
+
+  // Build a set of weather-warning event markers: eventId -> warning type
+  const coldWarnings = useMemo(() => {
+    const warnings: Record<string, 'too_cold' | 'marginal' | 'too_hot'> = {};
+    const SAFETY_MARGIN = 5;
+    const HOT_THRESHOLD_ABOVE_MIN = 20; // matches backend season_validator.py
+    const forecastDates = Object.keys(soilTempForecast).sort();
+    const todayKey = forecastDates.length > 0 ? forecastDates[0] : null;
+    const todayTemp = todayKey ? soilTempForecast[todayKey] : null;
+
+    for (const event of plantingEvents) {
+      if (!event.plantId) continue;
+      // Skip completed events
+      if (event.completed || event.isComplete) continue;
+      const temps = plantSoilTemps[event.plantId];
+      if (!temps) continue;
+
+      // Check the relevant date for this event type
+      const checkDate = event.directSeedDate ?? event.transplantDate;
+      if (!checkDate) continue;
+      const dateKey = format(new Date(checkDate), 'yyyy-MM-dd');
+
+      // Look up this plant's appropriate depth
+      const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
+      const depthCm = inchesToDepth(plant?.plantingDepth);
+
+      // Use depth-specific temp if available, fall back to 6cm default
+      const depthForecast = soilTempForecastByDepth[dateKey];
+      let soilTemp = depthForecast?.[depthCm] ?? soilTempForecast[dateKey];
+
+      // For past/today dates that aren't completed: use today's temp
+      if (soilTemp == null && todayKey && dateKey <= todayKey) {
+        const todayDepthForecast = soilTempForecastByDepth[todayKey];
+        soilTemp = todayDepthForecast?.[depthCm] ?? todayTemp ?? undefined;
+      }
+      if (soilTemp == null) continue;
+
+      // Use transplant min if it's a transplant event, otherwise seed min
+      const isTransplant = !!event.transplantDate && !event.directSeedDate;
+      const minTemp = isTransplant
+        ? (temps.transplantSoilTempMin ?? temps.soilTempMin)
+        : temps.soilTempMin;
+
+      if (soilTemp < minTemp - SAFETY_MARGIN) {
+        warnings[`${event.id}`] = 'too_cold';
+      } else if (soilTemp < minTemp + SAFETY_MARGIN) {
+        warnings[`${event.id}`] = 'marginal';
+      }
+
+      // Check too-hot for cool-weather crops (low heat tolerance)
+      if (plant?.heatTolerance === 'low' && soilTemp > minTemp + HOT_THRESHOLD_ABOVE_MIN) {
+        // Too hot overrides marginal (but not too_cold — cold is more urgent)
+        if (warnings[`${event.id}`] !== 'too_cold') {
+          warnings[`${event.id}`] = 'too_hot';
+        }
+      }
+    }
+    return warnings;
+  }, [plantingEvents, soilTempForecast, soilTempForecastByDepth, plantSoilTemps]);
+
   // Fetch garden beds for garden event modal
   useEffect(() => {
     const fetchGardenBeds = async () => {
@@ -211,6 +338,12 @@ const PlantingCalendar: React.FC = () => {
     fetchPlantingEvents();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Filter events by selected bed
+  const filteredEvents = useMemo(() => {
+    if (selectedBedId === 'all') return plantingEvents;
+    return plantingEvents.filter(e => e.gardenBedId === selectedBedId);
+  }, [plantingEvents, selectedBedId]);
 
   return (
     <>
@@ -326,10 +459,43 @@ const PlantingCalendar: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Bed Filter */}
+            {gardenBeds.length > 0 && (
+              <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-200">
+                <label htmlFor="bed-filter" className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                  Filter by Bed:
+                </label>
+                <select
+                  id="bed-filter"
+                  value={selectedBedId}
+                  onChange={(e) => setSelectedBedId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                >
+                  <option value="all">All Beds ({plantingEvents.length} events)</option>
+                  {gardenBeds.map(bed => {
+                    const count = plantingEvents.filter(e => e.gardenBedId === bed.id).length;
+                    return (
+                      <option key={bed.id} value={bed.id}>
+                        {bed.name} ({count} events)
+                      </option>
+                    );
+                  })}
+                </select>
+                {selectedBedId !== 'all' && (
+                  <button
+                    onClick={() => setSelectedBedId('all')}
+                    className="text-sm text-green-600 hover:text-green-800 underline"
+                  >
+                    Show All
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Soil Temperature Card */}
-          <SoilTemperatureCard plantingEvents={plantingEvents} />
+          <SoilTemperatureCard plantingEvents={plantingEvents} onDataLoaded={handleSoilDataLoaded} gardenBeds={gardenBeds} />
 
           {/* Maple Tapping Season Card */}
           <MapleTappingSeasonCard />
@@ -358,7 +524,7 @@ const PlantingCalendar: React.FC = () => {
               {/* List View */}
               {viewMode === 'list' && (
             <ListView
-              plantingEvents={plantingEvents}
+              plantingEvents={filteredEvents}
               setPlantingEvents={setPlantingEvents}
             />
           )}
@@ -372,15 +538,17 @@ const PlantingCalendar: React.FC = () => {
               />
               <CalendarGrid
                 currentDate={currentDate}
-                events={plantingEvents}
+                events={filteredEvents}
+                coldWarnings={coldWarnings}
                 onDateClick={handleDateClick}
                 onEventClick={(event) => {
                   setDetailEvent(event);
                 }}
+                onEventUpdated={fetchPlantingEvents}
               />
 
               {/* Legend */}
-              {plantingEvents.length > 0 && (
+              {filteredEvents.length > 0 && (
                 <div className="mt-6 pt-4 border-t border-gray-200">
                   <div className="flex flex-wrap items-center gap-4 text-sm">
                     <div className="font-medium text-gray-700">Event Types:</div>
@@ -405,7 +573,7 @@ const PlantingCalendar: React.FC = () => {
               )}
 
               {/* Empty state for grid view */}
-              {plantingEvents.length === 0 && (
+              {filteredEvents.length === 0 && (
                 <div className="text-center py-12">
                   <div className="text-6xl mb-4">🌱</div>
                   <p className="text-xl font-semibold text-gray-700 mb-2">
@@ -521,6 +689,7 @@ const PlantingCalendar: React.FC = () => {
           setModalOpen(true);
         }}
         gardenBeds={gardenBeds}
+        onEventUpdated={fetchPlantingEvents}
       />
 
       {/* Event Detail Modal */}
@@ -530,6 +699,9 @@ const PlantingCalendar: React.FC = () => {
         onClose={() => setDetailEvent(null)}
         gardenBeds={gardenBeds}
         onEventUpdated={fetchPlantingEvents}
+        onNavigateToBed={onNavigateToBed}
+        coldWarning={detailEvent ? coldWarnings[`${detailEvent.id}`] : undefined}
+        soilTempForecast={soilTempForecast}
       />
     </>
   );

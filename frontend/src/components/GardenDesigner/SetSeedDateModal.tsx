@@ -20,7 +20,7 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
 }) => {
   // Compute a smart default date from plant timing data
   const daysToSeed = plant?.daysToSeed;
-  const dtm = plant?.daysToMaturity ?? (plant as any)?.daysToMaturity ?? 0;
+  const dtm = plant?.daysToMaturity ?? 0;
   const computeDefaultDate = (): string => {
     if (plantedItem.seedMaturityDate) {
       return new Date(plantedItem.seedMaturityDate).toISOString().split('T')[0];
@@ -71,8 +71,8 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
       const updated = await response.json();
       onSuccess(updated);
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to update');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update');
     } finally {
       setSubmitting(false);
     }

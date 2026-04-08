@@ -227,7 +227,9 @@ export interface PlantingCalendar {
   gardenBedId?: number;
   notes?: string;
   completed: boolean;
+  harvestCompleted?: boolean;  // Separate completion tracking for harvest phase
   isComplete?: boolean;  // Canonical completion check from backend
+  indoorSeedStartStatus?: string;  // IndoorSeedStart.status for seed-start phase completion
   quantityCompleted?: number;  // How many actually planted (null = not started)
 
   // Date fields
@@ -337,6 +339,7 @@ export interface PlantingEvent {
   conflictOverride?: boolean;
   completed?: boolean;
   isComplete?: boolean;
+  indoorSeedStartStatus?: string;
   notes?: string;
 
   // NEW: Planting method for seed density vs individual plants
@@ -864,8 +867,8 @@ export interface NutritionSummary {
   totals: NutritionBreakdown;
   bySource: {
     garden: GardenNutritionSummary | null;
-    livestock: any | null;  // Phase 3
-    trees: any | null;      // Phase 3
+    livestock: Record<string, unknown> | null;  // Phase 3
+    trees: Record<string, unknown> | null;      // Phase 3
   };
   year: number;
 }

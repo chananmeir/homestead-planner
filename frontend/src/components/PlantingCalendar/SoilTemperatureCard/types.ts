@@ -33,7 +33,7 @@ export interface CropReadinessMap {
 
 export interface DailyReadiness {
   date: string;
-  soilTemp: number;
+  soilTemp: number | null;
   status: 'ready' | 'marginal' | 'too_cold';
 }
 
@@ -119,4 +119,5 @@ export interface SoilTempResponse {
   crop_readiness_forecast?: CropReadinessForecastMap;
   crop_readiness_transplant?: CropReadinessForecastMap;
   directSowOnly?: DirectSowOnlyMap;
+  frostDataUnavailable?: boolean;
 }

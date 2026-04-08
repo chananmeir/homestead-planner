@@ -120,6 +120,7 @@ const HarvestTracker: React.FC = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/harvests/${deleteConfirm.harvestId}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
 
       if (response.ok) {

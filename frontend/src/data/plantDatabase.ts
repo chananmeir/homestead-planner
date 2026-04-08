@@ -106,7 +106,7 @@ export const PLANT_DATABASE: Plant[] = [
     soilPH: { min: 6.0, max: 7.0 },
     plantingDepth: 0.25,
     germinationTemp: { min: 40, max: 70 },
-    transplantWeeksBefore: 4,
+    transplantWeeksBefore: 3,
     notes: 'Fast growing. Great for succession planting.',
     migardener: {
       plantingStyle: 'row_based',

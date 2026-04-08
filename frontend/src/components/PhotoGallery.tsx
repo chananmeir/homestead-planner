@@ -67,6 +67,7 @@ const PhotoGallery: React.FC = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/photos/${photoToDelete.id}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
 
       if (response.ok) {

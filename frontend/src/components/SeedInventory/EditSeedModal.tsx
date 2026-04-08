@@ -91,11 +91,11 @@ export const EditSeedModal: React.FC<EditSeedModalProps> = ({ isOpen, onClose, o
       newErrors.quantity = 'Quantity must be greater than 0';
     }
 
-    if (formData.germinationRate && (Number(formData.germinationRate) < 0 || Number(formData.germinationRate) > 100)) {
+    if (formData.germinationRate !== '' && (Number(formData.germinationRate) < 0 || Number(formData.germinationRate) > 100)) {
       newErrors.germinationRate = 'Germination rate must be between 0 and 100';
     }
 
-    if (formData.price && Number(formData.price) < 0) {
+    if (formData.price !== '' && Number(formData.price) < 0) {
       newErrors.price = 'Price cannot be negative';
     }
 
@@ -109,7 +109,7 @@ export const EditSeedModal: React.FC<EditSeedModalProps> = ({ isOpen, onClose, o
     setLoading(true);
     try {
       // Build payload with only non-empty fields
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         plantId: formData.plantId,
         variety: formData.variety,
         quantity: formData.quantity,
@@ -118,14 +118,15 @@ export const EditSeedModal: React.FC<EditSeedModalProps> = ({ isOpen, onClose, o
       if (formData.brand) payload.brand = formData.brand;
       if (formData.purchaseDate) payload.purchaseDate = formData.purchaseDate;
       if (formData.expirationDate) payload.expirationDate = formData.expirationDate;
-      if (formData.germinationRate) payload.germinationRate = Number(formData.germinationRate);
+      if (formData.germinationRate !== '') payload.germinationRate = Number(formData.germinationRate);
       if (formData.location) payload.location = formData.location;
-      if (formData.price) payload.price = Number(formData.price);
+      if (formData.price !== '') payload.price = Number(formData.price);
       if (formData.notes) payload.notes = formData.notes;
 
       const response = await fetch(`${API_BASE_URL}/api/seeds/${seed.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload),
       });
 

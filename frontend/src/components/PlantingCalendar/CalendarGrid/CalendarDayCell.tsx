@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import EventMarker from './EventMarker';
 import GroupedEventsModal from './GroupedEventsModal';
@@ -10,8 +10,10 @@ interface CalendarDayCellProps {
   isCurrentMonth: boolean;
   isToday: boolean;
   markers: DateMarkerOrGroup[];
+  coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
   onClick: () => void;
   onEventClick?: (event: PlantingCalendar) => void;
+  onEventUpdated?: () => void;
 }
 
 const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
@@ -19,14 +21,48 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
   isCurrentMonth,
   isToday,
   markers,
+  coldWarnings,
   onClick,
-  onEventClick
+  onEventClick,
+  onEventUpdated
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<GroupedDateMarker | null>(null);
 
+  // Sort markers so incomplete items appear first (don't get hidden in "+X more")
+  const sortedMarkers = useMemo(() => {
+    const isMarkerComplete = (marker: DateMarkerOrGroup): boolean => {
+      const checkPhase = (event: PlantingCalendar, type: string) => {
+        if (type === 'seed-start') {
+          return event.indoorSeedStartStatus != null && event.indoorSeedStartStatus !== 'planned';
+        }
+        if (type === 'harvest') {
+          return !!event.harvestCompleted;
+        }
+        return !!(event.completed || event.isComplete);
+      };
+
+      // Non-planting events (mulch, maple-tapping) don't have completion tracking
+      if (isGroupedMarker(marker)) {
+        const eventType = marker.events[0]?.eventType || 'planting';
+        if (eventType !== 'planting') return false;
+        return marker.events.every(e => checkPhase(e, marker.type));
+      } else {
+        const eventType = marker.event.eventType || 'planting';
+        if (eventType !== 'planting') return false;
+        return checkPhase(marker.event, marker.type);
+      }
+    };
+
+    return [...markers].sort((a, b) => {
+      const aComplete = isMarkerComplete(a) ? 1 : 0;
+      const bComplete = isMarkerComplete(b) ? 1 : 0;
+      return aComplete - bComplete;
+    });
+  }, [markers]);
+
   // Show up to 5 markers, with "+X more" indicator if there are more
-  const visibleMarkers = markers.slice(0, 5);
-  const remainingCount = markers.length - 5;
+  const visibleMarkers = sortedMarkers.slice(0, 5);
+  const remainingCount = sortedMarkers.length - 5;
 
   const handleMarkerClick = (e: React.MouseEvent, marker: DateMarkerOrGroup) => {
     e.stopPropagation(); // Prevent day click
@@ -70,7 +106,7 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
       <div className="flex flex-col gap-1">
         {visibleMarkers.map((marker, index) => (
           <div key={index} onClick={(e) => handleMarkerClick(e, marker)}>
-            <EventMarker marker={marker} />
+            <EventMarker marker={marker} coldWarnings={coldWarnings} />
           </div>
         ))}
 
@@ -92,6 +128,7 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
             onEventClick(event);
           }
         }}
+        onEventUpdated={onEventUpdated}
       />
     </div>
   );

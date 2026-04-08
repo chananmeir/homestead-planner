@@ -29,7 +29,7 @@ Homestead Planner is a full-stack garden and homestead planning application:
 - **Backend**: Flask/Python with SQLAlchemy (port 5000)
 - **Frontend**: React/TypeScript with Tailwind CSS (port 3000)
 - **Database**: SQLite with Flask-Migrate for migrations
-- **Architecture**: 11 Flask blueprints, service layer, multi-user with authentication
+- **Architecture**: 16 Flask blueprints, service layer, multi-user with authentication
 
 **Key Features**:
 - Multi-method garden planning (Square-Foot, MIGardener, Intensive, Row, Trellis)
@@ -62,18 +62,21 @@ flask db upgrade
 
 ### 2. **NEVER Modify Space Calculation Logic Without Updating ALL Locations**
 
-Space calculation logic exists in **FOUR LOCATIONS** that must stay synchronized:
+Space calculation logic is spread across **synchronized file pairs** that must stay in sync:
 
-1. `backend/services/space_calculator.py` - Backend calculation
-2. `backend/plant_database.py` - Plant spacing data
-3. `frontend/src/utils/gardenPlannerSpaceCalculator.ts` - Frontend calculation
-4. `frontend/src/utils/sfgSpacing.ts` - SFG lookup table
+| Domain | Backend | Frontend |
+|--------|---------|----------|
+| Main calculator | `backend/services/space_calculator.py` | `frontend/src/utils/gardenPlannerSpaceCalculator.ts` |
+| SFG spacing | `backend/sfg_spacing.py` + `backend/garden_methods.py` | `frontend/src/utils/sfgSpacing.ts` |
+| MIGardener spacing | `backend/migardener_spacing.py` | `frontend/src/utils/migardenerSpacing.ts` |
+| Intensive spacing | `backend/intensive_spacing.py` | `frontend/src/utils/intensiveSpacing.ts` |
+| Plant data | `backend/plant_database.py` | `frontend/src/data/plantDatabase.ts` |
 
-**Rule**: If you modify ONE, you MUST modify ALL FOUR.
+**Rule**: If you modify a backend file, you MUST update its frontend counterpart (and vice versa).
 
 **Example**:
 - Changing tomato SFG spacing from 1 to 2 requires:
-  1. Update `backend/sfg_spacing.py` lookup table
+  1. Update `backend/sfg_spacing.py` (or `garden_methods.py`) lookup table
   2. Update `frontend/src/utils/sfgSpacing.ts` lookup table
   3. Test backend `calculate_space_requirement('tomato-1', 12, 'square-foot')`
   4. Test frontend `calculateSpaceRequirement(tomato, 12, 'square-foot')`
@@ -452,6 +455,25 @@ from utils.helpers import parse_iso_date
 harvest_date = parse_iso_date(data['harvestDate'])  # handles "Z"
 ```
 
+### Frontend Date Parsing
+
+**JavaScript Issue**: `new Date('2026-03-23')` parses as UTC midnight, shifting to the previous day in western timezones.
+
+**Canonical Helper**: `frontend/src/utils/dateUtils.ts::parseLocalDate()`
+
+**Rule**: NEVER use `new Date(dateStr + 'T00:00:00')` inline. Use the shared utility.
+
+❌ **WRONG**:
+```typescript
+const viewDate = new Date(dateFilter.date + 'T00:00:00');
+```
+
+✅ **CORRECT**:
+```typescript
+import { parseLocalDate } from '../utils/dateUtils';
+const viewDate = parseLocalDate(dateFilter.date);
+```
+
 ### Error Response Format
 
 **Standard Error Response**:
@@ -607,7 +629,7 @@ Before modifying ANY code, answer these questions:
    - NO → Proceed
 
 5. **Synchronization**: Does this change space calculation or plant data?
-   - YES → Update all 4 locations (backend service, backend data, frontend utils, frontend data)
+   - YES → Update all synchronized file pairs (see table in Critical Constraint #2)
    - NO → Proceed
 
 ### Planning Requirements
@@ -922,7 +944,7 @@ flask db downgrade -1              # Rollback one migration
 python migrations/custom/schema/add_position_fields.py
 
 # Run tests
-python -m pytest                   # All tests (130+ tests)
+python -m pytest                   # All tests (218+ tests)
 ```
 
 ### Frontend
@@ -939,7 +961,7 @@ npm start                          # Port 3000
 npm run build
 
 # Run tests
-CI=true npx react-scripts test --watchAll=false  # All tests (33+ space calc tests)
+CI=true npx react-scripts test --watchAll=false  # All tests (55 space calc + sync tests)
 
 # E2E tests (requires both servers running on ports 3000/5000)
 npx playwright test                          # All E2E suites (~220 tests)
@@ -968,9 +990,9 @@ git log --oneline -10
 ```
 homestead-planner/
 ├── backend/
-│   ├── app.py                              # Main Flask app (DEPRECATED: migrating to blueprints)
+│   ├── app.py                              # Flask app initialization + utility functions (routes fully migrated to blueprints)
 │   ├── models.py                           # SQLAlchemy models (54+ models, 13 domains)
-│   ├── blueprints/                         # Flask blueprints (11 blueprints)
+│   ├── blueprints/                         # Flask blueprints (16 blueprints)
 │   │   ├── garden_planner_bp.py            # Garden Season Planner + Garden Snapshot (COMPLEX)
 │   │   ├── gardens_bp.py                   # Garden beds CRUD
 │   │   ├── seeds_bp.py                     # Seed inventory
@@ -980,6 +1002,8 @@ homestead-planner/
 │   │   ├── garden_planner_service.py       # Succession + quantity logic (COMPLEX)
 │   │   ├── rotation_checker.py             # Crop rotation validation
 │   │   ├── conflict_service.py             # Spatial/temporal conflicts
+│   │   ├── trellis_validation.py           # Trellis segment + overlap validation
+│   │   ├── event_details_validator.py      # JSON schema validation for event_details
 │   │   └── ...
 │   ├── migrations/                         # Database migrations
 │   │   ├── versions/                       # Flask-Migrate (auto-generated)
@@ -999,11 +1023,20 @@ homestead-planner/
 │   │   │   ├── GardenPlanner/              # Subcomponents (PlanNutritionCard, GardenSnapshot)
 │   │   │   ├── PlantingCalendar/           # Calendar views
 │   │   │   ├── GardenDesigner/             # Visual bed designer
+│   │   │   │   ├── hooks/usePlantingEvents.ts   # Planting event data fetching
+│   │   │   │   ├── utils/designerHelpers.ts     # Pure utility functions
+│   │   │   │   ├── types.ts                     # Shared type definitions
+│   │   │   │   └── ...
+│   │   │   ├── common/ErrorBoundary.tsx    # Top-level error boundary
 │   │   │   └── ...
+│   │   ├── contexts/                       # React context providers
+│   │   │   ├── AuthContext.tsx             # Auth state (memoized)
+│   │   │   └── ActivePlanContext.tsx       # Active plan state (memoized)
 │   │   ├── utils/                          # Utility functions
 │   │   │   ├── gardenPlannerSpaceCalculator.ts  # Space calc (CRITICAL, MUST SYNC)
 │   │   │   ├── sfgSpacing.ts               # SFG lookup (MUST SYNC)
 │   │   │   ├── migardenerSpacing.ts        # MIGardener calculations
+│   │   │   ├── dateUtils.ts                # parseLocalDate() - canonical date parsing
 │   │   │   └── ...
 │   │   └── data/
 │   │       └── plantDatabase.ts            # Plant data (MUST SYNC)
@@ -1025,15 +1058,17 @@ homestead-planner/
 
 1. **Planning Method vs Planting Style**: Incomplete refactoring. Unclear which field takes precedence for space calculations.
 
-2. **Status Fields**: Three status fields (status, completed, quantity_completed) with unclear consistency rules. May need architectural cleanup.
+2. **Status Fields**: Completion state is split across two models but well-normalized (Mar 2026 audit). See Uncertainty #7 above and "Completion State Consistency" in High-Risk Areas for rules.
 
-3. **Trellis Capacity**: No database constraints prevent overlapping allocations. Application-level validation exists but may have gaps.
+3. **Trellis Capacity**: No database constraints prevent overlapping allocations. Application-level validation via `check_trellis_overlaps()` in `services/trellis_validation.py` is called before saving in `gardens_bp.py` (returns 409 on overlap). Export path validates bounds but not overlaps (sequential assignment prevents them).
 
 4. **Rotation Algorithm**: 3-year window is simplistic. Ignores intervening crops, cover crops, and intercropping. May produce false positives.
 
-5. **Event Details Schema**: JSON structure not formally defined. Each event_type has different expected keys. No validation layer.
+5. **Event Details Schema**: Validated at write time by `services/event_details_validator.py` for mulch and maple-tapping events. 50+ tests in `tests/test_event_details_validator.py`. Unknown event types accepted for forward compatibility. Read paths remain defensive (try-except + `.get()` defaults).
 
-6. **Export Idempotency**: GardenPlanItem has `export_key` field for preventing duplicate exports, but logic may not be fully implemented.
+6. **Export Idempotency**: Fully implemented. `PlantingEvent.export_key` prevents duplicate exports. Re-export updates existing events matched by export_key. Tested in `test_succession_export.py`.
+
+7. **Completion State**: Well-normalized (Mar 2026 audit). Bidirectional sync at all write endpoints (PUT, PATCH, harvest, bulk). `is_complete` property is the canonical check. 36 tests in `test_planting_event_status.py`. Data fixup migration handles pre-Feb 2026 inconsistencies.
 
 ## Default Verification Command
 
@@ -1066,4 +1101,4 @@ If unsure what to run, default to:
 
 ---
 
-**Last Updated**: 2026-02-28
+**Last Updated**: 2026-03-23

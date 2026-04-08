@@ -246,6 +246,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
                   cropReadinessTransplant={soilTempData.crop_readiness_transplant}
                   plantingEvents={plantingEvents}
                   directSowOnly={soilTempData.directSowOnly}
+                  frostDataUnavailable={soilTempData.frostDataUnavailable}
                 />
               </div>
             </>

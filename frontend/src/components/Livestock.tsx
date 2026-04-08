@@ -88,6 +88,7 @@ const Livestock: React.FC = () => {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [nutritionData, setNutritionData] = useState<LivestockNutrition | null>(null);
   const [nutritionLoading, setNutritionLoading] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
 
   const loadNutritionData = async () => {
     try {
@@ -110,7 +111,7 @@ const Livestock: React.FC = () => {
     loadData();
     loadNutritionData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCategory]);
+  }, [activeCategory, showInactive]);
 
   // Clear filters when tab changes
   useEffect(() => {
@@ -123,30 +124,31 @@ const Livestock: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const statusParam = showInactive ? '?status=all' : '';
 
       if (activeCategory === 'chickens') {
-        const response = await fetch(`${API_BASE_URL}/api/chickens`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE_URL}/api/chickens${statusParam}`, { credentials: 'include' });
         if (!response.ok) {
           throw new Error(`Failed to fetch chickens: ${response.status}`);
         }
         const data = await response.json();
         setChickens(data);
       } else if (activeCategory === 'ducks') {
-        const response = await fetch(`${API_BASE_URL}/api/ducks`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE_URL}/api/ducks${statusParam}`, { credentials: 'include' });
         if (!response.ok) {
           throw new Error(`Failed to fetch ducks: ${response.status}`);
         }
         const data = await response.json();
         setDucks(data);
       } else if (activeCategory === 'bees') {
-        const response = await fetch(`${API_BASE_URL}/api/beehives`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE_URL}/api/beehives${statusParam}`, { credentials: 'include' });
         if (!response.ok) {
           throw new Error(`Failed to fetch beehives: ${response.status}`);
         }
         const data = await response.json();
         setBeehives(data);
       } else if (activeCategory === 'other') {
-        const response = await fetch(`${API_BASE_URL}/api/livestock`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE_URL}/api/livestock${statusParam}`, { credentials: 'include' });
         if (!response.ok) {
           throw new Error(`Failed to fetch other livestock: ${response.status}`);
         }
@@ -389,7 +391,7 @@ const Livestock: React.FC = () => {
     Object.entries(activeFilters).forEach(([key, values]) => {
       if (values.length > 0) {
         result = result.filter(a => {
-          const fieldValue = (a as any)[key];
+          const fieldValue = (a as unknown as Record<string, string>)[key];
           return fieldValue && values.includes(fieldValue);
         });
       }
@@ -846,6 +848,16 @@ const Livestock: React.FC = () => {
               sortDirection={sortDirection}
               onSortChange={handleSortChange}
             />
+
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              Show inactive
+            </label>
           </div>
         </div>
       </div>

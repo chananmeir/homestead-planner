@@ -7,6 +7,7 @@ import { ChevronDown, ChevronUp, Package, AlertTriangle, Info, MapPin, Calendar,
 import { extractCropName } from '../../utils/plantUtils';
 import { coordinateToGridLabel } from './utils/gridCoordinates';
 import { calculateSpaceRequirement } from '../../utils/gardenPlannerSpaceCalculator';
+import { parseLocalDate } from '../../utils/dateUtils';
 
 /**
  * Compute how many plants from a plan item are expected to be "in the ground"
@@ -27,8 +28,7 @@ function getDateAwarePlannedCount(
   // No date filter or no first plant date → show full bed quantity
   if (!viewDateStr || !item.firstPlantDate) return item.quantityForBed;
 
-  const viewDate = new Date(viewDateStr);
-  viewDate.setHours(0, 0, 0, 0);
+  const viewDate = parseLocalDate(viewDateStr);
 
   const succCount = (item.successionCount && item.successionCount > 1) ? item.successionCount : 1;
   const intervalDays = item.successionIntervalDays || 0;
@@ -39,8 +39,7 @@ function getDateAwarePlannedCount(
   const remainder = totalQty - baseQty * succCount;
 
   let activeCount = 0;
-  const firstDate = new Date(item.firstPlantDate);
-  firstDate.setHours(0, 0, 0, 0);
+  const firstDate = parseLocalDate(item.firstPlantDate);
 
   // Before planting season starts, show full bed quantity as denominator
   if (viewDate < firstDate) {
@@ -64,7 +63,7 @@ function getDateAwarePlannedCount(
 
 /** Format a date string as a short human-readable label (e.g., "Apr 15") */
 function formatShortDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00');
+  const d = parseLocalDate(dateStr);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -104,7 +103,7 @@ function computeSuccessionDetails(
   const baseQty = Math.floor(totalQty / succCount);
   const remainder = totalQty - baseQty * succCount;
 
-  const firstDate = new Date(item.firstPlantDate + 'T00:00:00');
+  const firstDate = parseLocalDate(item.firstPlantDate);
 
   // Pre-filter planted items for this plan item.
   // Primary: linked by sourcePlanItemId (placed from Planned section with succession awareness).
@@ -270,7 +269,7 @@ const SuccessionTimeline: React.FC<{ details: SuccessionDetail[] }> = ({ details
   if (details.length < 2) return null;
 
   // Compute the full date range across all successions
-  const allDates = details.flatMap(d => [new Date(d.plantDate + 'T00:00:00'), new Date(d.harvestDate + 'T00:00:00')]);
+  const allDates = details.flatMap(d => [parseLocalDate(d.plantDate), parseLocalDate(d.harvestDate)]);
   const minMs = Math.min(...allDates.map(d => d.getTime()));
   const maxMs = Math.max(...allDates.map(d => d.getTime()));
   const rangeMs = maxMs - minMs;
@@ -286,8 +285,8 @@ const SuccessionTimeline: React.FC<{ details: SuccessionDetail[] }> = ({ details
       {/* Timeline bar */}
       <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden">
         {details.map((d) => {
-          const startMs = new Date(d.plantDate + 'T00:00:00').getTime();
-          const endMs = new Date(d.harvestDate + 'T00:00:00').getTime();
+          const startMs = parseLocalDate(d.plantDate).getTime();
+          const endMs = parseLocalDate(d.harvestDate).getTime();
           const leftPct = ((startMs - minMs) / rangeMs) * 100;
           const widthPct = Math.max(((endMs - startMs) / rangeMs) * 100, 1); // min 1% visible
 
@@ -667,7 +666,12 @@ const PlannedPlantsSection: React.FC<PlannedPlantsSectionProps> = ({
 
         if (response.ok) {
           const data = await response.json();
-          setPlannedItems(data);
+          const sorted = [...data].sort((a: any, b: any) => {
+            const nameCompare = (a.plantName || '').localeCompare(b.plantName || '', undefined, { sensitivity: 'base' });
+            if (nameCompare !== 0) return nameCompare;
+            return (a.varietyName || '').localeCompare(b.varietyName || '', undefined, { sensitivity: 'base' });
+          });
+          setPlannedItems(sorted);
         } else if (response.status === 404) {
           setPlannedItems([]);
           setError(null);

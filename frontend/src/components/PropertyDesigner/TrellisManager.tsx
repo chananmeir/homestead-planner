@@ -119,8 +119,8 @@ export const TrellisManager: React.FC<TrellisManagerProps> = ({
       resetForm();
       fetchTrellises();
       onSuccess();
-    } catch (error: any) {
-      showError(error.message);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
@@ -146,8 +146,8 @@ export const TrellisManager: React.FC<TrellisManagerProps> = ({
       setDeletingId(null);
       fetchTrellises();
       onSuccess();
-    } catch (error: any) {
-      showError(error.message);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
       setLoading(false);
     }

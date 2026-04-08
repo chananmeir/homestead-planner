@@ -171,7 +171,6 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
     const rowSpacingCells = effectiveRowSpacing
       ? Math.max(1, Math.ceil(effectiveRowSpacing / gridSize))
       : 1; // null = intensive crop, every row
-    const withinRowSpacingCells = Math.max(1, Math.ceil(effectivePlantSpacing / gridSize));
 
     // Determine starting point
     // For explicit row planting style, rows always span full width (x starts at 0)
@@ -183,6 +182,13 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
     const startY = (startPosition && startPosition.y >= 0 && startPosition.y < gridHeight)
       ? startPosition.y
       : 0;
+
+    // For explicit row style, use every cell in the row (plants are distributed
+    // across all cells, with plant-per-cell math handling density).
+    // For MIGardener style, space plants according to within-row spacing.
+    const withinRowSpacingCells = isExplicitRowStyle
+      ? 1
+      : Math.max(1, Math.ceil(effectivePlantSpacing / gridSize));
 
     // Generate positions in horizontal rows
     // Each row is separated by rowSpacingCells

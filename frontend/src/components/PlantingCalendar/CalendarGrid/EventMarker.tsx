@@ -4,9 +4,10 @@ import { DateMarkerOrGroup, isGroupedMarker, getEventIcon, getEventLabel, getCat
 
 interface EventMarkerProps {
   marker: DateMarkerOrGroup;
+  coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
 }
 
-const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
+const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
   const isGrouped = isGroupedMarker(marker);
 
   // Determine event type
@@ -123,10 +124,17 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
   const count = isGrouped ? marker.count : 1;
 
   // Phase-specific completion:
-  // - 'seed-start': never auto-mark (tracked via Indoor Seed Starts page)
-  // - other phases: use event.completed flag (explicitly set by user)
-  const isPhaseComplete = (event: { completed: boolean; isComplete?: boolean }) => {
-    if (marker.type === 'seed-start') return false;
+  // - 'seed-start': tracked via Indoor Seed Starts page status
+  // - 'harvest': tracked via separate harvestCompleted flag
+  // - other phases (direct-seed, transplant): use event.completed flag
+  const isPhaseComplete = (event: { completed: boolean; harvestCompleted?: boolean; isComplete?: boolean; indoorSeedStartStatus?: string }) => {
+    if (marker.type === 'seed-start') {
+      // Use IndoorSeedStart.status -- anything beyond 'planned' means started
+      return event.indoorSeedStartStatus != null && event.indoorSeedStartStatus !== 'planned';
+    }
+    if (marker.type === 'harvest') {
+      return !!event.harvestCompleted;
+    }
     return event.completed || event.isComplete;
   };
 
@@ -139,9 +147,16 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
   const icon = getEventIcon(marker.type);
   const label = getEventLabel(marker.type);
 
+  // Check cold warning for this event
+  const eventId = isGrouped ? marker.events[0].id : marker.event.id;
+  const coldStatus = coldWarnings?.[`${eventId}`];
+  const hasWeatherWarning = !isCompleted && !!coldStatus;
+  const isHot = coldStatus === 'too_hot';
+
   // Build tooltip text with variety if available
   const tooltipText = [
     isCompleted ? '[Done]' : null,
+    hasWeatherWarning ? (coldStatus === 'too_cold' ? '[TOO COLD]' : coldStatus === 'too_hot' ? '[TOO HOT]' : '[MARGINAL SOIL TEMP]') : null,
     label,
     plant.name,
     variety ? `(${variety})` : null,
@@ -151,15 +166,17 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker }) => {
   return (
     <div
       className={`
-        ${colorClass} text-white text-xs px-2 py-1 rounded
+        ${isCompleted ? 'bg-gray-400' : colorClass} text-white text-xs px-2 py-1 rounded
         flex items-center gap-1 cursor-pointer
         hover:opacity-80 transition-opacity
-        ${isCompleted ? 'opacity-60' : ''}
+        ${hasWeatherWarning ? 'ring-2 ring-offset-1 ' + (coldStatus === 'too_cold' ? 'ring-red-500' : coldStatus === 'too_hot' ? 'ring-orange-500' : 'ring-yellow-400') : ''}
       `}
       title={tooltipText}
     >
-      {/* Completion checkmark or event type icon */}
-      <span className="flex-shrink-0">{isCompleted ? '\u2713' : icon}</span>
+      {/* Weather warning icon, completion checkmark, or event type icon */}
+      <span className="flex-shrink-0">
+        {isCompleted ? '\u2713' : hasWeatherWarning ? (isHot ? '\uD83C\uDF21\uFE0F' : '\u2744\uFE0F') : icon}
+      </span>
 
       {/* Plant name - strikethrough if completed */}
       <span className={`truncate flex-1 min-w-0 ${isCompleted ? 'line-through' : ''}`}>
