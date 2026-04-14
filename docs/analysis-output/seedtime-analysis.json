@@ -1,0 +1,70 @@
+{
+  "url": "https://app.seedtime.us/",
+  "timestamp": "2025-11-12T22:33:39.610Z",
+  "pages": [
+    {
+      "name": "Landing Page",
+      "title": "Seedtime",
+      "url": "https://app.seedtime.us/users/sign_in",
+      "screenshot": "01-landing-page.png"
+    }
+  ],
+  "features": [
+    {
+      "type": "Mentioned Features",
+      "items": [
+        "garden",
+        "seed"
+      ],
+      "source": "Landing page text"
+    }
+  ],
+  "uiPatterns": [
+    {
+      "pattern": "Authentication",
+      "location": "Landing Page",
+      "description": "Login/authentication required to access app features"
+    }
+  ],
+  "recommendations": [
+    {
+      "category": "Feature Comparison",
+      "ourFeatures": [
+        "Property Designer with drag-and-drop structures",
+        "Collision detection for structure placement",
+        "Garden planning with raised beds",
+        "Harvest tracking with analytics",
+        "Livestock management (chickens, ducks, bees)",
+        "Seed inventory with expiration tracking",
+        "Photo gallery",
+        "Multiple property support"
+      ],
+      "note": "Compare with SeedTime features to identify gaps and opportunities"
+    },
+    {
+      "category": "Potential Enhancements",
+      "item": "Planting Calendar",
+      "description": "Add frost date tracking and optimal planting windows by zone"
+    },
+    {
+      "category": "Potential Enhancements",
+      "item": "Task Management",
+      "description": "Add recurring tasks (watering, feeding, harvesting schedules)"
+    },
+    {
+      "category": "Potential Enhancements",
+      "item": "Weather Integration",
+      "description": "Integrate weather data for frost warnings and watering suggestions"
+    },
+    {
+      "category": "Potential Enhancements",
+      "item": "Crop Rotation Planning",
+      "description": "Help users plan multi-year crop rotations for soil health"
+    },
+    {
+      "category": "Potential Enhancements",
+      "item": "Mobile App",
+      "description": "Consider PWA or native mobile app for field use"
+    }
+  ]
+}

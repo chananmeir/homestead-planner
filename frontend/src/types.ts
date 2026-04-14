@@ -500,7 +500,7 @@ export interface Location {
 
 // Planting Validation Types
 export interface ValidationWarning {
-  type: 'frost_risk' | 'frost_risk_protected' | 'soil_temp_low' | 'soil_temp_protected' | 'soil_temp_marginal' | 'soil_temp_high' | 'heat_risk' | 'heat_risk_protected' | 'no_location' | 'future_cold_danger' | 'sun_exposure_mismatch';
+  type: 'frost_risk' | 'frost_risk_protected' | 'soil_temp_low' | 'soil_temp_protected' | 'soil_temp_marginal' | 'soil_temp_high' | 'heat_risk' | 'heat_risk_protected' | 'no_location' | 'future_cold_danger' | 'sun_exposure_mismatch' | 'seed_start_late';
   message: string;
   severity: 'warning' | 'info' | 'error';
 }

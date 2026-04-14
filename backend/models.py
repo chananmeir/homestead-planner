@@ -3,6 +3,7 @@ from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import CheckConstraint
 from datetime import datetime
+from simulation_clock import get_utc_now
 import json
 
 db = SQLAlchemy()
@@ -584,6 +585,8 @@ class Property(db.Model):
     zone = db.Column(db.String(10))  # USDA hardiness zone
     soil_type = db.Column(db.String(50))  # clay, loam, sandy, etc.
     slope = db.Column(db.String(20))  # flat, gentle, steep
+    last_frost_date = db.Column(db.Date)  # User-specified last spring frost date (nullable = use zone lookup)
+    first_frost_date = db.Column(db.Date)  # User-specified first fall frost date (nullable = use zone lookup)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -603,6 +606,8 @@ class Property(db.Model):
             'zone': self.zone,
             'soilType': self.soil_type,
             'slope': self.slope,
+            'lastFrostDate': self.last_frost_date.isoformat() if self.last_frost_date else None,
+            'firstFrostDate': self.first_frost_date.isoformat() if self.first_frost_date else None,
             'notes': self.notes,
             'acreage': round((self.width * self.length) / 43560, 2),  # Convert sq ft to acres
             'placedStructures': [s.to_dict() for s in self.structures]
@@ -790,7 +795,7 @@ class Chicken(db.Model):
     def get_age_weeks(self):
         if not self.hatch_date:
             return None
-        delta = datetime.utcnow() - self.hatch_date
+        delta = get_utc_now() - self.hatch_date
         return int(delta.days / 7)
 
 class EggProduction(db.Model):
@@ -855,7 +860,7 @@ class Duck(db.Model):
     def get_age_weeks(self):
         if not self.hatch_date:
             return None
-        delta = datetime.utcnow() - self.hatch_date
+        delta = get_utc_now() - self.hatch_date
         return int(delta.days / 7)
 
 class DuckEggProduction(db.Model):
@@ -1010,7 +1015,7 @@ class Livestock(db.Model):
     def get_age_months(self):
         if not self.birth_date:
             return None
-        delta = datetime.utcnow() - self.birth_date
+        delta = get_utc_now() - self.birth_date
         return int(delta.days / 30)
 
 class HealthRecord(db.Model):

@@ -6,6 +6,7 @@ import WarningDisplay from '../common/WarningDisplay';
 import { extractCropName } from '../../utils/plantUtils';
 import { autoPlacePlants, FillDirection } from './utils/autoPlacement';
 import { useToast } from '../common/Toast';
+import { useNow } from '../../contexts/SimulationContext';
 import { coordinateToGridLabel, gridLabelToCoordinate, isValidGridLabel, getGridBoundsDescription } from './utils/gridCoordinates';
 import { getMIGardenerSpacing } from '../../utils/migardenerSpacing';
 import PlantIcon from '../common/PlantIcon';
@@ -128,6 +129,10 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   onCancel
 }) => {
   const { showSuccess, showError, showWarning } = useToast();
+  const now = useNow();
+  // Stable string for today's date — used in effect deps to avoid infinite re-renders
+  // (useNow() returns a new Date object each render, causing identity changes)
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [variety, setVariety] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [notes, setNotes] = useState<string>('');
@@ -136,6 +141,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   const [warnings, setWarnings] = useState<ValidationWarning[]>([]);
   const [suggestion, setSuggestion] = useState<DateSuggestion | undefined>(undefined);
   const [validating, setValidating] = useState<boolean>(false);
+  const [frostDateSource, setFrostDateSource] = useState<string | null>(null);
 
   // Track previous isOpen state to detect modal opening vs re-rendering
   const prevIsOpenRef = useRef<boolean>(false);
@@ -684,9 +690,13 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
         // Process basic validation response
         if (basicValidationResponse.ok) {
-          const basicResult: ValidationResult = await basicValidationResponse.json();
+          const basicResult = await basicValidationResponse.json();
           allWarnings.push(...(basicResult.warnings || []));
           mainSuggestion = basicResult.suggestion;
+          // Track frost date source to warn when using defaults
+          if (basicResult.frostDateSource) {
+            setFrostDateSource(basicResult.frostDateSource);
+          }
         }
 
         // Process forward-looking validation response
@@ -742,6 +752,38 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           }
         }
 
+        // Check if seed start date would be in the past for transplants
+        if (plantingMethod === 'transplant' && representativePlant && plantingDate) {
+          const weeksIndoors = representativePlant.weeksIndoors || 0;
+          if (weeksIndoors > 0) {
+            const transplantDate = new Date(plantingDate + 'T12:00:00');
+            const seedStartDate = new Date(transplantDate.getTime() - weeksIndoors * 7 * 24 * 60 * 60 * 1000);
+            const today = new Date(todayStr + 'T00:00:00');
+
+            if (seedStartDate < today) {
+              const daysLate = Math.ceil((today.getTime() - seedStartDate.getTime()) / (1000 * 60 * 60 * 24));
+              const daysUntilTransplant = Math.ceil((transplantDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              const germinationDays = representativePlant.germinationDays || 7;
+
+              if (daysUntilTransplant < germinationDays) {
+                // Not enough time even for germination
+                allWarnings.push({
+                  type: 'seed_start_late',
+                  message: `Not enough time for germination. ${representativePlant.name} needs ~${germinationDays} days to germinate but transplant is only ${daysUntilTransplant} days away. Seeds will be started today if you proceed.`,
+                  severity: 'warning'
+                });
+              } else {
+                // Some time but less than ideal
+                allWarnings.push({
+                  type: 'seed_start_late',
+                  message: `Indoor seed start would be ${seedStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} (${daysLate} days ago). Seeds will be started today if you proceed — ${daysLate} fewer days indoors than the recommended ${weeksIndoors} weeks.`,
+                  severity: 'info'
+                });
+              }
+            }
+          }
+        }
+
         setWarnings(allWarnings);
         setSuggestion(mainSuggestion);
       } catch (err) {
@@ -754,7 +796,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
     validatePlanting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [representativePlant, plantingDate, plantingMethod, isOpen, bedId, variety]);
+  }, [representativePlant, plantingDate, plantingMethod, isOpen, bedId, variety, todayStr]);
 
   // Calculate grid dimensions from bed
   const gridDimensions = useMemo(() => {
@@ -1308,6 +1350,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       isOpen={isOpen}
       onClose={handleCancel}
       title={`Configure ${cropName}`}
+      closeOnBackdropClick={false}
     >
       <div className="space-y-4">
         {/* Plant Info */}
@@ -1954,6 +1997,28 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               />
             </svg>
             Checking planting conditions...
+          </div>
+        )}
+
+        {/* Frost date source notice - warn when using default Zone 5b */}
+        {!validating && frostDateSource === 'default' && warnings.some(w => w.type === 'frost_risk' || w.type === 'frost_risk_protected') && (
+          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
+            <p className="text-amber-800 font-medium">Frost dates may be inaccurate</p>
+            <p className="text-amber-700 mt-1">
+              Using default Zone 5b frost dates (last frost April 15). Set your USDA hardiness zone
+              in Property Designer for accurate frost warnings.
+            </p>
+          </div>
+        )}
+
+        {/* Frost dates derived from weather zip code */}
+        {!validating && frostDateSource === 'zipcode' && warnings.some(w => w.type === 'frost_risk' || w.type === 'frost_risk_protected') && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm">
+            <p className="text-blue-800 font-medium">Frost dates based on your weather location</p>
+            <p className="text-blue-700 mt-1">
+              Using frost dates derived from your weather ZIP code. For more precise dates,
+              set your USDA hardiness zone or custom frost dates in Property Designer.
+            </p>
           </div>
         )}
 

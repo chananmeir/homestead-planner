@@ -6,6 +6,7 @@ This blueprint handles all CRUD operations for garden-related entities.
 """
 import json
 import logging
+import math
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
@@ -18,6 +19,7 @@ from blueprints.garden_planner_bp import _adjust_auto_plan_item
 from garden_methods import GARDEN_METHODS
 from conflict_checker import has_conflict, validate_planting_conflict, get_primary_planting_date, query_candidate_items
 from services.space_calculator import calculate_space_requirement
+from simulation_clock import get_now, get_utc_now
 
 
 def _sync_indoor_start_on_completion(event):
@@ -40,6 +42,103 @@ def _sync_indoor_start_on_completion(event):
             event.transplant_date or event.direct_seed_date or datetime.utcnow()
         )
 from utils.helpers import parse_iso_date
+
+
+def _auto_create_indoor_seed_start(user_id, planting_event, plant, quantity):
+    """Auto-create an IndoorSeedStart when placing a transplant-method plant.
+
+    Only creates if:
+    - The plant has weeksIndoors > 0 (can be started indoors)
+    - The planting event has a transplant_date set
+    - No existing IndoorSeedStart is already linked to this planting event
+
+    Args:
+        user_id: The current user's ID
+        planting_event: The PlantingEvent being created (must already be in session)
+        plant: The plant dict from plant_database
+        quantity: Number of plants being placed
+
+    Returns:
+        The created IndoorSeedStart, or None if not applicable
+    """
+    if not plant:
+        return None
+
+    weeks_indoors = plant.get('weeksIndoors', 0)
+    if not weeks_indoors or weeks_indoors <= 0:
+        return None
+
+    transplant_date = planting_event.transplant_date
+    if not transplant_date:
+        return None
+
+    # Calculate indoor start date
+    indoor_start_date = transplant_date - timedelta(weeks=weeks_indoors)
+
+    # Clamp seed start date to today if it would be in the past
+    today = get_now()
+    today_date = today.date() if hasattr(today, 'date') else today
+    original_start_date = indoor_start_date
+    if hasattr(indoor_start_date, 'date'):
+        start_date_only = indoor_start_date.date()
+    else:
+        start_date_only = indoor_start_date
+
+    if start_date_only < today_date:
+        indoor_start_date = datetime.combine(today_date, datetime.min.time())
+        was_clamped = True
+    else:
+        was_clamped = False
+
+    # Calculate expected dates
+    germination_days = plant.get('germination_days', 7)
+    expected_germination_date = indoor_start_date + timedelta(days=germination_days)
+    expected_transplant_date = indoor_start_date + timedelta(weeks=weeks_indoors)
+
+    # Calculate seeds to start (accounting for germination rate)
+    expected_rate = 85.0  # Default germination rate
+    rate = expected_rate / 100.0
+    seeds_to_start = max(quantity, math.ceil(math.ceil(quantity / rate) * 1.15))
+
+    seed_start = IndoorSeedStart(
+        user_id=user_id,
+        plant_id=planting_event.plant_id,
+        variety=planting_event.variety,
+        start_date=indoor_start_date,
+        expected_germination_date=expected_germination_date,
+        expected_transplant_date=expected_transplant_date,
+        seeds_started=seeds_to_start,
+        expected_germination_rate=expected_rate,
+        location=(GardenBed.query.get(planting_event.garden_bed_id).name if planting_event.garden_bed_id else 'windowsill'),
+        light_hours=12,
+        temperature=70,
+        notes=(
+            f'Auto-created: start indoors today (ideally needed {original_start_date.strftime("%Y-%m-%d")}) for transplant on {transplant_date.strftime("%Y-%m-%d")}'
+            if was_clamped
+            else f'Auto-created: start indoors for transplant on {transplant_date.strftime("%Y-%m-%d")}'
+        ),
+        status='planned'
+    )
+
+    db.session.add(seed_start)
+    db.session.flush()  # Get seed_start.id
+
+    # Link to planting event
+    seed_start.planting_event_id = planting_event.id
+
+    # Set seed_start_date on the planting event
+    planting_event.seed_start_date = indoor_start_date
+
+    logging.info(
+        f"[AUTO-SEED-START] Created IndoorSeedStart #{seed_start.id} for "
+        f"{planting_event.plant_id} (variety={planting_event.variety}): "
+        f"start indoors {indoor_start_date.strftime('%Y-%m-%d')}, "
+        f"transplant {transplant_date.strftime('%Y-%m-%d')}, "
+        f"{seeds_to_start} seeds for {quantity} plants"
+    )
+
+    return seed_start
+
 
 # Validation constants
 VALID_SUN_EXPOSURES = ['full', 'partial', 'shade']
@@ -226,7 +325,7 @@ def add_planted_item():
             return jsonify({'error': 'Unauthorized'}), 403
 
         position = data.get('position', {})
-        planted_date = parse_iso_date(data.get('plantedDate')) or datetime.now()
+        planted_date = parse_iso_date(data.get('plantedDate')) or get_now()
 
         # Get plant data to determine planting method and calculate dates
         plant = get_plant_by_id(data['plantId'])
@@ -314,9 +413,22 @@ def add_planted_item():
                 return jsonify(error_response), 409
 
         db.session.add(planting_event)
+        db.session.flush()  # Get planting_event.id for linking
+
+        # Auto-create indoor seed start for transplant-method plants
+        indoor_seed_start = None
+        if planting_method == 'transplant':
+            indoor_seed_start = _auto_create_indoor_seed_start(
+                current_user.id, planting_event, plant, data.get('quantity', 1)
+            )
 
         db.session.commit()
-        return jsonify(item.to_dict()), 201
+
+        response_data = item.to_dict()
+        if indoor_seed_start:
+            response_data['indoorSeedStartCreated'] = True
+            response_data['indoorSeedStartId'] = indoor_seed_start.id
+        return jsonify(response_data), 201
     except KeyError as e:
         db.session.rollback()
         return jsonify({'error': f'Missing required field: {str(e)}'}), 400
@@ -399,7 +511,7 @@ def batch_add_planted_items():
         if not plant:
             return jsonify({'error': f'Plant with ID {data["plantId"]} not found'}), 404
 
-        planted_date = parse_iso_date(data.get('plantedDate')) or datetime.now()
+        planted_date = parse_iso_date(data.get('plantedDate')) or get_now()
 
         # Auto-detect planting method
         weeks_indoors = plant.get('weeksIndoors', 0) if plant else 0
@@ -416,6 +528,7 @@ def batch_add_planted_items():
 
         # Create all items in transaction
         created_items = []
+        created_events = []  # Track PlantingEvents for indoor seed start auto-creation
 
         # DEBUG: Log incoming positions
         print(f"=== BACKEND BATCH DEBUG ===")
@@ -553,6 +666,40 @@ def batch_add_planted_items():
             db.session.add(item)
             db.session.add(planting_event)
             created_items.append(item)
+            created_events.append((planting_event, item.quantity or 1))
+
+        # Auto-create indoor seed starts for transplant-method batch placements.
+        # Group by transplant_date to create one IndoorSeedStart per date
+        # (all positions in a batch share the same plant+variety).
+        indoor_seed_starts_created = 0
+        if planting_method == 'transplant' and plant and plant.get('weeksIndoors', 0) > 0:
+            # Group created events by transplant_date
+            date_groups = {}
+            for evt, qty in created_events:
+                transplant_dt = evt.transplant_date
+                if transplant_dt:
+                    date_key = transplant_dt.date().isoformat()
+                    if date_key not in date_groups:
+                        date_groups[date_key] = {'events': [], 'total_qty': 0}
+                    date_groups[date_key]['events'].append(evt)
+                    date_groups[date_key]['total_qty'] += qty
+
+            # Flush to get planting event IDs before creating IndoorSeedStarts
+            db.session.flush()
+
+            for date_key, group in date_groups.items():
+                # Use the first event in the group as representative (linked to the IndoorSeedStart)
+                representative_event = group['events'][0]
+                total_qty = group['total_qty']
+
+                seed_start = _auto_create_indoor_seed_start(
+                    current_user.id, representative_event, plant, total_qty
+                )
+                if seed_start:
+                    indoor_seed_starts_created += 1
+                    # Set seed_start_date on all events in this date group
+                    for evt in group['events'][1:]:
+                        evt.seed_start_date = representative_event.seed_start_date
 
         # Mark original exported PlantingEvents as completed when placing from a plan.
         # The export creates events with export_key like "{userId}_{planItemId}_{bedId}_{date}_{idx}".
@@ -588,10 +735,13 @@ def batch_add_planted_items():
         for item in created_items:
             print(f"  - Item {item.id} at ({item.position_x}, {item.position_y}) with quantity={item.quantity}")
 
-        return jsonify({
+        response_data = {
             'created': len(created_items),
             'items': [item.to_dict() for item in created_items]
-        }), 201
+        }
+        if indoor_seed_starts_created > 0:
+            response_data['indoorSeedStartsCreated'] = indoor_seed_starts_created
+        return jsonify(response_data), 201
 
     except KeyError as e:
         db.session.rollback()
@@ -1919,7 +2069,7 @@ def mark_event_harvested(event_id):
         event.actual_harvest_date = parse_iso_date(harvest_date)
     else:
         # Default to today if no date provided
-        event.actual_harvest_date = datetime.now()
+        event.actual_harvest_date = get_now()
 
     # Harvesting implies completion
     event.completed = True
@@ -2143,7 +2293,7 @@ def get_planting_events_needing_indoor_starts():
 
         # Filter by future dates unless include_past is true
         if not include_past:
-            query = query.filter(PlantingEvent.transplant_date >= datetime.utcnow())
+            query = query.filter(PlantingEvent.transplant_date >= get_utc_now())
 
         events = query.order_by(PlantingEvent.transplant_date).all()
 
@@ -2215,7 +2365,7 @@ def get_planting_events_needing_indoor_starts():
             expected_germination_date = indoor_start_date + timedelta(days=germination_days)
 
             # Determine timing status
-            days_until_start = (indoor_start_date.date() - datetime.utcnow().date()).days
+            days_until_start = (indoor_start_date.date() - get_utc_now().date()).days
             timing_status = 'good'  # green
             if days_until_start < 0:
                 timing_status = 'past'  # red - should have started already

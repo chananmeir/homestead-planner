@@ -7,6 +7,7 @@ import { ConfirmDialog, useToast } from './common';
 import StructureIcon, { StructureIconSVG } from './common/StructureIcon';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 import { Plant, TrellisStructure } from '../types';
+import { useNow, useToday } from '../contexts/SimulationContext';
 interface Property {
   id: number;
   name: string;
@@ -18,6 +19,8 @@ interface Property {
   zone?: string;
   soilType?: string;
   slope?: string;
+  lastFrostDate?: string | null;
+  firstFrostDate?: string | null;
   notes?: string;
   placedStructures?: PlacedStructure[];
 }
@@ -113,6 +116,8 @@ const CoordinateDisplay: React.FC<{
 };
 
 const PropertyDesigner: React.FC = () => {
+  const now = useNow();
+  const today = useToday();
   const [properties, setProperties] = useState<Property[]>([]);
   const [structures, setStructures] = useState<Structure[]>([]);
   const [treePlants, setTreePlants] = useState<Plant[]>([]);  // Fruit and nut trees
@@ -698,10 +703,10 @@ const PropertyDesigner: React.FC = () => {
   // Auto-create PlantingEvent when tree is placed (Task 4)
   const createPlantingEventForTree = async (plant: Plant, x: number, y: number) => {
     try {
-      const today = new Date().toISOString().split('T')[0];  // YYYY-MM-DD format
+      // today comes from useToday() hook (YYYY-MM-DD format)
 
       // Calculate expected harvest date
-      const harvestDate = new Date();
+      const harvestDate = new Date(now);
       harvestDate.setDate(harvestDate.getDate() + plant.daysToMaturity);
       const expectedHarvestDate = harvestDate.toISOString().split('T')[0];
 
@@ -1422,8 +1427,8 @@ const PropertyDesigner: React.FC = () => {
       onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
     >
-      <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="flex flex-col h-full overflow-hidden px-4">
+      <div className="bg-white rounded-lg shadow-md p-6 flex-shrink-0 mb-4">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-800">Property Designer</h2>
@@ -1505,10 +1510,10 @@ const PropertyDesigner: React.FC = () => {
       </div>
 
       {/* Main Layout: Structures Sidebar (Left) + Designer Canvas (Right) */}
-      <div className="flex flex-col md:flex-row gap-6">
+      <div className="flex flex-col md:flex-row gap-6 flex-1 min-h-0">
         {/* Left Sidebar: Available Structures & Trees */}
         {(structures.length > 0 || treePlants.length > 0) && (
-          <div className="w-full md:w-80 bg-white rounded-lg shadow-md p-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 300px)' }}>
+          <div className="w-full md:w-80 bg-white rounded-lg shadow-md p-6 overflow-y-auto min-h-0">
             <h3 className="text-xl font-bold text-gray-800 mb-4 sticky top-0 bg-white pb-2">Available Items</h3>
             <div className="space-y-6">
               {/* Trees & Shrubs Section */}
@@ -1561,7 +1566,7 @@ const PropertyDesigner: React.FC = () => {
         )}
 
         {/* Right: Designer Canvas */}
-        <div className="flex-1 bg-white rounded-lg shadow-md p-6">
+        <div className="flex-1 bg-white rounded-lg shadow-md p-6 flex flex-col min-h-0 overflow-hidden">
           {loading ? (
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
@@ -1583,8 +1588,8 @@ const PropertyDesigner: React.FC = () => {
               </button>
             </div>
           ) : selectedProperty ? (
-            <div>
-              <div className="flex justify-between items-center mb-6">
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex justify-between items-center mb-6 flex-shrink-0">
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-xl font-bold text-gray-800">{selectedProperty.name}</h3>
@@ -1662,7 +1667,7 @@ const PropertyDesigner: React.FC = () => {
               </div>
 
               {/* Property Map */}
-              <div className="overflow-auto pb-12 relative">
+              <div className="flex-1 overflow-auto pb-12 relative min-h-0">
                 <div className="flex justify-center">
                   <DroppablePropertyMap property={selectedProperty} />
                 </div>

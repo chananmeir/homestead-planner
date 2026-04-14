@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { CompostPile } from '../types';
 import { format, addDays, differenceInDays } from 'date-fns';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
+import { useNow } from '../contexts/SimulationContext';
 
 const CompostTracker: React.FC = () => {
+  const now = useNow();
   const [compostPiles, setCompostPiles] = useState<CompostPile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +110,7 @@ const CompostTracker: React.FC = () => {
   const generateTurnSchedule = (): Date[] => {
     // Turn every 7 days for the first month, then every 14 days
     const schedule: Date[] = [];
-    const today = new Date();
+    const today = now;
 
     for (let i = 1; i <= 4; i++) {
       schedule.push(addDays(today, i * 7));
@@ -697,7 +699,7 @@ const CompostTracker: React.FC = () => {
                   </span>
                   <span className="text-sm text-blue-800">
                     {format(pile.estimatedReadyDate, 'MMM d, yyyy')} (
-                    {differenceInDays(pile.estimatedReadyDate, new Date())} days)
+                    {differenceInDays(pile.estimatedReadyDate, now)} days)
                   </span>
                 </div>
               </div>

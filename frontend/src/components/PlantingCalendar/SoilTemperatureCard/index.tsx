@@ -10,9 +10,10 @@ interface SoilTemperatureCardProps {
   plantingEvents: PlantingCalendar[];
   onDataLoaded?: (data: SoilTempResponse) => void;
   gardenBeds?: GardenBed[];
+  calendarBedId?: number | 'all';
 }
 
-const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvents, onDataLoaded, gardenBeds = [] }) => {
+const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvents, onDataLoaded, gardenBeds = [], calendarBedId }) => {
   // Expanded/collapsed state (persisted in localStorage)
   const [expanded, setExpanded] = useState(() => {
     const saved = localStorage.getItem('soilTemperatureCard.expanded');
@@ -45,6 +46,15 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
       }
     }
   }, [gardenBeds, config.gardenBedId]);
+
+  // Auto-sync soil temp bed when calendar bed filter changes
+  useEffect(() => {
+    if (calendarBedId === 'all') {
+      setConfig(prev => ({ ...prev, gardenBedId: undefined }));
+    } else if (calendarBedId != null) {
+      setConfig(prev => ({ ...prev, gardenBedId: calendarBedId }));
+    }
+  }, [calendarBedId]);
 
   // Fetch soil temperature data whenever config changes
   useEffect(() => {

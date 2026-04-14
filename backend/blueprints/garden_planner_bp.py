@@ -23,6 +23,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime
 from utils.helpers import parse_iso_date
+from simulation_clock import get_now
 import logging
 import json
 import math
@@ -630,7 +631,7 @@ def api_check_rotation():
 
     plant_id = data['plantId']
     bed_id = data['bedId']
-    year = data.get('year', datetime.now().year)
+    year = data.get('year', get_now().year)
 
     try:
         result = check_rotation_conflict(
@@ -691,7 +692,7 @@ def api_suggest_beds():
         return jsonify({'error': 'plantId is required'}), 400
 
     plant_id = data['plantId']
-    year = data.get('year', datetime.now().year)
+    year = data.get('year', get_now().year)
 
     try:
         suggestions = suggest_safe_beds(
@@ -930,7 +931,7 @@ def api_season_progress():
     Returns:
         200: Progress data with summary, byPlant, and byBed aggregates
     """
-    year = request.args.get('year', type=int, default=datetime.now().year)
+    year = request.args.get('year', type=int, default=get_now().year)
 
     # Get all plans for user in this year
     plans = GardenPlan.query.filter_by(user_id=current_user.id, year=year).all()

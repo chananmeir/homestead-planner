@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PlantingCalendar as PlantingCalendarType } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { format, addWeeks } from 'date-fns';
@@ -7,11 +7,22 @@ import { calculatePlantingDates } from '../utils/dateCalculations';
 interface ListViewProps {
   plantingEvents: PlantingCalendarType[];
   setPlantingEvents: React.Dispatch<React.SetStateAction<PlantingCalendarType[]>>;
+  lastFrostDate?: Date;
+  firstFrostDate?: Date;
 }
 
-const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents }) => {
-  const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date('2024-04-15'));
-  const [firstFrostDate, setFirstFrostDate] = useState<Date>(new Date('2024-10-15'));
+const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, lastFrostDate: lastFrostProp, firstFrostDate: firstFrostProp }) => {
+  const [lastFrostDate, setLastFrostDate] = useState<Date>(lastFrostProp || new Date(new Date().getFullYear() + '-04-15'));
+  const [firstFrostDate, setFirstFrostDate] = useState<Date>(firstFrostProp || new Date(new Date().getFullYear() + '-10-15'));
+
+  // Sync with parent frost dates when they arrive from the API
+  useEffect(() => {
+    if (lastFrostProp) setLastFrostDate(lastFrostProp);
+  }, [lastFrostProp]);
+  useEffect(() => {
+    if (firstFrostProp) setFirstFrostDate(firstFrostProp);
+  }, [firstFrostProp]);
+
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [selectedPlant, setSelectedPlant] = useState<string>('');
   const [plantingMethod, setPlantingMethod] = useState<'seed' | 'transplant'>('seed');

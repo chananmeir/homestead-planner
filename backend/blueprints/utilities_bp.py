@@ -47,7 +47,9 @@ from services.geocoding_service import geocoding_service
 from conflict_checker import validate_planting_conflict
 from season_validator import validate_planting_for_property
 from forward_planting_validator import validate_planting_date, check_future_cold_danger
+from simulation_clock import get_now, get_utc_now
 from utils.helpers import parse_iso_date
+from frost_date_lookup import get_frost_dates_for_user
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -85,7 +87,7 @@ def _get_predicted_germination_days(user_id, plant_id, location=None):
 
 def _get_or_create_current_year_plan(user_id):
     """Find the user's plan for the current year, or create one."""
-    current_year = datetime.now().year
+    current_year = get_now().year
     plan = GardenPlan.query.filter_by(user_id=user_id, year=current_year).first()
     if not plan:
         plan = GardenPlan(
@@ -409,7 +411,7 @@ def get_soil_temperature():
             # Parse the date parameter
             query_date = parse_iso_date(query_date_str) if 'T' in query_date_str or 'Z' in query_date_str else datetime.strptime(query_date_str, '%Y-%m-%d')
         else:
-            query_date = datetime.now()
+            query_date = get_now()
 
         # Get parameters from bed or query params (query params override bed)
         if garden_bed:
@@ -1095,7 +1097,7 @@ def transplant_indoor_seed_start(id):
 
     try:
         data = request.json
-        transplant_date = parse_iso_date(data.get('transplantDate', datetime.utcnow().isoformat()))
+        transplant_date = parse_iso_date(data.get('transplantDate', get_utc_now().isoformat()))
 
         # Check if PlantingEvent already exists (from auto-creation)
         if seed_start.planting_event_id:
@@ -1261,7 +1263,7 @@ def create_indoor_start_from_planting_event():
         indoor_start_date = transplant_date - timedelta(weeks=weeks_indoors)
 
         # Note if start date is in the past (but still allow creation)
-        is_past_due = indoor_start_date.date() < datetime.utcnow().date()
+        is_past_due = indoor_start_date.date() < get_utc_now().date()
         warning_message = None
         if is_past_due:
             warning_message = f'Note: Calculated indoor start date ({indoor_start_date.date()}) is in the past. You may be starting late.'
@@ -1442,9 +1444,11 @@ def validate_planting():
     except (ValueError, TypeError) as e:
         return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
 
-    # Get frost dates from settings
-    last_frost_str = Settings.get_setting('last_frost_date', '2024-04-15', user_id=current_user.id)
-    first_frost_str = Settings.get_setting('first_frost_date', '2024-10-15', user_id=current_user.id)
+    # Get frost dates from property/zone lookup (replaces hardcoded Settings fallback)
+    _frost = get_frost_dates_for_user(current_user.id, zipcode=zipcode)
+    last_frost_str = _frost['last_frost'].isoformat()
+    first_frost_str = _frost['first_frost'].isoformat()
+    frost_date_source = _frost['source']  # 'property' | 'zone' | 'zipcode' | 'default'
 
     # Calculate protection offset from bed's season extension
     protection_offset = 0
@@ -1476,6 +1480,11 @@ def validate_planting():
         protection_type=protection_type,
         planting_method=planting_method
     )
+
+    # Include frost date metadata so frontend can warn when using defaults
+    result['frostDateSource'] = frost_date_source
+    result['lastFrostDate'] = last_frost_str
+    result['firstFrostDate'] = first_frost_str
 
     return jsonify(result)
 
@@ -1530,9 +1539,10 @@ def validate_plants_batch():
     except (ValueError, TypeError) as e:
         return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
 
-    # Get frost dates from settings
-    last_frost_str = Settings.get_setting('last_frost_date', '2024-04-15', user_id=current_user.id)
-    first_frost_str = Settings.get_setting('first_frost_date', '2024-10-15', user_id=current_user.id)
+    # Get frost dates from property/zone lookup (replaces hardcoded Settings fallback)
+    _frost2 = get_frost_dates_for_user(current_user.id, zipcode=zipcode)
+    last_frost_str = _frost2['last_frost'].isoformat()
+    first_frost_str = _frost2['first_frost'].isoformat()
 
     # Calculate protection offset from bed's season extension
     protection_offset = 0
@@ -1670,7 +1680,10 @@ def validate_plants_batch():
     return jsonify({
         'results': results,
         'date': planting_date_str,
-        'zipcode': zipcode
+        'zipcode': zipcode,
+        'frostDateSource': _frost2['source'],
+        'lastFrostDate': last_frost_str,
+        'firstFrostDate': first_frost_str,
     })
 
 

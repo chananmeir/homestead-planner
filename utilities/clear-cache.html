@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Homestead Planner Cache</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2d3748;
+        }
+        button {
+            background: #48bb78;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #38a169;
+        }
+        .danger {
+            background: #f56565;
+        }
+        .danger:hover {
+            background: #e53e3e;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+        .success {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+        .info {
+            background: #bee3f8;
+            color: #2c5282;
+            border: 1px solid #90cdf4;
+        }
+        ul {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧹 Clear Homestead Planner Cache</h1>
+        <p>The backend search fix has been applied. Clear your browser cache to see the changes.</p>
+
+        <h3>What will be cleared:</h3>
+        <ul>
+            <li>Seed catalog cache (page 1)</li>
+            <li>Available crops cache</li>
+            <li>Plants database cache</li>
+        </ul>
+
+        <button onclick="clearCache()">Clear Cache</button>
+        <button class="danger" onclick="clearAllStorage()">Clear All Storage (Nuclear Option)</button>
+
+        <div id="status" class="status"></div>
+
+        <div style="margin-top: 30px; padding: 15px; background: #fef5e7; border-radius: 6px;">
+            <h3 style="margin-top: 0;">After clearing cache:</h3>
+            <ol>
+                <li>Close this page</li>
+                <li>Go to <strong>http://localhost:3000</strong></li>
+                <li>Navigate to <strong>Global Seed Catalog</strong></li>
+                <li>Search for <strong>"potato"</strong></li>
+                <li>You should now see <strong>potato varieties</strong> (not beans!)</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function clearCache() {
+            const cacheKeys = [
+                'homestead_seed_catalog_cache',
+                'homestead_available_crops_cache',
+                'homestead_plants_cache'
+            ];
+
+            let cleared = 0;
+            cacheKeys.forEach(key => {
+                if (localStorage.getItem(key)) {
+                    localStorage.removeItem(key);
+                    cleared++;
+                }
+            });
+
+            const status = document.getElementById('status');
+            status.style.display = 'block';
+            status.className = 'status success';
+            status.innerHTML = `
+                <strong>✓ Cache Cleared!</strong><br>
+                Removed ${cleared} cached items.<br>
+                <br>
+                <strong>Next steps:</strong><br>
+                1. Go to your app at <a href="http://localhost:3000" target="_blank">http://localhost:3000</a><br>
+                2. Navigate to Global Seed Catalog<br>
+                3. Search for "potato"<br>
+                4. You should see actual potato varieties now! 🥔
+            `;
+        }
+
+        function clearAllStorage() {
+            const itemCount = localStorage.length;
+            localStorage.clear();
+
+            const status = document.getElementById('status');
+            status.style.display = 'block';
+            status.className = 'status success';
+            status.innerHTML = `
+                <strong>✓ All Storage Cleared!</strong><br>
+                Removed ${itemCount} items from localStorage.<br>
+                <strong>Note:</strong> You may need to log in again.<br>
+                <br>
+                <strong>Next steps:</strong><br>
+                1. Go to your app at <a href="http://localhost:3000" target="_blank">http://localhost:3000</a><br>
+                2. Log in if needed<br>
+                3. Navigate to Global Seed Catalog<br>
+                4. Search for "potato"<br>
+                5. You should see actual potato varieties now! 🥔
+            `;
+        }
+
+        // Show current cache status
+        window.onload = function() {
+            const catalogCache = localStorage.getItem('homestead_seed_catalog_cache');
+            if (catalogCache) {
+                const cache = JSON.parse(catalogCache);
+                const age = Math.round((Date.now() - cache.timestamp) / 1000 / 60);
+                const status = document.getElementById('status');
+                status.style.display = 'block';
+                status.className = 'status info';
+                status.innerHTML = `
+                    <strong>ℹ Current Cache Status:</strong><br>
+                    - Seed catalog cached: ${cache.data.length} varieties<br>
+                    - Cache age: ${age} minutes<br>
+                    - Click "Clear Cache" to remove old data
+                `;
+            }
+        };
+    </script>
+</body>
+</html>

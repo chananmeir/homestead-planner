@@ -1,0 +1,50 @@
+{
+  "url": "https://app.seedtime.us/",
+  "timestamp": "2025-11-12T23:03:13.255Z",
+  "authenticated": true,
+  "pages": [
+    {
+      "name": "Dashboard/Home",
+      "title": "Seedtime",
+      "url": "https://app.seedtime.us/calendars/year",
+      "screenshot": "01-dashboard.png"
+    }
+  ],
+  "features": [
+    {
+      "type": "Navigation Structure",
+      "items": [
+        "\n\n\nCalendar\n\n",
+        "\n\n\nLayout\n\n",
+        "\n\n\nTasks\n\n",
+        "\n\n\nJournal\n\n",
+        "\n\n  \n  \n\n\nInventory\n\n",
+        "\n\n\nClassroom\n\n",
+        "\n\n\nCommunity\n\n",
+        "\n\n\nStore\n\n",
+        "\n\n\nHelp Docs\n\n",
+        "\n\n\n\nMy Profile\n\n\n10 AI Credits\n\n\n"
+      ],
+      "count": 10
+    }
+  ],
+  "uiPatterns": [
+    {
+      "pattern": "Common Actions",
+      "items": [],
+      "description": "Frequently seen buttons and actions across the app"
+    },
+    {
+      "pattern": "Content Organization",
+      "items": [],
+      "description": "Main sections and headings used throughout"
+    }
+  ],
+  "workflows": [],
+  "recommendations": [
+    {
+      "category": "Feature Comparison",
+      "comparisons": []
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
 import { useToast } from './common';
+import { useNow } from '../contexts/SimulationContext';
 
 interface NutritionTotals {
   calories: number;
@@ -44,10 +45,11 @@ const RDA = {
 };
 
 const NutritionalDashboard: React.FC = () => {
+  const now = useNow();
   const { showError } = useToast();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
 
   useEffect(() => {
     loadDashboardData();

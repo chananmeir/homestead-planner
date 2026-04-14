@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear Icon Preference - Homestead Planner</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(to bottom right, #f0fdf4, #dbeafe);
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #15803d;
+            margin-top: 0;
+        }
+        .instructions {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .button {
+            background: #15803d;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .button:hover {
+            background: #166534;
+        }
+        .button:active {
+            transform: translateY(1px);
+        }
+        #status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+            display: none;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #3b82f6;
+        }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        .step {
+            margin: 15px 0;
+        }
+        .step-number {
+            display: inline-block;
+            background: #15803d;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 24px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🧹 Clear Plant Icon Preference</h1>
+
+        <p>This tool clears the old icon preference setting that may be preventing PNG icons from displaying correctly in Homestead Planner.</p>
+
+        <div class="instructions">
+            <strong>⚠️ Important:</strong> Make sure you're viewing this page from <code>http://localhost:3000</code> (or your frontend server) for this to work correctly.
+        </div>
+
+        <div class="step">
+            <span class="step-number">1</span>
+            <strong>Click the button below to clear the preference:</strong>
+        </div>
+
+        <button class="button" onclick="clearPreference()">Clear Icon Preference</button>
+
+        <div id="status"></div>
+
+        <div class="step" style="margin-top: 30px;">
+            <span class="step-number">2</span>
+            <strong>After clearing, return to your Homestead Planner tab and refresh the page.</strong>
+        </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+        <h3>Manual Method (Alternative)</h3>
+        <p>If the button doesn't work, you can manually clear it:</p>
+        <ol>
+            <li>Open your Homestead Planner tab (http://localhost:3000)</li>
+            <li>Open Browser DevTools (press F12)</li>
+            <li>Go to the Console tab</li>
+            <li>Type: <code>localStorage.removeItem('plantIcon_displayMode')</code></li>
+            <li>Press Enter</li>
+            <li>Refresh the page</li>
+        </ol>
+    </div>
+
+    <script>
+        function clearPreference() {
+            const statusDiv = document.getElementById('status');
+
+            try {
+                // Check if the key exists
+                const oldValue = localStorage.getItem('plantIcon_displayMode');
+
+                if (oldValue !== null) {
+                    // Key exists, remove it
+                    localStorage.removeItem('plantIcon_displayMode');
+                    statusDiv.textContent = `✅ Success! Removed icon preference (was set to: "${oldValue}"). Return to Homestead Planner and refresh the page.`;
+                    statusDiv.className = 'success';
+                } else {
+                    // Key doesn't exist
+                    statusDiv.textContent = 'ℹ️ No icon preference was stored. Your localStorage is already clean!';
+                    statusDiv.className = 'info';
+                }
+
+                statusDiv.style.display = 'block';
+            } catch (error) {
+                statusDiv.textContent = `❌ Error: ${error.message}. Try the manual method below.`;
+                statusDiv.className = 'error';
+                statusDiv.style.display = 'block';
+            }
+        }
+
+        // Check on page load
+        window.addEventListener('load', () => {
+            const statusDiv = document.getElementById('status');
+            const currentValue = localStorage.getItem('plantIcon_displayMode');
+
+            if (currentValue !== null) {
+                statusDiv.textContent = `ℹ️ Found stored preference: "${currentValue}". Click the button to clear it.`;
+                statusDiv.className = 'info';
+                statusDiv.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -26,6 +26,15 @@ python migrations/custom/data/add_spinach.py
 
 ### Recent Migrations
 
+**2026-04-11**: Added `last_frost_date` and `first_frost_date` to `property` table
+- **Migration**: `256f54bf5501_add_last_frost_date_and_first_frost_.py` (Flask-Migrate)
+- **Purpose**: Allow per-property frost date overrides instead of hardcoded Zone 5b defaults
+- **Columns**: `last_frost_date` (Date, nullable), `first_frost_date` (Date, nullable)
+- **Nullable**: Yes - NULL means "derive from property zone or use default"
+- **New module**: `frost_date_lookup.py` provides zone-to-frost-date lookup table
+- **New endpoint**: `GET /api/frost-dates` returns frost dates with priority: property explicit > zone lookup > default
+- **Impact**: Frost dates now respect user's property zone setting; Florida properties see Florida frost dates
+
 **2026-01-24**: Deprecated `garden_plan` strategy fields (UI only)
 - **Status**: Fields retained in database, removed from wizard UI
 - **Affected Fields**:

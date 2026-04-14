@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNow } from '../../contexts/SimulationContext';
 import { List, Calendar, Menu, Clock, PlusCircle, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../types';
@@ -20,11 +21,14 @@ import DayDetailModal from './CalendarGrid/DayDetailModal';
 
 interface PlantingCalendarProps {
   onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number, plantingEventId?: number) => void;
+  // When set to 'soil-temp', scrolls the Soil Temperature card into view on mount.
+  initialView?: 'soil-temp';
 }
 
-const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) => {
+const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, initialView }) => {
+  const now = useNow();
   const [viewMode, setViewMode] = useState<'list' | 'grid' | 'timeline'>('list');
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [currentDate, setCurrentDate] = useState<Date>(now);
   // Shared state for both views - lifted up from ListView
   const [plantingEvents, setPlantingEvents] = useState<PlantingCalendarType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,10 +61,11 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) 
   // Bed filter state
   const [selectedBedId, setSelectedBedId] = useState<number | 'all'>('all');
 
-  // Frost dates - fetched from API
-  const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date('2024-04-15'));
+  // Frost dates - fetched from API (defaults are placeholders until API responds)
+  const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date(new Date().getFullYear() + '-04-15'));
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [firstFrostDate, setFirstFrostDate] = useState<Date>(new Date('2024-10-15'));
+  const [firstFrostDate, setFirstFrostDate] = useState<Date>(new Date(new Date().getFullYear() + '-10-15'));
+  const [frostDateSource, setFrostDateSource] = useState<'property' | 'zone' | 'zipcode' | 'default' | null>(null);
 
   // Load view preference from localStorage on mount
   useEffect(() => {
@@ -74,6 +79,14 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) 
   useEffect(() => {
     localStorage.setItem('plantingCalendar.viewMode', viewMode);
   }, [viewMode]);
+
+  const soilTempCardRef = useRef<HTMLDivElement | null>(null);
+  // Deep-link: when mounted via the soil-temp nav item, scroll the soil card into view.
+  useEffect(() => {
+    if (initialView === 'soil-temp' && soilTempCardRef.current) {
+      soilTempCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [initialView]);
 
   const handleMonthChange = (date: Date) => {
     setCurrentDate(date);
@@ -160,7 +173,9 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) 
   useEffect(() => {
     const fetchFrostDates = async () => {
       try {
-        const response = await apiGet('/api/frost-dates');
+        const weatherZip = localStorage.getItem('weatherZipCode');
+        const frostUrl = weatherZip ? `/api/frost-dates?zipcode=${encodeURIComponent(weatherZip)}` : '/api/frost-dates';
+        const response = await apiGet(frostUrl);
         if (response.ok) {
           const data = await response.json();
           if (data.lastFrostDate) {
@@ -168,6 +183,9 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) 
           }
           if (data.firstFrostDate) {
             setFirstFrostDate(new Date(data.firstFrostDate));
+          }
+          if (data.source) {
+            setFrostDateSource(data.source);
           }
         }
       } catch (err) {
@@ -495,10 +513,41 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) 
           </div>
 
           {/* Soil Temperature Card */}
-          <SoilTemperatureCard plantingEvents={plantingEvents} onDataLoaded={handleSoilDataLoaded} gardenBeds={gardenBeds} />
+          <div ref={soilTempCardRef}>
+            <SoilTemperatureCard plantingEvents={plantingEvents} onDataLoaded={handleSoilDataLoaded} gardenBeds={gardenBeds} calendarBedId={selectedBedId} />
+          </div>
 
           {/* Maple Tapping Season Card */}
           <MapleTappingSeasonCard />
+
+          {/* Frost Date Source Warning */}
+          {frostDateSource === 'default' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+              <MapPin className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-amber-800 font-medium">Using default frost dates (Zone 5b - Milwaukee)</p>
+                <p className="text-amber-700 text-sm mt-1">
+                  Your property does not have a USDA hardiness zone set. Frost date warnings and planting
+                  suggestions are based on Zone 5b defaults (last frost April 15, first frost October 15).
+                  To get accurate frost dates for your area, edit your property in the Property Designer and
+                  select your USDA hardiness zone.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {frostDateSource === 'zipcode' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+              <MapPin className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-blue-800 font-medium">Frost dates based on your weather location</p>
+                <p className="text-blue-700 text-sm mt-1">
+                  Frost dates are derived from your weather ZIP code. For more precise dates,
+                  set your USDA hardiness zone in Property Designer.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Error State */}
           {error && (
@@ -526,6 +575,8 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed }) 
             <ListView
               plantingEvents={filteredEvents}
               setPlantingEvents={setPlantingEvents}
+              lastFrostDate={lastFrostDate}
+              firstFrostDate={firstFrostDate}
             />
           )}
 

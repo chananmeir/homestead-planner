@@ -9,6 +9,7 @@ import { FailedSeedStartDialog } from './IndoorSeedStarts/FailedSeedStartDialog'
 import PlantIcon from './common/PlantIcon';
 import { parseLocalDate } from '../utils/dateUtils';
 import { API_BASE_URL } from '../config';
+import { useNow, useToday } from '../contexts/SimulationContext';
 
 interface Plant {
   id: string;
@@ -55,7 +56,7 @@ interface IndoorSeedStart {
   humidity?: number;
   location?: string;
   notes?: string;
-  status: 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
+  status: 'planned' | 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
   plantingEventId?: number;
   // Live sync fields
   gardenPlanCount?: number;
@@ -71,6 +72,7 @@ interface IndoorSeedStartsProps {
 }
 
 const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) => {
+  const now = useNow();
   const [seedStarts, setSeedStarts] = useState<IndoorSeedStart[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [seedInventory, setSeedInventory] = useState<SeedInventoryItem[]>([]);
@@ -144,7 +146,6 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) 
   const getDaysUntil = (dateString?: string): number | null => {
     if (!dateString) return null;
     const date = new Date(dateString);
-    const now = new Date();
     const diffTime = date.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
@@ -262,7 +263,7 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) 
 
         {/* Filters */}
         <div className="mt-4 flex gap-2 flex-wrap">
-          {['all', 'seeded', 'germinating', 'growing', 'hardening', 'transplanted', 'failed'].map(status => (
+          {['all', 'planned', 'seeded', 'germinating', 'growing', 'hardening', 'transplanted', 'failed'].map(status => (
             <button
               key={status}
               onClick={() => setFilterStatus(status)}
@@ -399,11 +400,14 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) 
                       </span>
                     </div>
                   )}
-                  {daysToGermination !== null && start.status === 'seeded' && (
+                  {daysToGermination !== null && !start.actualGerminationDate && ['planned', 'seeded'].includes(start.status) && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Expected germination:</span>
-                      <span className={`font-medium ${daysToGermination > 0 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {daysToGermination > 0 ? `${daysToGermination} days` : daysToGermination === 0 ? 'Today' : `${Math.abs(daysToGermination)} days overdue`}
+                      <span className={`font-medium ${daysToGermination > 0 ? 'text-yellow-600' : daysToGermination === 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatDate(start.expectedGerminationDate)}
+                        <span className="text-gray-500 ml-1">
+                          ({daysToGermination > 0 ? `in ${daysToGermination}d` : daysToGermination === 0 ? 'today' : `${Math.abs(daysToGermination)}d overdue`})
+                        </span>
                       </span>
                     </div>
                   )}
@@ -605,11 +609,12 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
   showSuccess,
   showError,
 }) => {
+  const today = useToday();
   const [formData, setFormData] = useState({
     plantId: '',
     variety: '',
     seedInventoryId: '',
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: today,
     desiredPlants: 6,
     seedsToPlant: 9,
     containerType: 'cell-tray',
@@ -651,7 +656,7 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
     if (isOpen) {
       setFormData(prev => ({
         ...prev,
-        startDate: new Date().toISOString().split('T')[0]
+        startDate: today
       }));
     }
   }, [isOpen]);
@@ -695,7 +700,7 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
           plantId: '',
           variety: '',
           seedInventoryId: '',
-          startDate: new Date().toISOString().split('T')[0],
+          startDate: today,
           desiredPlants: 6,
           seedsToPlant: 9,
           containerType: 'cell-tray',
@@ -796,6 +801,7 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
             type="date"
             value={formData.startDate}
             onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+            max={`${new Date().getFullYear() + 2}-12-31`}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
             required
           />

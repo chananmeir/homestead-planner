@@ -24,7 +24,7 @@ export interface IndoorSeedStart {
   humidity?: number;
   location?: string;
   notes?: string;
-  status: 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
+  status: 'planned' | 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
   plantingEventId?: number;
   gardenPlanCount?: number;
   gardenPlanExpectedSeeds?: number;
@@ -295,6 +295,7 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
               type="date"
               value={formData.actualGerminationDate}
               onChange={(e) => setFormData({ ...formData, actualGerminationDate: e.target.value })}
+              max={`${new Date().getFullYear() + 2}-12-31`}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
@@ -402,6 +403,7 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
             type="date"
             value={formData.startDate}
             onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+            max={`${new Date().getFullYear() + 2}-12-31`}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           />
           <p className="text-xs text-gray-500 mt-1">Expected dates will recalculate if changed.</p>

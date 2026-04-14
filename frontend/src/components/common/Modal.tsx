@@ -7,6 +7,7 @@ interface ModalProps {
   children: React.ReactNode;
   size?: 'small' | 'medium' | 'large' | 'fullscreen';
   showCloseButton?: boolean;
+  closeOnBackdropClick?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -16,6 +17,7 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   size = 'medium',
   showCloseButton = true,
+  closeOnBackdropClick = true,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const mouseDownTarget = useRef<EventTarget | null>(null);
@@ -48,6 +50,7 @@ export const Modal: React.FC<ModalProps> = ({
   // Only close if both mousedown and click happened on backdrop
   const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (
+      closeOnBackdropClick &&
       event.target === event.currentTarget &&
       mouseDownTarget.current === event.currentTarget
     ) {

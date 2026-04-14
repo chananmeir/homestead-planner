@@ -16,6 +16,7 @@ from plant_database import get_plant_by_id
 from services.space_calculator import calculate_space_requirement
 from services.rotation_checker import get_rotation_status_for_plan_item
 from services.trellis_validation import validate_trellis_segment
+from simulation_clock import get_now
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +209,7 @@ def calculate_plant_quantities(
         plan_items.append(plan_item)
 
     # Add rotation checking for plan items with bed allocations
-    current_year = datetime.now().year
+    current_year = get_now().year
     for item in plan_items:
         if item.get('bedsAllocated') and user_id:
             rotation_status = get_rotation_status_for_plan_item(
@@ -485,19 +486,17 @@ def _calculate_succession(
 
 
 def _get_last_frost_date(user_id: int) -> date:
-    """Get user's last frost date from settings or use default."""
-    # This would query Settings table in real implementation
-    # For now, use a reasonable default (April 15 for Zone 5)
-    current_year = datetime.now().year
-    return date(current_year, 4, 15)
+    """Get user's last frost date from property settings, zone lookup, or default."""
+    from frost_date_lookup import get_frost_dates_for_user
+    result = get_frost_dates_for_user(user_id)
+    return result['last_frost']
 
 
 def _get_first_frost_date(user_id: int) -> date:
-    """Get user's first frost date from settings or use default."""
-    # This would query Settings table in real implementation
-    # For now, use a reasonable default (October 15 for Zone 5)
-    current_year = datetime.now().year
-    return date(current_year, 10, 15)
+    """Get user's first frost date from property settings, zone lookup, or default."""
+    from frost_date_lookup import get_frost_dates_for_user
+    result = get_frost_dates_for_user(user_id)
+    return result['first_frost']
 
 
 def _calculate_first_plant_date(plant: Dict, last_frost_date: date) -> Optional[date]:

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Modal } from '../common/Modal';
 import { PlantedItem, Plant } from '../../types';
 import { apiPut } from '../../utils/api';
+import { useNow } from '../../contexts/SimulationContext';
 
 interface SetSeedDateModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
   plant,
   onSuccess,
 }) => {
+  const now = useNow();
   // Compute a smart default date from plant timing data
   const daysToSeed = plant?.daysToSeed;
   const dtm = plant?.daysToMaturity ?? 0;
@@ -43,7 +45,7 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
       return result.toISOString().split('T')[0];
     }
     // Fallback: 60 days from now
-    const fallback = new Date();
+    const fallback = new Date(now);
     fallback.setDate(fallback.getDate() + 60);
     return fallback.toISOString().split('T')[0];
   };

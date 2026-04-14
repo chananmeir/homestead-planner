@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Modal, Button, FormSelect, FormTextarea, FormDatePicker, FormNumber, useToast } from '../common';
 
 import { API_BASE_URL } from '../../config';
+import { useToday } from '../../contexts/SimulationContext';
 interface Plant {
   id: string;
   name: string;
@@ -15,12 +16,13 @@ interface LogHarvestModalProps {
 }
 
 export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const today = useToday();
   const { showSuccess, showError } = useToast();
   const [loading, setLoading] = useState(false);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [formData, setFormData] = useState({
     plantId: '',
-    harvestDate: new Date().toISOString().split('T')[0], // Default to today
+    harvestDate: today, // Default to today
     quantity: 1,
     unit: 'lbs',
     quality: 'good',
@@ -45,7 +47,7 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
       // Reset form when modal opens
       setFormData({
         plantId: '',
-        harvestDate: new Date().toISOString().split('T')[0],
+        harvestDate: today,
         quantity: 1,
         unit: 'lbs',
         quality: 'good',

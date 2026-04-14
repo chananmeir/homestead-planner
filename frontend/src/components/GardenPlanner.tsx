@@ -20,6 +20,7 @@ import { calculateSuggestedInterval } from './PlantingCalendar/utils/successionC
 import { PlanNutritionCard } from './GardenPlanner/PlanNutritionCard';
 import GardenSnapshot from './GardenPlanner/GardenSnapshot';
 import { useActivePlan } from '../contexts/ActivePlanContext';
+import { useNow } from '../contexts/SimulationContext';
 
 // Debug flag for Season Planner diagnostics
 // To enable: In browser console, run: localStorage.setItem('DEBUG_SEASON_PLANNER', 'true')
@@ -27,6 +28,7 @@ import { useActivePlan } from '../contexts/ActivePlanContext';
 const DEBUG_SEASON_PLANNER = typeof window !== 'undefined' && localStorage.getItem('DEBUG_SEASON_PLANNER') === 'true';
 
 const GardenPlanner: React.FC = () => {
+  const now = useNow();
   const { activePlanId, setActivePlan: setContextActivePlan, clearActivePlan } = useActivePlan();
   const [view, setView] = useState<'list' | 'create' | 'detail' | 'snapshot'>('list');
   const [plans, setPlans] = useState<GardenPlan[]>([]);
@@ -44,6 +46,8 @@ const GardenPlanner: React.FC = () => {
   const [calculatedPlan, setCalculatedPlan] = useState<CalculatePlanResponse | null>(null);
   const [planName, setPlanName] = useState('');
   const [showRotationModal, setShowRotationModal] = useState(false);
+  const [showCreatePlanModal, setShowCreatePlanModal] = useState(false);
+  const [newPlanName, setNewPlanName] = useState('');
   const [selectedRotationWarnings, setSelectedRotationWarnings] = useState<RotationWarningType[]>([]);
 
   // Manual quantity input state
@@ -644,7 +648,7 @@ const GardenPlanner: React.FC = () => {
     const seed = seedInventory.find(s => s.id === seedId);
     if (!seed) return;
 
-    const currentYear = new Date().getFullYear();
+    const currentYear = now.getFullYear();
 
     for (const bedId of bedIds) {
       try {
@@ -941,7 +945,7 @@ const GardenPlanner: React.FC = () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ items, year: new Date().getFullYear() }),
+          body: JSON.stringify({ items, year: now.getFullYear() }),
           signal: abortController.signal
         });
 
@@ -1241,7 +1245,7 @@ const GardenPlanner: React.FC = () => {
         credentials: 'include',
         body: JSON.stringify({
           name: planName,
-          year: new Date().getFullYear(),
+          year: now.getFullYear(),
           strategy: DEFAULT_STRATEGY,
           successionPreference: DEFAULT_SUCCESSION,
           targetTotalPlants: calculatedPlan.summary.totalPlants,
@@ -1361,6 +1365,32 @@ const GardenPlanner: React.FC = () => {
     setEditingPlanName('');
     setMissingSeeds([]);
     setPerSeedSuccession(new Map());
+  };
+
+  /**
+   * Create a new empty plan immediately (no wizard)
+   */
+  const handleCreatePlan = async () => {
+    const name = newPlanName.trim();
+    if (!name) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/garden-plans`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name, year: now.getFullYear(), items: [] })
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create plan');
+      }
+      await loadPlans();
+      setShowCreatePlanModal(false);
+      setNewPlanName('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to create plan');
+      setShowCreatePlanModal(false);
+    }
   };
 
   /**
@@ -1557,15 +1587,15 @@ const GardenPlanner: React.FC = () => {
 
   const isExpired = (expirationDate: string | null | undefined): boolean => {
     if (!expirationDate) return false;
-    return new Date(expirationDate) < new Date();
+    return new Date(expirationDate) < now;
   };
 
   const isExpiringSoon = (expirationDate: string | null | undefined): boolean => {
     if (!expirationDate) return false;
-    const threeMonthsFromNow = new Date();
+    const threeMonthsFromNow = new Date(now.getTime());
     threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
     const expDate = new Date(expirationDate);
-    return expDate < threeMonthsFromNow && expDate >= new Date();
+    return expDate < threeMonthsFromNow && expDate >= now;
   };
 
   // Phase 1: Base filtered (search only)
@@ -1767,13 +1797,13 @@ const GardenPlanner: React.FC = () => {
               <h2 className="text-2xl font-bold">Plans</h2>
               <div className="flex gap-2">
                 <button onClick={() => setView('snapshot')} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Garden Snapshot</button>
-                <button data-testid="create-plan-btn" onClick={() => { setView('create'); resetWizard(); }} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Create Plan</button>
+                <button data-testid="create-plan-btn" onClick={() => { setNewPlanName(`${now.getFullYear()} Garden Plan`); setShowCreatePlanModal(true); }} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Create Plan</button>
               </div>
             </div>
             {plans.length === 0 ? (
               <div className="bg-gray-50 rounded p-8 text-center">
                 <p className="text-gray-600 mb-4">No plans yet.</p>
-                <button onClick={() => { setView('create'); resetWizard(); }} className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700">Create First Plan</button>
+                <button onClick={() => { setNewPlanName(`${now.getFullYear()} Garden Plan`); setShowCreatePlanModal(true); }} className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700">Create First Plan</button>
               </div>
             ) : (
               <div className="grid gap-4">
@@ -1785,6 +1815,12 @@ const GardenPlanner: React.FC = () => {
                         <div className="text-sm text-gray-600">Year: {plan.year} | Crops: {plan.items?.length || 0}</div>
                       </div>
                       <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEditPlan(plan)}
+                          className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+                        >
+                          Work
+                        </button>
                         <button
                           onClick={() => {
                             if (activePlanId === plan.id) {
@@ -1829,6 +1865,44 @@ const GardenPlanner: React.FC = () => {
               </div>
             )}
           </div>
+        )}
+
+        {showCreatePlanModal && (
+          <Modal isOpen={showCreatePlanModal} title="Create New Plan" onClose={() => setShowCreatePlanModal(false)} size="small">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Plan Name</label>
+                <input
+                  type="text"
+                  value={newPlanName}
+                  onChange={(e) => setNewPlanName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newPlanName.trim()) {
+                      handleCreatePlan();
+                    }
+                  }}
+                  className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="e.g., 2024 Garden Plan"
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowCreatePlanModal(false)}
+                  className="px-4 py-2 border rounded hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreatePlan}
+                  disabled={!newPlanName.trim()}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </Modal>
         )}
 
         {view === 'create' && (

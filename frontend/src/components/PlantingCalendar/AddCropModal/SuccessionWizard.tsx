@@ -8,6 +8,7 @@ import { calculateSuggestedInterval, formatSuggestion, getSuggestedCount } from 
 import { apiGet } from '../../../utils/api';
 import PlantIcon from '../../common/PlantIcon';
 import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
+import { useNow } from '../../../contexts/SimulationContext';
 
 interface SuccessionWizardProps {
   isOpen: boolean;
@@ -34,6 +35,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
   initialPlant,
   lastFrostDate,
 }) => {
+  const now = useNow();
   // Wizard state
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
 
@@ -43,7 +45,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
   // Step 2: Configure Series
   const [interval, setInterval] = useState(14);
   const [count, setCount] = useState(5);
-  const [startDate, setStartDate] = useState<Date>(initialDate || new Date());
+  const [startDate, setStartDate] = useState<Date>(initialDate || now);
   const [selectedBedId, setSelectedBedId] = useState<number | ''>('');
   const [variety, setVariety] = useState('');
 
@@ -185,7 +187,7 @@ export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
     setSelectedPlant(null);
     setInterval(14);
     setCount(5);
-    setStartDate(new Date());
+    setStartDate(now);
     setSelectedBedId('');
     setVariety('');
     setPreviewEvents([]);

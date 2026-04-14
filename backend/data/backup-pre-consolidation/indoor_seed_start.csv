@@ -1,0 +1,1 @@
+id,plant_id,variety,seed_inventory_id,start_date,expected_germination_date,expected_transplant_date,actual_transplant_date,seeds_started,seeds_germinated,expected_germination_rate,actual_germination_rate,location,light_hours,temperature,status,hardening_off_started,transplant_ready,planting_event_id,notes,created_at,updated_at,user_id

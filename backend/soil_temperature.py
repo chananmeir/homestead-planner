@@ -14,6 +14,7 @@ for garden planning and planting decisions.
 
 import logging
 from datetime import datetime
+from simulation_clock import get_now
 from openmeteo_service import get_soil_temperature_openmeteo, inches_to_openmeteo_depth
 from weather_service import get_current_temperature
 from mulch_calculator import get_mulch_adjustment
@@ -101,7 +102,7 @@ def calculate_soil_temp(air_temp, soil_type, sun_exposure, mulch_type='none', cu
 
     # Get seasonal mulch adjustment using new calculator
     if current_date is None:
-        current_date = datetime.now()
+        current_date = get_now()
 
     # Calculate baseline before mulch
     baseline_with_soil_sun = air_temp + soil_adj + sun_adj

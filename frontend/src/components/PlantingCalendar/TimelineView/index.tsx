@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNow } from '../../../contexts/SimulationContext';
 import { addMonths, subMonths, startOfMonth, endOfMonth, format } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../../types';
@@ -23,7 +24,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   showAvailableSpaces,
   setShowAvailableSpaces,
 }) => {
-  const [timelineStart, setTimelineStart] = useState<Date>(startOfMonth(new Date()));
+  const now = useNow();
+  const [timelineStart, setTimelineStart] = useState<Date>(startOfMonth(now));
   const [monthCount] = useState(6); // Show 6 months at a time
   const [monthWidth] = useState(200); // 200px per month column
   const [events, setEvents] = useState<PlantingCalendarType[]>([]);
@@ -130,7 +132,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   };
 
   const handleToday = () => {
-    setTimelineStart(startOfMonth(new Date()));
+    setTimelineStart(startOfMonth(now));
   };
 
   const handleEventClick = (event: PlantingCalendarType) => {

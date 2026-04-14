@@ -5,7 +5,7 @@ import { DateFilterValue } from '../components/common/DateFilter';
  * Supports format: ?date=2025-07-15
  * Default: today's date if no param provided
  */
-export const getDateFilterFromUrl = (): DateFilterValue => {
+export const getDateFilterFromUrl = (fallbackToday?: string): DateFilterValue => {
   const params = new URLSearchParams(window.location.search);
   const dateParam = params.get('date');
 
@@ -13,8 +13,8 @@ export const getDateFilterFromUrl = (): DateFilterValue => {
     return { mode: 'single', date: dateParam };
   }
 
-  // Default to today
-  const today = new Date().toISOString().split('T')[0];
+  // Default to today (caller can pass simulated today)
+  const today = fallbackToday || new Date().toISOString().split('T')[0];
   return { mode: 'single', date: today };
 };
 

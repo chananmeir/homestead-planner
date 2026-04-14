@@ -1,0 +1,365 @@
+{
+  "url": "https://www.smartgardener.com/",
+  "timestamp": "2025-11-16T00:01:40.482Z",
+  "authenticated": true,
+  "targetFeatures": [
+    "Garden Layout Designer",
+    "Bed Planning",
+    "Plant Spacing",
+    "Companion Planting",
+    "Crop Rotation",
+    "Planting Calendar"
+  ],
+  "pages": [
+    {
+      "name": "Dashboard/Home",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true",
+      "screenshot": "01-dashboard.png"
+    },
+    {
+      "name": "Garden Size",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true#",
+      "screenshot": "02-garden-size.png",
+      "headings": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "forms": [],
+      "tables": [],
+      "buttons": [
+        "Submit",
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "inputs": [
+        "Found 4 input element(s)"
+      ],
+      "canvases": [],
+      "svgs": [
+        "Found 19 SVG element(s) - possible visual graphics"
+      ],
+      "layoutFeatures": {
+        "hasGrid": true,
+        "hasDragDrop": false,
+        "hasDrawingTools": false,
+        "hasPlantPlacement": false,
+        "measurements": [
+          "1234567891011121314151617181920ft"
+        ]
+      }
+    },
+    {
+      "name": "Beds",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true#",
+      "screenshot": "03-beds.png",
+      "headings": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "forms": [],
+      "tables": [],
+      "buttons": [
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "inputs": [
+        "Found 2 input element(s)"
+      ],
+      "canvases": [],
+      "svgs": [
+        "Found 19 SVG element(s) - possible visual graphics"
+      ],
+      "layoutFeatures": {
+        "hasGrid": true,
+        "hasDragDrop": false,
+        "hasDrawingTools": false,
+        "hasPlantPlacement": false,
+        "measurements": [
+          "1234567891011121314151617181920ft"
+        ]
+      }
+    },
+    {
+      "name": "Add Plants",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true#",
+      "screenshot": "04-add-plants.png",
+      "headings": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "forms": [],
+      "tables": [],
+      "buttons": [
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "inputs": [
+        "Found 3 input element(s)"
+      ],
+      "canvases": [],
+      "svgs": [
+        "Found 66 SVG element(s) - possible visual graphics"
+      ],
+      "layoutFeatures": {
+        "hasGrid": true,
+        "hasDragDrop": false,
+        "hasDrawingTools": false,
+        "hasPlantPlacement": false,
+        "measurements": [
+          "1234567891011121314151617181920ft",
+          "4 M",
+          "4 M",
+          "6 M",
+          "4 M"
+        ]
+      }
+    },
+    {
+      "name": "Recommend Plan",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true#",
+      "screenshot": "05-recommend-plan.png",
+      "headings": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "forms": [],
+      "tables": [],
+      "buttons": [
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "inputs": [
+        "Found 2 input element(s)"
+      ],
+      "canvases": [],
+      "svgs": [
+        "Found 19 SVG element(s) - possible visual graphics"
+      ],
+      "layoutFeatures": {
+        "hasGrid": true,
+        "hasDragDrop": false,
+        "hasDrawingTools": false,
+        "hasPlantPlacement": false,
+        "measurements": [
+          "1234567891011121314151617181920ft"
+        ]
+      }
+    },
+    {
+      "name": "Orientation",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true#",
+      "screenshot": "06-orientation.png",
+      "headings": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "forms": [],
+      "tables": [],
+      "buttons": [
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "inputs": [
+        "Found 2 input element(s)"
+      ],
+      "canvases": [],
+      "svgs": [
+        "Found 19 SVG element(s) - possible visual graphics"
+      ]
+    },
+    {
+      "name": "Shapes",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true#",
+      "screenshot": "07-shapes.png",
+      "headings": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "forms": [],
+      "tables": [],
+      "buttons": [
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "inputs": [
+        "Found 2 input element(s)"
+      ],
+      "canvases": [],
+      "svgs": [
+        "Found 19 SVG element(s) - possible visual graphics"
+      ]
+    },
+    {
+      "name": "Shade",
+      "title": "Vegetable Garden Planner | Vegetable Garden Layout | Planning a Garden",
+      "url": "https://www.smartgardener.com/gardens/545530-maggies-garden/plan?empty=true#",
+      "screenshot": "08-shade.png",
+      "headings": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "forms": [],
+      "tables": [],
+      "buttons": [
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "inputs": [
+        "Found 2 input element(s)"
+      ],
+      "canvases": [],
+      "svgs": [
+        "Found 19 SVG element(s) - possible visual graphics"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "type": "Navigation Structure",
+      "items": [
+        "Orientation",
+        "Garden Size",
+        "Beds",
+        "Add Plants",
+        "Shapes",
+        "Shade",
+        "Recommend Plan"
+      ],
+      "count": 7
+    }
+  ],
+  "layoutTools": {
+    "pagesWithLayoutFeatures": [
+      "Garden Size",
+      "Beds",
+      "Add Plants",
+      "Recommend Plan"
+    ],
+    "gridDetected": true,
+    "dragDropDetected": false,
+    "drawingToolsDetected": false,
+    "measurementsFound": [
+      "1234567891011121314151617181920ft",
+      "1234567891011121314151617181920ft",
+      "1234567891011121314151617181920ft",
+      "4 M",
+      "4 M",
+      "6 M",
+      "4 M",
+      "1234567891011121314151617181920ft"
+    ]
+  },
+  "uiPatterns": [
+    {
+      "pattern": "Common Actions",
+      "items": [
+        "Submit",
+        "Select Visibility",
+        "Select Active Layer",
+        "Need Help?"
+      ],
+      "description": "Frequently seen buttons and actions across the app"
+    },
+    {
+      "pattern": "Content Organization",
+      "items": [
+        "\n                      \n                        Maggie's Garden\n                      \n                    ",
+        "Plant List"
+      ],
+      "description": "Main sections and headings used throughout"
+    }
+  ],
+  "comparison": {
+    "vsPropertyDesigner": [
+      {
+        "feature": "Drag-and-Drop Layout",
+        "homestead": "Yes - Advanced with @dnd-kit/core",
+        "smartgardener": "Unknown",
+        "advantage": "homestead"
+      },
+      {
+        "feature": "Collision Detection",
+        "homestead": "Yes - Advanced validation system",
+        "smartgardener": "Unknown (requires deeper analysis)",
+        "advantage": "homestead"
+      },
+      {
+        "feature": "Grid System",
+        "homestead": "Yes - Multi-level (1ft, 10ft, 50ft)",
+        "smartgardener": "Detected",
+        "advantage": "tie"
+      },
+      {
+        "feature": "Measurement System",
+        "homestead": "Feet (10 pixels per foot)",
+        "smartgardener": "Detected",
+        "advantage": "unknown"
+      }
+    ],
+    "vsGardenDesigner": [
+      {
+        "feature": "Square Foot Gardening",
+        "homestead": "Yes - Grid-based planning",
+        "smartgardener": "Unknown (requires deeper analysis)",
+        "advantage": "unknown"
+      },
+      {
+        "feature": "Plant Placement",
+        "homestead": "Yes - Drag-and-drop within beds",
+        "smartgardener": "Unknown (requires deeper analysis)",
+        "advantage": "unknown"
+      }
+    ]
+  },
+  "recommendations": [
+    {
+      "category": "Feature Comparison",
+      "comparisons": [
+        {
+          "feature": "garden layout",
+          "ourEquivalent": "Property Designer",
+          "theyHaveIt": true
+        },
+        {
+          "feature": "bed planning",
+          "ourEquivalent": "Garden Designer",
+          "theyHaveIt": true
+        },
+        {
+          "feature": "planting",
+          "ourEquivalent": "Planting Events",
+          "theyHaveIt": true
+        },
+        {
+          "feature": "calendar",
+          "ourEquivalent": "Future: Enhanced Planting Calendar",
+          "theyHaveIt": false
+        },
+        {
+          "feature": "companion planting",
+          "ourEquivalent": "Future: Companion Planting Rules",
+          "theyHaveIt": false
+        },
+        {
+          "feature": "crop rotation",
+          "ourEquivalent": "Future: Rotation Planning",
+          "theyHaveIt": false
+        }
+      ]
+    }
+  ]
+}

@@ -24,7 +24,9 @@ import { calculateSpacingBuffer } from './GardenDesigner/utils/footprintCalculat
 import CollectSeedsModal from './GardenDesigner/CollectSeedsModal';
 import SetSeedDateModal from './GardenDesigner/SetSeedDateModal';
 import WeatherAlertBanner from './GardenDesigner/WeatherAlertBanner';
+import BedOverviewGrid from './GardenDesigner/BedOverviewGrid';
 import { parseLocalDate } from '../utils/dateUtils';
+import { useNow, useToday } from '../contexts/SimulationContext';
 import { usePlantingEvents } from './GardenDesigner/hooks/usePlantingEvents';
 import { GuildSelector } from './GardenDesigner/GuildSelector';
 import { GuildPreview } from './GardenDesigner/GuildPreview';
@@ -44,6 +46,8 @@ import {
 
 const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDate, transplantSeedStartId, onTransplantComplete, plantingEventId, onPlantingComplete }) => {
   const { activePlanId, planRefreshKey, bumpPlanRefresh, ensureActivePlan } = useActivePlan();
+  const now = useNow();
+  const today = useToday();
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [activeBed, setActiveBed] = useState<GardenBed | null>(null);
@@ -87,7 +91,6 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   const { showSuccess, showError } = useToast();
 
   // Date filtering state - default to today
-  const today = new Date().toISOString().split('T')[0];
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({ mode: 'single', date: today });
   const { plantingEvents, futurePlantingEvents, fetchPlantingEvents, fetchFuturePlantingEvents } = usePlantingEvents(dateFilter);
   const [showFuturePlantings, setShowFuturePlantings] = useState<boolean>(() => localStorage.getItem('showFuturePlantings') === 'true');
@@ -103,6 +106,12 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   const [showGuildSelector, setShowGuildSelector] = useState(false);
   const [showGuildPreview, setShowGuildPreview] = useState(false);
   const [selectedGuild, setSelectedGuild] = useState<{ guildId: string; guild: any } | null>(null);
+
+  // Header settings panel collapsed state
+  const [showSettingsPanel, setShowSettingsPanel] = useState<boolean>(() => localStorage.getItem('designerSettingsOpen') === 'true');
+
+  // View mode: overview (bed cards) vs detail (full grid)
+  const [viewMode, setViewMode] = useState<'overview' | 'detail'>('overview');
 
   // Transplant mode state
   const [transplantMode, setTransplantMode] = useState<{
@@ -333,9 +342,9 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
   // Read date filter from URL on mount
   useEffect(() => {
-    const filterFromUrl = getDateFilterFromUrl();
+    const filterFromUrl = getDateFilterFromUrl(today);
     setDateFilter(filterFromUrl);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // fetchPlantingEvents and fetchFuturePlantingEvents provided by usePlantingEvents hook
 
@@ -405,6 +414,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     setActiveBed(bed);
     setCheckedBeds(new Set([initialBedId]));
     localStorage.setItem('checkedBedIds', JSON.stringify([initialBedId]));
+    setViewMode('detail');
 
     if (initialDate) {
       const dateStr = initialDate.split('T')[0]; // strip time if present
@@ -440,6 +450,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             variety: data.variety || undefined,
             bedName,
           });
+          setViewMode('detail');
         }
       } catch (err) {
         console.error('Failed to load transplant seed start info:', err);
@@ -499,6 +510,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             bedName,
             plantId: data.plantId,
           });
+          setViewMode('detail');
         }
       } catch (err) {
         console.error('Failed to load planting event info:', err);
@@ -1365,7 +1377,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   const handlePlantedItemClick = (item: PlantedItem, bed: GardenBed, e: React.MouseEvent) => {
     e.stopPropagation();
     const plant = plants.find(p => p.id === item.plantId);
-    const currentDate = dateFilter.date || new Date().toISOString().split('T')[0];
+    const currentDate = dateFilter.date || today;
     const futureEvents = getFuturePlantingsAtPosition(bed, item.position.x, item.position.y, currentDate);
     setSelectedPlantedCell({ item, bed, plant, futureEvents, clickX: e.clientX, clickY: e.clientY });
     setPanelDragOffset({ dx: 0, dy: 0 });
@@ -1575,7 +1587,11 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             setVisibleBeds(prev => prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed));
           }
           bumpPlanRefresh();
-          showSuccess(`Placed ${totalPlaced} ${cropName}${config.variety ? ` (${config.variety})` : ''} across ${data.created} positions`);
+          let batchMsg = `Placed ${totalPlaced} ${cropName}${config.variety ? ` (${config.variety})` : ''} across ${data.created} positions`;
+          if (data.indoorSeedStartsCreated) {
+            batchMsg += ` -- ${data.indoorSeedStartsCreated} indoor seed start event${data.indoorSeedStartsCreated > 1 ? 's' : ''} created`;
+          }
+          showSuccess(batchMsg);
         } else {
           const errorData = await response.json();
           showError(formatConflictError(errorData));
@@ -1603,6 +1619,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         const response = await apiPost('/api/planted-items', payload);
 
         if (response.ok) {
+          const responseData = await response.json();
           const freshBeds = await loadData();
           await fetchPlantingEvents();
           await fetchFuturePlantingEvents();
@@ -1616,7 +1633,11 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           }
 
           bumpPlanRefresh();
-          showSuccess(`Placed ${totalQuantity} ${cropName}${config.variety ? ` (${config.variety})` : ''} in 1 square`);
+          let successMsg = `Placed ${totalQuantity} ${cropName}${config.variety ? ` (${config.variety})` : ''} in 1 square`;
+          if (responseData.indoorSeedStartCreated) {
+            successMsg += ' -- Indoor seed start event created';
+          }
+          showSuccess(successMsg);
         } else {
           const errorText = await response.text();
           console.error('Failed to create planted item:', response.status, errorText);
@@ -1722,9 +1743,11 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           }
 
           bumpPlanRefresh();
-          showSuccess(
-            `Placed ${totalPlantsPlaced} ${cropName}${config.variety ? ` (${config.variety})` : ''} across ${data.created} squares`
-          );
+          let multiMsg = `Placed ${totalPlantsPlaced} ${cropName}${config.variety ? ` (${config.variety})` : ''} across ${data.created} squares`;
+          if (data.indoorSeedStartsCreated) {
+            multiMsg += ` -- ${data.indoorSeedStartsCreated} indoor seed start event${data.indoorSeedStartsCreated > 1 ? 's' : ''} created`;
+          }
+          showSuccess(multiMsg);
         } else {
           const errorData = await response.json();
           showError(formatConflictError(errorData));
@@ -2296,10 +2319,11 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="w-screen relative left-[50%] right-[50%] -mx-[50vw]">
-        <div className="flex gap-6 h-[calc(100vh-200px)]">
-          {/* Plant Palette Sidebar */}
-          <div className="flex-shrink-0 flex flex-col gap-2 max-h-[calc(100vh-200px)] overflow-y-auto">
+      <div className="w-full h-full flex flex-col px-4">
+        <div className="flex gap-6 flex-1 min-h-0">
+          {/* Plant Palette Sidebar - detail mode only */}
+          {viewMode === 'detail' && (
+          <div className="flex-shrink-0 flex flex-col gap-2 overflow-y-auto min-h-0">
             <PlantPalette
               plants={plants}
               plantingDate={dateFilter.date}
@@ -2343,214 +2367,32 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
               <span>Plant Guilds</span>
             </button>
           </div>
+          )}
 
           {/* Main Designer Area */}
-          <div className="flex-1 flex flex-col space-y-6 overflow-auto pr-4">
-          {/* Header Card */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Garden Designer</h2>
-            <p className="text-gray-600 mb-6">
-              Drag plants from the palette onto your garden bed grid to start designing your garden.
-            </p>
-
-            {/* Error Display */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                <div className="flex items-center gap-2">
-                  <span className="text-red-600 font-medium">Error:</span>
-                  <span className="text-red-700">{error}</span>
-                </div>
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden pr-4">
+          {/* Compact Toolbar */}
+          <div className="bg-white rounded-lg shadow-sm px-3 py-2 flex-shrink-0 mb-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Back to Overview - detail mode only */}
+              {viewMode === 'detail' && (
                 <button
-                  onClick={() => loadData()}
-                  className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                  data-testid="back-to-overview-btn"
+                  onClick={() => setViewMode('overview')}
+                  disabled={!!transplantMode || !!plantingMode}
+                  className="px-2.5 py-1.5 text-sm font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={transplantMode || plantingMode ? 'Complete or cancel current operation first' : 'Back to bed overview'}
                 >
-                  Retry
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Overview
                 </button>
-              </div>
-            )}
+              )}
 
-            {/* Transplant Mode Banner */}
-            {transplantMode && (
-              <div className="bg-green-50 border border-green-300 rounded-lg p-4 mb-6 flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">&#127793;</span>
-                  <div>
-                    <span className="font-medium text-green-800">
-                      Transplanting {transplantMode.plantName}
-                      {transplantMode.variety ? ` (${transplantMode.variety})` : ''}
-                      {' \u2192 '}{transplantMode.bedName}
-                    </span>
-                    <p className="text-sm text-green-600">
-                      Place your plants on the grid, then mark as transplanted.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleMarkTransplanted}
-                    disabled={markingTransplanted}
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {markingTransplanted ? 'Saving...' : 'Mark as Transplanted'}
-                  </button>
-                  <button
-                    onClick={handleCancelTransplant}
-                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Planting Event Mode Banner */}
-            {plantingMode && (
-              <div className="bg-orange-50 border border-orange-300 rounded-lg p-4 mb-6 flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">&#127955;</span>
-                  <div>
-                    <span className="font-medium text-orange-800">
-                      Planting {plantingMode.plantName}
-                      {plantingMode.variety ? ` (${plantingMode.variety})` : ''}
-                      {' \u2192 '}{plantingMode.bedName}
-                    </span>
-                    <p className="text-sm text-orange-600">
-                      Place your plants on the grid, then mark as planted.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleMarkPlanted}
-                    disabled={markingPlanted}
-                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {markingPlanted ? 'Saving...' : 'Mark as Planted'}
-                  </button>
-                  <button
-                    onClick={handleCancelPlanting}
-                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Shift Key Duplication Hint */}
-            {isShiftPressed && (
-              <div className="bg-blue-50 border-2 border-blue-400 rounded-lg p-4 mb-6 animate-pulse">
-                <div className="flex items-center gap-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xl font-bold">+</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-blue-900 font-semibold">Duplication Mode Active</div>
-                    <div className="text-blue-700 text-sm">
-                      Drag any placed plant to duplicate it with the same settings
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
-                <div className="text-3xl font-bold text-green-700 mb-2">{beds.length}</div>
-                <div className="text-sm text-green-600 font-medium">Garden Beds</div>
-              </div>
-
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border border-blue-200">
-                <div className="text-3xl font-bold text-blue-700 mb-2">
-                  {beds.reduce((sum, bed) => sum + getActivePlantedItems(bed).length, 0)}
-                </div>
-                <div className="text-sm text-blue-600 font-medium">Plants Placed</div>
-              </div>
-
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-6 border border-purple-200">
-                <div className="text-3xl font-bold text-purple-700 mb-2">
-                  {beds.reduce((sum, bed) => sum + (bed.width * bed.length), 0)}
-                </div>
-                <div className="text-sm text-purple-600 font-medium">Total Sq Ft</div>
-              </div>
-            </div>
-
-            {/* Date Filter */}
-            <DateFilter
-              value={dateFilter}
-              onChange={handleDateFilterChange}
-            />
-
-            {/* Weather Alert Banner */}
-            <WeatherAlertBanner
-              date={dateFilter.date}
-              plantingEvents={plantingEvents}
-              plants={plants}
-              beds={beds}
-              zipCode={localStorage.getItem('weatherZipCode') || ''}
-            />
-
-            {/* Future Plantings Toggle - Prominent Button */}
-            {(() => {
-              const futurePlacedCount = beds.reduce((sum, bed) => sum + getFuturePlantedItems(bed).length, 0);
-              const futureEventCount = futurePlantingEvents.filter(ev => ev.eventType === 'planting').length;
-              const totalFutureCount = futurePlacedCount + futureEventCount;
-              if (totalFutureCount === 0) return null;
-              const description = futurePlacedCount > 0 && futureEventCount > 0
-                ? `${futurePlacedCount} placed + ${futureEventCount} scheduled`
-                : futurePlacedCount > 0
-                  ? `${futurePlacedCount} placed plant${futurePlacedCount !== 1 ? 's' : ''} with future dates`
-                  : `${futureEventCount} scheduled planting${futureEventCount !== 1 ? 's' : ''} from calendar`;
-              return (
-                <div className="mb-4">
-                  <button
-                    data-testid="future-plantings-toggle"
-                    onClick={() => { const next = !showFuturePlantings; localStorage.setItem('showFuturePlantings', String(next)); setShowFuturePlantings(next); }}
-                    className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border-2 transition-all ${
-                      showFuturePlantings
-                        ? 'bg-green-100 border-green-400 text-green-800'
-                        : 'bg-gray-50 border-gray-300 text-gray-600 hover:border-green-300 hover:bg-green-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        showFuturePlantings ? 'bg-green-500' : 'bg-gray-400'
-                      }`}>
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-medium">
-                          {showFuturePlantings ? 'Future Plantings Visible' : 'Show Future Plantings'}
-                        </div>
-                        <div className="text-xs opacity-75">
-                          {description}
-                        </div>
-                      </div>
-                    </div>
-                    <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      showFuturePlantings
-                        ? 'bg-green-500 text-white'
-                        : 'bg-gray-300 text-gray-600'
-                    }`}>
-                      {showFuturePlantings ? 'ON' : 'OFF'}
-                    </div>
-                  </button>
-                </div>
-              );
-            })()}
-
-            {/* Bed Selector */}
-            {beds.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Display Beds:
-                </label>
-                <div className="flex items-center gap-4 flex-wrap">
+              {/* Bed Selector - detail mode only */}
+              {viewMode === 'detail' && beds.length > 0 && (
+                <>
                   <select
                     data-testid="bed-selector"
                     value={bedFilter === 'all' ? 'all' : bedFilter.toString()}
@@ -2562,7 +2404,6 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                         const allIds = new Set(beds.map(b => b.id));
                         setCheckedBeds(allIds);
                         localStorage.setItem('checkedBedIds', JSON.stringify(Array.from(allIds)));
-                        // Keep active bed if it exists, otherwise activate first bed
                         if (!activeBed || !beds.find(b => b.id === activeBed.id)) {
                           setActiveBed(beds[0]);
                         }
@@ -2579,24 +2420,24 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                         }
                       }
                     }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   >
                     <option value="all">All Beds ({beds.length})</option>
                     {beds.map(bed => {
                       const getProtectionIcon = () => {
                         if (!bed.seasonExtension || bed.seasonExtension.type === 'none') return '';
                         const icons: Record<string, string> = {
-                          'row-cover': '🛡️',
-                          'low-tunnel': '⛺',
-                          'cold-frame': '📦',
-                          'high-tunnel': '🏠',
-                          'greenhouse': '🏛️'
+                          'row-cover': '\uD83D\uDEE1\uFE0F',
+                          'low-tunnel': '\u26FA',
+                          'cold-frame': '\uD83D\uDCE6',
+                          'high-tunnel': '\uD83C\uDFE0',
+                          'greenhouse': '\uD83C\uDFDB\uFE0F'
                         };
                         return icons[bed.seasonExtension.type] + ' ' || '';
                       };
                       return (
                         <option key={bed.id} value={bed.id}>
-                          {getProtectionIcon()}{bed.name} ({bed.width}' × {bed.length}')
+                          {getProtectionIcon()}{bed.name} ({bed.width}' x {bed.length}')
                         </option>
                       );
                     })}
@@ -2604,86 +2445,114 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
                   {/* Active Bed Indicator */}
                   {activeBed && (
-                    <div data-testid="active-bed-indicator" className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-                      <span className="text-sm font-medium text-green-700">Active:</span>
-                      <span className="text-sm text-green-900">{activeBed.name}</span>
-
-                      {/* Season Extension Indicator */}
+                    <div data-testid="active-bed-indicator" className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded text-sm">
+                      <span className="font-medium text-green-700">{activeBed.name}</span>
                       {activeBed.seasonExtension && activeBed.seasonExtension.type !== 'none' && (
-                        <span className="ml-2 px-2 py-1 bg-blue-100 border border-blue-300 rounded text-xs font-medium text-blue-800">
+                        <span className="px-1.5 py-0.5 bg-blue-100 border border-blue-300 rounded text-xs font-medium text-blue-800">
                           {(() => {
                             const getProtectionInfo = (type: string) => {
                               const protectionTypes: Record<string, { name: string; boost: string; icon: string }> = {
-                                'row-cover': { name: 'Row Cover', boost: '+4°F', icon: '🛡️' },
-                                'low-tunnel': { name: 'Low Tunnel', boost: '+6°F', icon: '⛺' },
-                                'cold-frame': { name: 'Cold Frame', boost: '+10°F', icon: '📦' },
-                                'high-tunnel': { name: 'High Tunnel', boost: '+8°F', icon: '🏠' },
-                                'greenhouse': { name: 'Greenhouse', boost: '+10°F', icon: '🏛️' }
+                                'row-cover': { name: 'Row Cover', boost: '+4\u00B0F', icon: '\uD83D\uDEE1\uFE0F' },
+                                'low-tunnel': { name: 'Low Tunnel', boost: '+6\u00B0F', icon: '\u26FA' },
+                                'cold-frame': { name: 'Cold Frame', boost: '+10\u00B0F', icon: '\uD83D\uDCE6' },
+                                'high-tunnel': { name: 'High Tunnel', boost: '+8\u00B0F', icon: '\uD83C\uDFE0' },
+                                'greenhouse': { name: 'Greenhouse', boost: '+10\u00B0F', icon: '\uD83C\uDFDB\uFE0F' }
                               };
-                              return protectionTypes[type] || { name: type, boost: '', icon: '🛡️' };
+                              return protectionTypes[type] || { name: type, boost: '', icon: '\uD83D\uDEE1\uFE0F' };
                             };
-
                             const outer = getProtectionInfo(activeBed.seasonExtension.type);
                             const hasInner = activeBed.seasonExtension.innerType && activeBed.seasonExtension.innerType !== 'none';
-
                             if (hasInner) {
                               const inner = getProtectionInfo(activeBed.seasonExtension.innerType!);
-                              return `${outer.icon} ${outer.name} ${outer.boost} + ${inner.icon} ${inner.name} ${inner.boost}`;
+                              return `${outer.icon} ${outer.boost} + ${inner.icon} ${inner.boost}`;
                             }
-
-                            return `${outer.icon} ${outer.name} ${outer.boost}`;
+                            return `${outer.icon} ${outer.boost}`;
                           })()}
                         </span>
                       )}
-
                       <button
                         data-testid="edit-bed-btn"
                         onClick={() => setEditingBed(activeBed)}
-                        className="ml-2 text-green-700 hover:text-green-900 transition-colors"
+                        className="text-green-700 hover:text-green-900 transition-colors"
                         title="Edit this bed"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                         </svg>
                       </button>
                     </div>
                   )}
+                </>
+              )}
 
-                  {/* Add Bed Button */}
-                  <button
-                    data-testid="add-bed-btn"
-                    onClick={() => setShowBedModal(true)}
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Add Bed
-                  </button>
+              {/* Add Bed */}
+              <button
+                data-testid="add-bed-btn"
+                onClick={() => setShowBedModal(true)}
+                className="px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Bed
+              </button>
 
-                  {/* Clear Bed Button */}
-                  {activeBed && getActivePlantedItems(activeBed).length > 0 && (
+              {/* Contextual action buttons - detail mode only */}
+              {viewMode === 'detail' && activeBed && getActivePlantedItems(activeBed).length > 0 && (
+                <button
+                  data-testid="clear-bed-btn"
+                  onClick={() => setClearConfirm(true)}
+                  className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  Clear ({getActivePlantedItems(activeBed).length})
+                </button>
+              )}
+              {viewMode === 'detail' && selectedPlant && (
+                <button
+                  onClick={() => setDeleteConfirm(true)}
+                  className="px-2.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete
+                </button>
+              )}
+
+              {/* Separator */}
+              <div className="hidden sm:block w-px h-6 bg-gray-300" />
+
+              {/* Date Filter - both modes */}
+              <DateFilter
+                value={dateFilter}
+                onChange={handleDateFilterChange}
+              />
+
+              {/* Detail-only controls: zoom + grid labels */}
+              {viewMode === 'detail' && (
+                <>
+                  <div className="hidden sm:block w-px h-6 bg-gray-300" />
+
+                  {/* Zoom Controls */}
+                  <div className="flex items-center gap-1">
                     <button
-                      data-testid="clear-bed-btn"
-                      onClick={() => setClearConfirm(true)}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                      onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.25))}
+                      className="w-7 h-7 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded text-sm flex items-center justify-center"
+                      title="Zoom out"
                     >
-                      Clear Active Bed ({getActivePlantedItems(activeBed).length} plants)
+                      -
                     </button>
-                  )}
-
-                  {/* Delete Selected Plant Button */}
-                  {selectedPlant && (
+                    <span className="text-xs font-medium text-gray-600 w-10 text-center">
+                      {Math.round(zoomLevel * 100)}%
+                    </span>
                     <button
-                      onClick={() => setDeleteConfirm(true)}
-                      className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                      onClick={() => setZoomLevel(Math.min(2, zoomLevel + 0.25))}
+                      className="w-7 h-7 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded text-sm flex items-center justify-center"
+                      title="Zoom in"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      Delete Selected Plant
+                      +
                     </button>
-                  )}
+                  </div>
 
                   {/* Grid Labels Toggle */}
                   <button
@@ -2701,40 +2570,183 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                   >
                     A1
                   </button>
+                </>
+              )}
 
-                  {/* Zoom Controls */}
-                  <div className="flex items-center gap-2 ml-auto">
-                    <span className="text-sm font-medium text-gray-700">Zoom:</span>
-                    <button
-                      onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.25))}
-                      className="w-8 h-8 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded transition-colors flex items-center justify-center"
-                      title="Zoom out"
-                    >
-                      -
-                    </button>
-                    <span className="text-sm font-medium text-gray-600 w-12 text-center">
-                      {Math.round(zoomLevel * 100)}%
+              {/* Inline Stats */}
+              <div className="hidden md:flex items-center gap-1.5 text-xs text-gray-500 ml-auto">
+                <span className="font-medium text-green-700">{beds.length}</span> beds
+                <span className="text-gray-300">|</span>
+                <span className="font-medium text-blue-700">{beds.reduce((sum, bed) => sum + getActivePlantedItems(bed).length, 0)}</span> plants
+                <span className="text-gray-300">|</span>
+                <span className="font-medium text-purple-700">{beds.reduce((sum, bed) => sum + (bed.width * bed.length), 0)}</span> sq ft
+              </div>
+
+              {/* Settings Panel Toggle - detail mode only */}
+              {viewMode === 'detail' && (
+              <button
+                onClick={() => {
+                  const next = !showSettingsPanel;
+                  setShowSettingsPanel(next);
+                  localStorage.setItem('designerSettingsOpen', String(next));
+                }}
+                className={`px-2.5 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1 ${
+                  showSettingsPanel
+                    ? 'bg-gray-200 text-gray-800 border-gray-400'
+                    : 'bg-gray-50 text-gray-600 border-gray-300 hover:bg-gray-100'
+                }`}
+                title="Toggle settings panel"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                {showSettingsPanel ? 'Hide' : 'More'}
+              </button>
+              )}
+            </div>
+          </div>
+
+          {/* Contextual Banners - detail mode only */}
+          {viewMode === 'detail' && (<>
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-2 flex-shrink-0 flex items-center gap-2">
+              <span className="text-red-600 font-medium text-sm">Error:</span>
+              <span className="text-red-700 text-sm flex-1">{error}</span>
+              <button
+                onClick={() => loadData()}
+                className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {transplantMode && (
+            <div className="bg-green-50 border border-green-300 rounded-lg p-3 mb-2 flex-shrink-0 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">&#127793;</span>
+                <span className="font-medium text-green-800 text-sm">
+                  Transplanting {transplantMode.plantName}
+                  {transplantMode.variety ? ` (${transplantMode.variety})` : ''}
+                  {' \u2192 '}{transplantMode.bedName}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleMarkTransplanted}
+                  disabled={markingTransplanted}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {markingTransplanted ? 'Saving...' : 'Mark Transplanted'}
+                </button>
+                <button
+                  onClick={handleCancelTransplant}
+                  className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {plantingMode && (
+            <div className="bg-orange-50 border border-orange-300 rounded-lg p-3 mb-2 flex-shrink-0 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">&#127955;</span>
+                <span className="font-medium text-orange-800 text-sm">
+                  Planting {plantingMode.plantName}
+                  {plantingMode.variety ? ` (${plantingMode.variety})` : ''}
+                  {' \u2192 '}{plantingMode.bedName}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleMarkPlanted}
+                  disabled={markingPlanted}
+                  className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {markingPlanted ? 'Saving...' : 'Mark Planted'}
+                </button>
+                <button
+                  onClick={handleCancelPlanting}
+                  className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {isShiftPressed && (
+            <div className="bg-blue-50 border-2 border-blue-400 rounded-lg p-3 mb-2 flex-shrink-0 animate-pulse flex items-center gap-2">
+              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-white text-lg font-bold">+</span>
+              </div>
+              <div>
+                <div className="text-blue-900 font-semibold text-sm">Duplication Mode Active</div>
+                <div className="text-blue-700 text-xs">Drag any placed plant to duplicate it</div>
+              </div>
+            </div>
+          )}
+          <WeatherAlertBanner
+            date={dateFilter.date}
+            plantingEvents={plantingEvents}
+            plants={plants}
+            beds={beds}
+            zipCode={localStorage.getItem('weatherZipCode') || ''}
+          />
+          </>)}
+
+          {/* Collapsible Settings Panel - detail mode only */}
+          {viewMode === 'detail' && showSettingsPanel && (
+            <div className="bg-white rounded-lg shadow-sm px-4 py-3 flex-shrink-0 mb-2 space-y-3">
+              {/* Future Plantings Toggle */}
+              {(() => {
+                const futurePlacedCount = beds.reduce((sum, bed) => sum + getFuturePlantedItems(bed).length, 0);
+                const futureEventCount = futurePlantingEvents.filter(ev => ev.eventType === 'planting').length;
+                const totalFutureCount = futurePlacedCount + futureEventCount;
+                if (totalFutureCount === 0) return null;
+                const description = futurePlacedCount > 0 && futureEventCount > 0
+                  ? `${futurePlacedCount} placed + ${futureEventCount} scheduled`
+                  : futurePlacedCount > 0
+                    ? `${futurePlacedCount} placed plant${futurePlacedCount !== 1 ? 's' : ''} with future dates`
+                    : `${futureEventCount} scheduled planting${futureEventCount !== 1 ? 's' : ''} from calendar`;
+                return (
+                  <button
+                    data-testid="future-plantings-toggle"
+                    onClick={() => { const next = !showFuturePlantings; localStorage.setItem('showFuturePlantings', String(next)); setShowFuturePlantings(next); }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border transition-all text-sm ${
+                      showFuturePlantings
+                        ? 'bg-green-100 border-green-400 text-green-800'
+                        : 'bg-gray-50 border-gray-300 text-gray-600 hover:border-green-300 hover:bg-green-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="font-medium">
+                        {showFuturePlantings ? 'Future Plantings Visible' : 'Show Future Plantings'}
+                      </span>
+                      <span className="text-xs opacity-75">{description}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      showFuturePlantings ? 'bg-green-500 text-white' : 'bg-gray-300 text-gray-600'
+                    }`}>
+                      {showFuturePlantings ? 'ON' : 'OFF'}
                     </span>
-                    <button
-                      onClick={() => setZoomLevel(Math.min(2, zoomLevel + 0.25))}
-                      className="w-8 h-8 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded transition-colors flex items-center justify-center"
-                      title="Zoom in"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
+                  </button>
+                );
+              })()}
 
-                {/* Bed Visibility Checkboxes */}
-                <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
+              {/* Bed Visibility Checkboxes */}
+              {beds.length > 0 && (
+                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium text-gray-700">
-                      Toggle Bed Visibility:
+                      Bed Visibility ({checkedBeds.size}/{beds.length}):
                     </label>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          // Select all beds
                           const allBedIds = new Set(beds.map(b => b.id));
                           setCheckedBeds(allBedIds);
                           setVisibleBeds(beds);
@@ -2744,29 +2756,27 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                             setActiveBed(beds[0]);
                           }
                         }}
-                        className="px-3 py-1 text-xs font-medium bg-green-100 text-green-700 border border-green-300 rounded hover:bg-green-200 transition-colors"
+                        className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 border border-green-300 rounded hover:bg-green-200 transition-colors"
                       >
-                        Select All
+                        All
                       </button>
                       <button
                         onClick={() => {
-                          // Deselect all beds
                           setCheckedBeds(new Set());
                           setVisibleBeds([]);
                           localStorage.setItem('checkedBedIds', JSON.stringify([]));
-                          // Don't clear activeBed - keep it for reference
                         }}
-                        className="px-3 py-1 text-xs font-medium bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition-colors"
+                        className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition-colors"
                       >
-                        Deselect All
+                        None
                       </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  <div className="flex flex-wrap gap-2">
                     {beds.map(bed => (
                       <label
                         key={bed.id}
-                        className="flex items-center gap-2 p-2 rounded hover:bg-gray-100 cursor-pointer transition-colors"
+                        className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-100 cursor-pointer transition-colors text-sm"
                       >
                         <input
                           type="checkbox"
@@ -2777,7 +2787,6 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                               newCheckedBeds.add(bed.id);
                             } else {
                               newCheckedBeds.delete(bed.id);
-                              // If unchecking the active bed, activate another visible bed
                               if (activeBed?.id === bed.id) {
                                 const remainingBeds = beds.filter(b => newCheckedBeds.has(b.id));
                                 if (remainingBeds.length > 0) {
@@ -2787,72 +2796,46 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                             }
                             setCheckedBeds(newCheckedBeds);
                             localStorage.setItem('checkedBedIds', JSON.stringify(Array.from(newCheckedBeds)));
-                            // Update visible beds based on checked beds
                             const visibleBedList = beds.filter(b => newCheckedBeds.has(b.id));
                             setVisibleBeds(visibleBedList);
-                            // Update filter to 'all' if all beds are checked, otherwise set to 'custom'
                             if (newCheckedBeds.size === beds.length) {
                               setBedFilter('all');
                             } else if (newCheckedBeds.size === 1) {
                               setBedFilter(Array.from(newCheckedBeds)[0]);
                             } else {
-                              setBedFilter('all'); // Use 'all' for custom selections too
+                              setBedFilter('all');
                             }
                           }}
-                          className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 focus:ring-2"
+                          className="w-3.5 h-3.5 text-green-600 border-gray-300 rounded focus:ring-green-500 focus:ring-1"
                         />
-                        <span className="text-sm font-medium text-gray-700">
-                          {bed.name}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          ({bed.width}' × {bed.length}')
-                        </span>
+                        <span className="font-medium text-gray-700">{bed.name}</span>
+                        <span className="text-xs text-gray-400">({bed.width}x{bed.length})</span>
                         {bed.seasonExtension && bed.seasonExtension.type !== 'none' && (
                           <span className="text-xs text-blue-600" title={`Protected: ${bed.seasonExtension.type.replace('-', ' ')}`}>
                             {(() => {
                               const icons: Record<string, string> = {
-                                'row-cover': '🛡️',
-                                'low-tunnel': '⛺',
-                                'cold-frame': '📦',
-                                'high-tunnel': '🏠',
-                                'greenhouse': '🏛️'
+                                'row-cover': '\uD83D\uDEE1\uFE0F',
+                                'low-tunnel': '\u26FA',
+                                'cold-frame': '\uD83D\uDCE6',
+                                'high-tunnel': '\uD83C\uDFE0',
+                                'greenhouse': '\uD83C\uDFDB\uFE0F'
                               };
-                              return icons[bed.seasonExtension.type] || '🛡️';
+                              return icons[bed.seasonExtension.type] || '\uD83D\uDEE1\uFE0F';
                             })()}
                           </span>
                         )}
                       </label>
                     ))}
                   </div>
-                  <div className="mt-3 text-xs text-gray-500">
-                    {checkedBeds.size} of {beds.length} beds visible
-                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Date Filter Status Indicator */}
-          <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm font-medium text-blue-800">
-                Showing garden on {dateFilter.date}
-              </span>
-              {activeBed && (
-                <span className="text-xs text-blue-600 ml-2">
-                  ({getActivePlantedItems(activeBed).length} plants visible)
-                </span>
               )}
             </div>
-          </div>
+          )}
 
-          {/* Quick Jump to Bed */}
-          {visibleBeds.length > 1 && (
-            <div className="mb-4 flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium text-gray-500">Jump to:</span>
+          {/* Quick Jump to Bed - detail mode only */}
+          {viewMode === 'detail' && visibleBeds.length > 1 && (
+            <div className="mb-2 flex items-center gap-1.5 flex-wrap flex-shrink-0">
+              <span className="text-xs font-medium text-gray-500">Jump:</span>
               {visibleBeds.map(bed => (
                 <button
                   key={bed.id}
@@ -2860,7 +2843,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                     setActiveBed(bed);
                     bedCardRefs.current[bed.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                   }}
-                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                  className={`px-2 py-0.5 text-xs font-medium rounded-full border transition-colors ${
                     activeBed?.id === bed.id
                       ? 'bg-green-600 text-white border-green-600'
                       : 'bg-white text-gray-700 border-gray-300 hover:bg-green-50 hover:border-green-400'
@@ -2872,14 +2855,28 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             </div>
           )}
 
-          {/* Designer Canvas */}
-          <div className="bg-white rounded-lg shadow-md p-6 flex-1">
-            {loading ? (
+          {/* Main Content Area */}
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center bg-white rounded-lg shadow-md">
               <div className="text-center py-12">
                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
                 <p className="mt-4 text-gray-600">Loading garden designer...</p>
               </div>
-            ) : beds.length === 0 ? (
+            </div>
+          ) : viewMode === 'overview' ? (
+            <BedOverviewGrid
+              beds={beds}
+              plants={plants}
+              getActivePlantedItems={getActivePlantedItems}
+              onSelectBed={(bed) => {
+                setActiveBed(bed);
+                setViewMode('detail');
+              }}
+              onCreateBed={() => setShowBedModal(true)}
+            />
+          ) : (
+          <div className="bg-white rounded-lg shadow-md p-6 flex-1 flex flex-col min-h-0">
+            {beds.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <div className="text-6xl mb-4">🎨</div>
                 <p className="text-lg mb-4">No garden beds created yet.</p>
@@ -2891,42 +2888,41 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                   Create Your First Bed
                 </button>
               </div>
-            ) : visibleBeds.length > 0 ? (
-              <div>
-                {/* Horizontal Multi-Bed Layout */}
-                <div className="overflow-x-auto overflow-y-auto pb-12" onClick={() => { setSelectedPlant(null); setSelectedPlantedCell(null); setShowMoveInput(false); setMoveTargetLabel(''); setMoveError(null); }}>
-                  <div className="flex flex-row gap-8 items-start p-4">
-                    {visibleBeds.map(bed => (
-                      <div
-                        key={bed.id}
-                        ref={(el) => { bedCardRefs.current[bed.id] = el; }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveBed(bed);
-                        }}
-                        className={`relative rounded-lg p-4 flex-shrink-0 cursor-pointer transition-all ${
-                          activeBed?.id === bed.id
-                            ? 'bg-brown-100 border-4 border-green-600 shadow-xl ring-4 ring-green-200'
-                            : 'bg-brown-100 border-4 border-brown-600 hover:border-brown-700 opacity-75 hover:opacity-90'
-                        }`}
-                      >
-                        {/* Bed Name Badge */}
-                        <div className="absolute -top-3 left-4 bg-white px-3 py-1 rounded-full shadow-md border-2 border-gray-300 font-semibold text-sm z-10">
-                          {bed.name}
+            ) : activeBed ? (
+              <div className="flex-1 min-h-0 overflow-auto" onClick={() => { setSelectedPlant(null); setSelectedPlantedCell(null); setShowMoveInput(false); setMoveTargetLabel(''); setMoveError(null); }}>
+                {/* Two-Column Detail Layout: Grid + Plant List */}
+                <div className="grid gap-4 lg:grid-cols-[1fr,0.95fr] h-full">
+                  {/* Left: Grid Panel */}
+                  <div className="rounded-2xl bg-emerald-50 p-4 flex flex-col min-h-0">
+                    <div className="mb-3 flex items-center justify-between flex-shrink-0">
+                      <div>
+                        <div className="text-lg font-semibold text-gray-900">{activeBed.name}</div>
+                        <div className="text-sm text-slate-600">
+                          {activeBed.width}' x {activeBed.length}'
+                          {activeBed.seasonExtension && activeBed.seasonExtension.type !== 'none' && (
+                            <> {' \u2022 '}{activeBed.seasonExtension.type.replace('-', ' ')}</>
+                          )}
+                          {' \u2022 '}{activeBed.planningMethod}
                         </div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditingBed(activeBed); }}
+                        className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm hover:bg-gray-50 transition-colors"
+                      >
+                        Edit Bed
+                      </button>
+                    </div>
 
-                        {/* Active Indicator */}
-                        {activeBed?.id === bed.id && (
-                          <div className="absolute -top-3 right-4 bg-green-600 text-white px-3 py-1 rounded-full shadow-md text-xs font-bold z-10">
-                            ACTIVE
-                          </div>
-                        )}
+                    {/* Grid */}
+                    <div className="flex-1 overflow-auto flex justify-center items-start">
+                      <div
+                        ref={(el) => { bedCardRefs.current[activeBed.id] = el; }}
+                        className="relative"
+                      >
+                        {renderGrid(activeBed)}
 
-                        {/* Grid */}
-                        {renderGrid(bed)}
-
-                        {/* Hover tooltip - HTML overlay above SVG */}
-                        {hoverInfo && hoverInfo.bedId === bed.id && (
+                        {/* Hover tooltip */}
+                        {hoverInfo && hoverInfo.bedId === activeBed.id && (
                           <div
                             className="absolute z-50 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg pointer-events-none whitespace-nowrap"
                             style={{
@@ -2957,75 +2953,98 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                             })}
                           </div>
                         )}
+                      </div>
+                    </div>
+                  </div>
 
-                        {/* Dimensions Label */}
-                        <div className="absolute -bottom-8 left-0 right-0 text-center text-sm text-gray-600">
-                          {bed.width}' × {bed.length}' ({bed.planningMethod})
+                  {/* Right: Plants in this Bed Panel */}
+                  <div className="rounded-2xl bg-slate-50 p-4 flex flex-col min-h-0">
+                    <div className="mb-3 flex items-center justify-between flex-shrink-0">
+                      <h3 className="font-semibold text-gray-900">Plants in this bed</h3>
+                      <span className="text-sm text-gray-500">{getActivePlantedItems(activeBed).length} on {dateFilter.date}</span>
+                    </div>
+
+                    {getActivePlantedItems(activeBed).length > 0 ? (
+                      <div className="flex-1 overflow-y-auto space-y-2">
+                        {(() => {
+                          // Group plants by plantId::variety for a cleaner list
+                          const grouped = new Map<string, { plantId: string; name: string; icon: string; variety?: string; positions: string[]; totalQty: number; status: string; items: PlantedItem[] }>();
+                          for (const item of getActivePlantedItems(activeBed)) {
+                            const key = item.variety ? `${item.plantId}::${item.variety}` : item.plantId;
+                            const existing = grouped.get(key);
+                            if (existing) {
+                              existing.positions.push(coordinateToGridLabel(item.position.x, item.position.y));
+                              existing.totalQty += item.quantity;
+                              existing.items.push(item);
+                            } else {
+                              grouped.set(key, {
+                                plantId: item.plantId,
+                                name: getPlantName(item.plantId),
+                                icon: getPlantIcon(item.plantId),
+                                variety: item.variety,
+                                positions: [coordinateToGridLabel(item.position.x, item.position.y)],
+                                totalQty: item.quantity,
+                                status: item.status,
+                                items: [item],
+                              });
+                            }
+                          }
+                          return Array.from(grouped.values()).map((group) => {
+                            const posLabel = group.positions.length <= 3
+                              ? group.positions.join(', ')
+                              : `${group.positions.slice(0, 2).join(', ')} +${group.positions.length - 2}`;
+                            return (
+                              <div
+                                key={`${group.plantId}-${group.variety || ''}`}
+                                className="flex items-center justify-between rounded-xl bg-white p-3"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-lg flex-shrink-0">{group.icon}</span>
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-gray-900 truncate">
+                                      {group.name}
+                                      {group.variety && <span className="text-gray-500 font-normal"> ({group.variety})</span>}
+                                    </div>
+                                    <div className="text-xs text-slate-500">
+                                      {group.totalQty > 1 ? `${group.totalQty} plants` : '1 plant'} {' \u2022 '} {posLabel}
+                                    </div>
+                                  </div>
+                                </div>
+                                <span className={`rounded-full px-2.5 py-1 text-xs font-medium flex-shrink-0 ${
+                                  group.status === 'growing' || group.status === 'transplanted'
+                                    ? 'bg-green-100 text-green-800'
+                                    : group.status === 'planned' || group.status === 'seeded'
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : group.status === 'harvested'
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : group.status === 'saving-seed'
+                                          ? 'bg-purple-100 text-purple-800'
+                                          : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {group.status}
+                                </span>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center py-6">
+                          <div className="text-3xl mb-2">🌱</div>
+                          <p className="text-sm font-medium text-gray-700">No plantings on {dateFilter.date}</p>
+                          <p className="text-xs text-gray-500 mt-1">Drag plants from the palette onto the grid.</p>
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
-
-                {/* Active Bed Plants Legend (filtered by date) */}
-                {activeBed && getActivePlantedItems(activeBed).length > 0 && (
-                  <div className="mt-12 pt-6 border-t border-gray-200">
-                    <h4 className="text-lg font-semibold text-gray-800 mb-3">
-                      Plants in {activeBed.name} on {dateFilter.date}:
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {getActivePlantedItems(activeBed).map((item) => (
-                        <div key={item.id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
-                          <PlantIcon
-                            plantId={item.plantId}
-                            plantIcon={getPlantIcon(item.plantId)}
-                            size={32}
-                          />
-                          <div className="flex-1">
-                            <div className="font-medium text-gray-800">{getPlantName(item.plantId)}</div>
-                            <div className="text-xs text-gray-600">
-                              Position: {coordinateToGridLabel(item.position.x, item.position.y)} •
-                              {item.quantity > 1 && ` Qty: ${item.quantity} • `}
-                              Status: {item.status}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Empty State for Date Filter */}
-                {activeBed && getActivePlantedItems(activeBed).length === 0 && (
-                  <div className="mt-12 pt-6 border-t border-gray-200">
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-                      <div className="text-4xl mb-2">🌱</div>
-                      <h4 className="text-lg font-semibold text-gray-800 mb-2">No plantings active on this date</h4>
-                      <p className="text-sm text-gray-600 mb-3">
-                        No plants were growing on {dateFilter.date}.
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        Try selecting a different date to see plantings.
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
             ) : null}
           </div>
+          )}
 
-          {/* Info Card */}
-          <div className="bg-indigo-50 rounded-lg p-6 border border-indigo-200">
-            <h3 className="text-lg font-semibold text-indigo-900 mb-2">Garden Design Features</h3>
-            <ul className="space-y-2 text-sm text-indigo-800">
-              <li>✓ Visual emoji-based plant icons for easy identification</li>
-              <li>✓ Drag-and-drop interface for intuitive garden design</li>
-              <li>✓ Support for multiple planning methods (Square Foot, Row, Intensive)</li>
-              <li>✓ Hover tooltips showing plant details</li>
-              <li>✓ Filterable plant palette by category</li>
-              <li>✓ Real-time garden bed visualization</li>
-            </ul>
-          </div>
         </div>
       </div>
       </div>
@@ -3093,7 +3112,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         const harvestDate = calculateHarvestDate(item, plant);
         const isEstimatedHarvest = item.status !== 'harvested' && harvestDate;
         // Use filter date for "now"
-        const asOf = dateFilter.date ? new Date(dateFilter.date) : new Date();
+        const asOf = dateFilter.date ? new Date(dateFilter.date) : now;
         const daysUntilHarvest = harvestDate
           ? Math.ceil((harvestDate.getTime() - asOf.getTime()) / (1000 * 60 * 60 * 24))
           : null;
@@ -3193,7 +3212,6 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
               {(() => {
                 const isSaving = item.saveForSeed && !item.seedsCollected;
                 const seedMatDate = item.seedMaturityDate ? new Date(item.seedMaturityDate) : null;
-                const now = new Date();
                 const daysUntilSeedReady = seedMatDate ? Math.ceil((seedMatDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
                 const seedsReady = seedMatDate && daysUntilSeedReady !== null && daysUntilSeedReady <= 0;
 

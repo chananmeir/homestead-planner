@@ -8,6 +8,7 @@ import { extractCropName } from '../../utils/plantUtils';
 import { coordinateToGridLabel } from './utils/gridCoordinates';
 import { calculateSpaceRequirement } from '../../utils/gardenPlannerSpaceCalculator';
 import { parseLocalDate } from '../../utils/dateUtils';
+import { useNow } from '../../contexts/SimulationContext';
 
 /**
  * Compute how many plants from a plan item are expected to be "in the ground"
@@ -639,6 +640,7 @@ const PlannedPlantsSection: React.FC<PlannedPlantsSectionProps> = ({
   bedGridSize,
   bedPlanningMethod
 }) => {
+  const now = useNow();
   const [plannedItems, setPlannedItems] = useState<PlannedBedItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -703,7 +705,7 @@ const PlannedPlantsSection: React.FC<PlannedPlantsSectionProps> = ({
         // Derive year from dateFilter or default to current year
         const year = dateFilter?.date
           ? new Date(dateFilter.date).getFullYear()
-          : new Date().getFullYear();
+          : now.getFullYear();
 
         const response = await fetch(
           `${API_BASE_URL}/api/garden-planner/season-progress?year=${year}`,

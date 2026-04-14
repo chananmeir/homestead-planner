@@ -6,6 +6,7 @@ import { EditSeedModal } from './SeedInventory/EditSeedModal';
 import { SeedImportModal } from './SeedInventory/SeedImportModal';
 
 import { API_BASE_URL } from '../config';
+import { useNow } from '../contexts/SimulationContext';
 interface Seed {
   id: number;
   plantId: string;
@@ -124,6 +125,7 @@ const filterBySoilTemperature = (
 };
 
 const SeedInventory: React.FC = () => {
+  const now = useNow();
   const { showSuccess, showError } = useToast();
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -269,7 +271,7 @@ const SeedInventory: React.FC = () => {
       const url = URL.createObjectURL(blob);
 
       link.setAttribute('href', url);
-      link.setAttribute('download', `my-seed-inventory-${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `my-seed-inventory-${now.toISOString().split('T')[0]}.csv`);
       link.style.visibility = 'hidden';
 
       document.body.appendChild(link);
@@ -286,14 +288,14 @@ const SeedInventory: React.FC = () => {
   const isExpiringSoon = (expirationDate?: string): boolean => {
     if (!expirationDate) return false;
     const expDate = new Date(expirationDate);
-    const sixMonthsFromNow = new Date();
+    const sixMonthsFromNow = new Date(now);
     sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
     return expDate < sixMonthsFromNow;
   };
 
   const isExpired = (expirationDate?: string): boolean => {
     if (!expirationDate) return false;
-    return new Date(expirationDate) < new Date();
+    return new Date(expirationDate) < now;
   };
 
   const handleEdit = (seed: Seed) => {

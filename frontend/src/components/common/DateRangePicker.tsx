@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNow } from '../../contexts/SimulationContext';
 
 export interface DateRange {
   startDate: string | null; // ISO date string
@@ -18,6 +19,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   label = 'Date Range',
   className = '',
 }) => {
+  const now = useNow();
   const [showPresets, setShowPresets] = useState(false);
 
   const formatDateForInput = (isoDate: string | null): string => {
@@ -40,7 +42,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const handlePreset = (preset: string) => {
-    const today = new Date();
+    const today = now;
     const endDate = today.toISOString().split('T')[0];
     let startDate: string;
 
@@ -49,25 +51,25 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         startDate = endDate;
         break;
       case 'week': {
-        const weekAgo = new Date();
+        const weekAgo = new Date(now.getTime());
         weekAgo.setDate(weekAgo.getDate() - 7);
         startDate = weekAgo.toISOString().split('T')[0];
         break;
       }
       case 'month': {
-        const monthAgo = new Date();
+        const monthAgo = new Date(now.getTime());
         monthAgo.setMonth(monthAgo.getMonth() - 1);
         startDate = monthAgo.toISOString().split('T')[0];
         break;
       }
       case '3months': {
-        const threeMonthsAgo = new Date();
+        const threeMonthsAgo = new Date(now.getTime());
         threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
         startDate = threeMonthsAgo.toISOString().split('T')[0];
         break;
       }
       case 'year': {
-        const yearAgo = new Date();
+        const yearAgo = new Date(now.getTime());
         yearAgo.setFullYear(yearAgo.getFullYear() - 1);
         startDate = yearAgo.toISOString().split('T')[0];
         break;

@@ -1,0 +1,40 @@
+source_type,source_id,name,usda_fdc_id,calories,protein_g,carbs_g,fat_g,fiber_g,vitamin_a_iu,vitamin_c_mg,vitamin_k_mcg,vitamin_e_mg,folate_mcg,calcium_mg,iron_mg,magnesium_mg,potassium_mg,zinc_mg,average_yield_lbs_per_plant,average_yield_lbs_per_sqft,data_source,notes
+plant,tomato,Tomato (raw),170457,18,0.9,3.9,0.2,1.2,833,13.7,7.9,0.54,15,10,0.27,11,237,0.17,10.0,1.2,USDA FoodData Central,Average yield for determinate varieties
+plant,lettuce,Lettuce (leaf green raw),169248,15,1.4,2.9,0.2,1.3,7405,9.2,126.3,0.22,38,36,0.86,13,194,0.18,1.0,0.5,USDA FoodData Central,Multiple harvests possible with cut-and-come-again
+plant,carrot,Carrot (raw),170393,41,0.9,9.6,0.2,2.8,16706,5.9,13.2,0.66,19,33,0.3,12,320,0.24,1.5,0.8,USDA FoodData Central,Root vegetable
+plant,broccoli,Broccoli (raw),170379,34,2.8,6.6,0.4,2.6,623,89.2,101.6,0.78,63,47,0.73,21,316,0.41,1.5,0.6,USDA FoodData Central,Multiple side shoots after main head
+plant,cucumber,Cucumber (raw),168409,15,0.7,3.6,0.1,0.5,105,2.8,16.4,0.03,7,16,0.28,13,147,0.2,5.0,1.5,USDA FoodData Central,Vining crop with continuous production
+plant,pepper-bell,Bell Pepper (raw),170108,31,1.0,6.0,0.3,2.1,3131,127.7,4.9,1.58,46,7,0.43,12,211,0.25,3.0,1.0,USDA FoodData Central,Continuous production throughout season
+plant,zucchini,Zucchini (raw),169291,17,1.2,3.1,0.3,1.0,200,17.9,4.3,0.12,24,16,0.37,18,261,0.32,5.0,1.5,USDA FoodData Central,Prolific producer
+plant,spinach,Spinach (raw),168462,23,2.9,3.6,0.4,2.2,9377,28.1,482.9,2.03,194,99,2.71,79,558,0.53,0.5,0.4,USDA FoodData Central,Multiple harvests with cut-and-come-again
+plant,kale,Kale (raw),168421,49,4.3,8.8,0.9,3.6,9990,120.0,704.8,1.54,141,150,1.47,47,491,0.56,1.0,0.5,USDA FoodData Central,Multiple harvests throughout season
+plant,bean-bush,Bush Bean (green raw),169961,31,1.8,7.0,0.2,2.7,690,12.2,43.0,0.41,33,37,1.03,25,211,0.24,2.0,0.8,USDA FoodData Central,Multiple harvests over 3-4 weeks
+plant,bean-pole,Pole Bean (green raw),169961,31,1.8,7.0,0.2,2.7,690,12.2,43.0,0.41,33,37,1.03,25,211,0.24,5.0,1.0,USDA FoodData Central,Continuous production for 6-8 weeks
+plant,pea,Garden Pea (raw),170419,81,5.4,14.5,0.4,5.7,765,40.0,24.8,0.13,65,25,1.47,33,244,1.24,2.0,0.6,USDA FoodData Central,Shell peas
+plant,radish,Radish (raw),169276,16,0.7,3.4,0.1,1.6,7,14.8,1.3,0.00,25,25,0.34,10,233,0.28,0.3,1.2,USDA FoodData Central,Fast-growing root crop
+plant,beet,Beet (raw),169145,43,1.6,9.6,0.2,2.8,33,4.9,0.2,0.04,109,16,0.8,23,325,0.35,2.0,0.8,USDA FoodData Central,Root and greens both edible
+plant,onion,Onion (raw),170000,40,1.1,9.3,0.1,1.7,2,7.4,0.4,0.02,19,23,0.21,10,146,0.17,1.0,0.6,USDA FoodData Central,Storage crop
+plant,garlic,Garlic (raw),169230,149,6.4,33.1,0.5,2.1,9,31.2,1.7,0.08,3,181,1.7,25,401,1.16,0.3,0.4,USDA FoodData Central,Storage crop - bulbs only
+plant,potato,Potato (raw),170026,77,2.0,17.5,0.1,2.1,0,19.7,2.0,0.01,15,12,0.81,23,425,0.3,5.0,1.5,USDA FoodData Central,High-yielding storage crop
+plant,sweet-potato,Sweet Potato (raw),168482,86,1.6,20.1,0.1,3.0,14187,2.4,1.8,0.26,11,30,0.61,25,337,0.3,3.0,1.0,USDA FoodData Central,Storage crop
+plant,squash-winter,Winter Squash (raw),169291,34,0.9,8.6,0.1,1.4,2707,11.0,1.0,1.44,16,22,0.58,14,230,0.18,8.0,2.0,USDA FoodData Central,Storage varieties like butternut
+plant,squash-summer,Summer Squash (raw),169291,17,1.2,3.1,0.3,1.0,200,17.9,4.3,0.12,24,16,0.37,18,261,0.32,5.0,1.5,USDA FoodData Central,Includes zucchini and yellow squash
+plant,cabbage,Cabbage (raw),169975,25,1.3,5.8,0.1,2.5,98,36.6,76.0,0.15,43,40,0.47,12,170,0.18,3.0,1.2,USDA FoodData Central,Head crop
+plant,cauliflower,Cauliflower (raw),169986,25,1.9,5.0,0.3,2.0,0,48.2,15.5,0.08,57,22,0.42,15,303,0.27,2.0,0.8,USDA FoodData Central,Head crop
+plant,eggplant,Eggplant (raw),169228,25,1.0,5.9,0.2,3.0,23,2.2,3.5,0.30,22,9,0.23,14,229,0.16,3.0,1.0,USDA FoodData Central,Continuous production
+plant,corn,Sweet Corn (raw),169998,86,3.3,18.7,1.4,2.0,187,6.8,0.3,0.07,42,2,0.52,37,270,0.46,1.5,0.5,USDA FoodData Central,Per ear weight approximately 0.5 lbs
+plant,melon-cantaloupe,Cantaloupe (raw),169092,34,0.8,8.2,0.2,0.9,3382,36.7,2.5,0.05,21,9,0.21,12,267,0.18,10.0,2.5,USDA FoodData Central,Large vining fruit
+plant,watermelon,Watermelon (raw),167765,30,0.6,7.6,0.2,0.4,569,8.1,0.1,0.05,3,7,0.24,10,112,0.10,15.0,3.0,USDA FoodData Central,Large vining fruit
+plant,strawberry,Strawberry (raw),167762,32,0.7,7.7,0.3,2.0,12,58.8,2.2,0.29,24,16,0.41,13,153,0.14,1.0,0.5,USDA FoodData Central,Perennial - multiple harvests
+plant,basil,Basil (fresh),172232,23,3.2,2.7,0.6,1.6,5275,18.0,414.8,0.80,68,177,3.17,64,295,0.81,0.5,0.2,USDA FoodData Central,Multiple harvests - pinch regularly
+plant,parsley,Parsley (fresh),170416,36,3.0,6.3,0.8,3.3,8424,133.0,1640.0,0.75,152,138,6.2,50,554,1.07,0.3,0.15,USDA FoodData Central,Cut-and-come-again herb
+plant,cilantro,Cilantro (fresh),169998,23,2.1,3.7,0.5,2.8,6748,27.0,310.0,2.50,62,67,1.77,26,521,0.50,0.3,0.15,USDA FoodData Central,Cut-and-come-again herb
+plant,chia-1,Chia Seeds (dried),170554,486,16.5,42.1,30.7,34.4,54,1.6,0.0,0.50,49,631,7.72,335,407,4.58,0.2,0.1,USDA FoodData Central,Seeds harvested from mature plants
+plant,bok-choy,Bok Choy (raw),169404,13,1.5,2.2,0.2,1.0,4468,45.0,45.5,0.09,66,105,0.80,19,252,0.19,2.0,0.8,USDA FoodData Central,Chinese cabbage - multiple harvests
+plant,pumpkin,Pumpkin (raw),168448,26,1.0,6.5,0.1,0.5,8513,9.0,1.1,1.06,16,21,0.80,12,340,0.32,10.0,2.5,USDA FoodData Central,Large vining fruit - storage crop
+plant,swiss-chard,Swiss Chard (raw),169991,19,1.8,3.7,0.2,1.6,6116,30.0,830.0,1.89,14,51,1.80,81,379,0.36,1.5,0.6,USDA FoodData Central,Multiple harvests with cut-and-come-again
+plant,arugula,Arugula (raw),169387,25,2.6,3.7,0.7,1.6,2373,15.0,108.6,0.43,97,160,1.46,47,369,0.47,0.5,0.4,USDA FoodData Central,Fast-growing salad green
+plant,collard-greens,Collard Greens (raw),170406,32,3.0,5.4,0.6,4.0,5019,35.3,437.1,2.26,129,232,0.47,27,213,0.21,1.5,0.6,USDA FoodData Central,Multiple harvests - cold tolerant
+plant,turnip,Turnip (raw),169292,28,0.9,6.4,0.1,1.8,0,21.0,0.1,0.03,15,30,0.30,11,191,0.27,2.0,0.8,USDA FoodData Central,Root and greens both edible
+plant,kohlrabi,Kohlrabi (raw),169432,27,1.7,6.2,0.1,3.6,36,62.0,0.1,0.48,16,24,0.40,19,350,0.03,1.5,0.6,USDA FoodData Central,Bulb crop - mild flavor
+plant,leek,Leek (raw),169246,61,1.5,14.2,0.3,1.8,1667,12.0,47.0,0.92,64,59,2.10,28,180,0.12,1.0,0.5,USDA FoodData Central,Mild onion flavor

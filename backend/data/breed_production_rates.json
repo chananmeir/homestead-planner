@@ -1,0 +1,476 @@
+{
+  "chickens": {
+    "breeds": {
+      "ameraucana": {
+        "name": "Ameraucana",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 215,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "180-250",
+        "last_verified": "2026-01-27"
+      },
+      "austra-white": {
+        "name": "Austra White",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 250,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "220-280",
+        "last_verified": "2026-01-27"
+      },
+      "australorp": {
+        "name": "Australorp",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 275,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "250-300",
+        "last_verified": "2026-01-27"
+      },
+      "barnevelder": {
+        "name": "Barnevelder",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 190,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "150-230",
+        "last_verified": "2026-01-27"
+      },
+      "bielefelder": {
+        "name": "Bielefelder",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 230,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "230",
+        "last_verified": "2026-01-27"
+      },
+      "brahma": {
+        "name": "Brahma",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 175,
+        "laying_start_weeks": 24,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "150-200",
+        "last_verified": "2026-01-27"
+      },
+      "cinnamon-queen": {
+        "name": "Cinnamon Queen",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 300,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "300",
+        "last_verified": "2026-01-27"
+      },
+      "cochin": {
+        "name": "Cochin",
+        "purpose": "ornamental",
+        "peak_eggs_per_year": 130,
+        "laying_start_weeks": 24,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "100-160",
+        "last_verified": "2026-01-27"
+      },
+      "cornish-cross": {
+        "name": "Cornish Cross",
+        "purpose": "meat",
+        "peak_eggs_per_year": 0,
+        "laying_start_weeks": 0,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "0",
+        "last_verified": "2026-01-27"
+      },
+      "delaware": {
+        "name": "Delaware",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 175,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "150-200",
+        "last_verified": "2026-01-27"
+      },
+      "easter-egger": {
+        "name": "Easter Egger",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 240,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "200-280",
+        "last_verified": "2026-01-27"
+      },
+      "golden-comet": {
+        "name": "Golden Comet",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 290,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "250-330",
+        "last_verified": "2026-01-27"
+      },
+      "isa-brown": {
+        "name": "ISA Brown",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 300,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "300",
+        "last_verified": "2026-01-27"
+      },
+      "leghorn": {
+        "name": "Leghorn",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 300,
+        "laying_start_weeks": 16,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "280-320",
+        "last_verified": "2026-01-27"
+      },
+      "marans": {
+        "name": "Marans",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 215,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "150-280",
+        "last_verified": "2026-01-27"
+      },
+      "new-hampshire": {
+        "name": "New Hampshire",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 265,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "250-280",
+        "last_verified": "2026-01-27"
+      },
+      "orpington": {
+        "name": "Orpington",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 228,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "200-255",
+        "last_verified": "2026-01-27"
+      },
+      "plymouth-rock": {
+        "name": "Plymouth Rock",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 240,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "200-280",
+        "last_verified": "2026-01-27"
+      },
+      "polish": {
+        "name": "Polish",
+        "purpose": "ornamental",
+        "peak_eggs_per_year": 180,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "180",
+        "last_verified": "2026-01-27"
+      },
+      "rhode-island-red": {
+        "name": "Rhode Island Red",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 275,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "250-300",
+        "last_verified": "2026-01-27"
+      },
+      "silkie": {
+        "name": "Silkie",
+        "purpose": "ornamental",
+        "peak_eggs_per_year": 120,
+        "laying_start_weeks": 22,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "110-130",
+        "last_verified": "2026-01-27"
+      },
+      "sussex": {
+        "name": "Sussex",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 275,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "250-300",
+        "last_verified": "2026-01-27"
+      },
+      "welsummer": {
+        "name": "Welsummer",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 200,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "200",
+        "last_verified": "2026-01-27"
+      },
+      "wyandotte": {
+        "name": "Wyandotte",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 220,
+        "laying_start_weeks": 18,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray)",
+        "source_range": "200-240",
+        "last_verified": "2026-01-27"
+      }
+    },
+    "default": {
+      "peak_eggs_per_year": 250,
+      "laying_start_weeks": 18
+    }
+  },
+  "ducks": {
+    "breeds": {
+      "ancona": {
+        "name": "Ancona",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 245,
+        "laying_start_weeks": 22,
+        "data_source": "Cackle Hatchery",
+        "source_range": "210-300",
+        "last_verified": "2026-01-27"
+      },
+      "buff": {
+        "name": "Buff",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 185,
+        "laying_start_weeks": 24,
+        "data_source": "Murray McMurray, Livestock Conservancy",
+        "source_range": "130-220",
+        "last_verified": "2026-01-27"
+      },
+      "cayuga": {
+        "name": "Cayuga",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 140,
+        "laying_start_weeks": 24,
+        "data_source": "Murray McMurray, multiple sources",
+        "source_range": "100-180",
+        "last_verified": "2026-01-27"
+      },
+      "golden-300": {
+        "name": "Golden 300 Hybrid Layer",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 260,
+        "laying_start_weeks": 20,
+        "data_source": "Metzer Farms (breeder), Cackle Hatchery",
+        "source_range": "200-290",
+        "last_verified": "2026-01-27"
+      },
+      "khaki-campbell": {
+        "name": "Khaki Campbell",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 300,
+        "laying_start_weeks": 20,
+        "data_source": "Multiple hatcheries (Meyer, Cackle, McMurray, Valley Hatchery)",
+        "source_range": "165-340",
+        "last_verified": "2026-01-27"
+      },
+      "magpie": {
+        "name": "Magpie",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 220,
+        "laying_start_weeks": 22,
+        "data_source": "Raising Ducks",
+        "source_range": "80-290",
+        "last_verified": "2026-01-27"
+      },
+      "muscovy": {
+        "name": "Muscovy",
+        "purpose": "meat",
+        "peak_eggs_per_year": 120,
+        "laying_start_weeks": 28,
+        "data_source": "Multiple sources",
+        "source_range": "100-180",
+        "last_verified": "2026-01-27"
+      },
+      "pekin": {
+        "name": "Pekin",
+        "purpose": "meat",
+        "peak_eggs_per_year": 200,
+        "laying_start_weeks": 24,
+        "data_source": "Multiple sources, Cherry Valley strain",
+        "source_range": "160-300",
+        "last_verified": "2026-01-27"
+      },
+      "runner": {
+        "name": "Runner",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 280,
+        "laying_start_weeks": 20,
+        "data_source": "Metzer Farms, Cackle Hatchery",
+        "source_range": "200-300",
+        "last_verified": "2026-01-27"
+      },
+      "saxony": {
+        "name": "Saxony",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 215,
+        "laying_start_weeks": 24,
+        "data_source": "Livestock Conservancy, Saxony breeders",
+        "source_range": "190-240",
+        "last_verified": "2026-01-27"
+      },
+      "silver-appleyard": {
+        "name": "Silver Appleyard",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 235,
+        "laying_start_weeks": 24,
+        "data_source": "Multiple hatcheries (Cackle, Meyer, McMurray, Metzer)",
+        "source_range": "200-270",
+        "last_verified": "2026-01-27"
+      },
+      "swedish": {
+        "name": "Swedish",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 150,
+        "laying_start_weeks": 22,
+        "data_source": "Wikipedia, BackYard Chickens",
+        "source_range": "100-150",
+        "last_verified": "2026-01-27"
+      },
+      "welsh-harlequin": {
+        "name": "Welsh Harlequin",
+        "purpose": "dual-purpose",
+        "peak_eggs_per_year": 275,
+        "laying_start_weeks": 22,
+        "data_source": "Multiple hatcheries (Cackle, Chase, Holderread)",
+        "source_range": "150-350",
+        "last_verified": "2026-01-27"
+      },
+      "white-layer": {
+        "name": "White Layer",
+        "purpose": "eggs",
+        "peak_eggs_per_year": 260,
+        "laying_start_weeks": 20,
+        "data_source": "Metzer Farms, Murray McMurray (White Star Hybrid)",
+        "source_range": "200-290",
+        "last_verified": "2026-01-27"
+      }
+    },
+    "default": {
+      "peak_eggs_per_year": 200,
+      "laying_start_weeks": 22
+    }
+  },
+  "goats": {
+    "breeds": {
+      "alpine": {
+        "name": "Alpine",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 2500,
+        "milking_start_months": 10,
+        "data_source": "ADGA, university extension",
+        "source_range": "2400-2700",
+        "last_verified": "2026-01-27"
+      },
+      "boer": {
+        "name": "Boer",
+        "purpose": "meat",
+        "peak_milk_lbs_per_year": 0,
+        "milking_start_months": 0,
+        "data_source": "Industry standard",
+        "source_range": "0",
+        "last_verified": "2026-01-27"
+      },
+      "golden-guernsey": {
+        "name": "Golden Guernsey",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 1050,
+        "milking_start_months": 10,
+        "data_source": "Oklahoma State University, Goat Journal",
+        "source_range": "1050",
+        "last_verified": "2026-01-27"
+      },
+      "kiko": {
+        "name": "Kiko",
+        "purpose": "meat",
+        "peak_milk_lbs_per_year": 0,
+        "milking_start_months": 0,
+        "data_source": "Industry standard",
+        "source_range": "0",
+        "last_verified": "2026-01-27"
+      },
+      "lamancha": {
+        "name": "LaMancha",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 2200,
+        "milking_start_months": 10,
+        "data_source": "ADGA, Cornell University",
+        "source_range": "1770-2231",
+        "last_verified": "2026-01-27"
+      },
+      "nigerian-dwarf": {
+        "name": "Nigerian Dwarf",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 750,
+        "milking_start_months": 8,
+        "data_source": "ADGA, industry sources",
+        "source_range": "600-800",
+        "last_verified": "2026-01-27"
+      },
+      "nubian": {
+        "name": "Nubian",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 1800,
+        "milking_start_months": 10,
+        "data_source": "ADGA, Penn State Extension",
+        "source_range": "1618-2000",
+        "last_verified": "2026-01-27"
+      },
+      "oberhasli": {
+        "name": "Oberhasli",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 2000,
+        "milking_start_months": 10,
+        "data_source": "ADGA, Mississippi State Extension",
+        "source_range": "2000",
+        "last_verified": "2026-01-27"
+      },
+      "saanen": {
+        "name": "Saanen",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 2600,
+        "milking_start_months": 10,
+        "data_source": "ADGA, Penn State Extension",
+        "source_range": "2350-3000",
+        "last_verified": "2026-01-27"
+      },
+      "sable": {
+        "name": "Sable",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 2400,
+        "milking_start_months": 10,
+        "data_source": "ADGA (colored Saanen variant)",
+        "source_range": "2350",
+        "last_verified": "2026-01-27"
+      },
+      "spanish": {
+        "name": "Spanish",
+        "purpose": "meat",
+        "peak_milk_lbs_per_year": 0,
+        "milking_start_months": 0,
+        "data_source": "Industry standard",
+        "source_range": "0",
+        "last_verified": "2026-01-27"
+      },
+      "toggenburg": {
+        "name": "Toggenburg",
+        "purpose": "dairy",
+        "peak_milk_lbs_per_year": 2200,
+        "milking_start_months": 10,
+        "data_source": "ADGA, industry sources",
+        "source_range": "2000-2200",
+        "last_verified": "2026-01-27"
+      }
+    },
+    "default": {
+      "peak_milk_lbs_per_year": 2000,
+      "milking_start_months": 10
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { GardenBed, PlantingCalendar } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { apiGet } from '../../../utils/api';
 import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
+import { useNow } from '../../../contexts/SimulationContext';
 import {
   getOccupiedCells,
   getAvailableCells,
@@ -29,14 +30,15 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
   initialDateRange,
   onPositionSelect,
 }) => {
+  const now = useNow();
   // State
   const [gardenBeds, setGardenBeds] = useState<GardenBed[]>([]);
   const [selectedBedId, setSelectedBedId] = useState<number | string>(initialBedId || '');
   const [startDate, setStartDate] = useState<Date>(
-    initialDateRange?.start || new Date()
+    initialDateRange?.start || now
   );
   const [endDate, setEndDate] = useState<Date>(
-    initialDateRange?.end || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days from now
+    initialDateRange?.end || new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000) // 90 days from now
   );
   const [plantingEvents, setPlantingEvents] = useState<PlantingCalendar[]>([]);
   const [selectedPlantId, setSelectedPlantId] = useState<string>('');
