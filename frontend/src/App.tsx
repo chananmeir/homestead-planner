@@ -18,8 +18,9 @@ import PlantingCalendar from './components/PlantingCalendar';
 import { ToastProvider, ErrorBoundary } from './components/common';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ActivePlanProvider } from './contexts/ActivePlanContext';
-import { SimulationProvider } from './contexts/SimulationContext';
+import { SimulationProvider, useSimulation } from './contexts/SimulationContext';
 import SimulationToolbar from './components/SimulationToolbar';
+import { parseLocalDate } from './utils/dateUtils';
 import { LoginModal } from './components/Auth/LoginModal';
 import { RegisterModal } from './components/Auth/RegisterModal';
 import { LoginRequiredMessage } from './components/Auth/LoginRequiredMessage';
@@ -121,6 +122,10 @@ const NAV_GROUPS: NavGroup[] = [
 
 function AppContent() {
   const { user, isAuthenticated, loading, logout } = useAuth();
+  const { getToday, isSimulating } = useSimulation();
+  const headerDateLabel = parseLocalDate(getToday()).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  });
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
 
@@ -276,6 +281,15 @@ function AppContent() {
             <div className="flex items-center gap-4">
               {isAuthenticated ? (
                 <>
+                  <div
+                    className={`hidden sm:flex items-center gap-1.5 text-sm text-green-100 px-3 py-1 rounded-full ${
+                      isSimulating ? 'bg-amber-500/20 ring-1 ring-amber-300/40' : 'bg-green-800/40'
+                    }`}
+                    title={isSimulating ? 'Simulated date' : "Today's date"}
+                  >
+                    <span aria-hidden>📅</span>
+                    <span>{headerDateLabel}</span>
+                  </div>
                   <div className="text-right">
                     <span className="text-green-100">Welcome, {user?.username}</span>
                     {locationInfo && (
