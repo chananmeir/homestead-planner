@@ -210,6 +210,111 @@ class TestTransplantsDue:
         assert row['transplantDate'] == '2026-04-14'
 
 
+class TestTransplantsDueMissedSeedStartGuard:
+    """
+    Regression: when an event has a seed_start_date that already passed and is
+    still incomplete, the indoor start never happened. Showing a
+    "Transplant due" row in that state is misleading — the companion
+    "Indoor start due" row is the correct actionable item.
+
+    Guard lives in services/dashboard_service.py::_build_transplants_due
+    (around line 223):
+        seed_start = _as_date(e.seed_start_date)
+        if seed_start is not None and seed_start <= target_date:
+            continue
+    """
+
+    def test_guard_suppresses_transplant_row_when_seed_start_passed_and_incomplete(
+        self, auth_client_a, user_a,
+    ):
+        """(A) seed_start past + transplant past + incomplete -> transplantsDue empty,
+        but indoorStartsDue still surfaces the missed start."""
+        bed = _make_bed(user_a.id, 'Bed Gamma')
+        _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Brandywine',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),   # past
+            transplant_date=datetime(2026, 4, 12),   # past
+            quantity=4,
+            # is_complete=False by default (completed=False, quantity_completed=None)
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        signals = resp.get_json()['signals']
+
+        # Transplant row suppressed by the new guard
+        assert signals['transplantsDue'] == [], (
+            "Transplant-due row should be suppressed when the scheduled indoor "
+            "seed-start was missed (seed_start_date <= today, incomplete)"
+        )
+        # Companion signal still surfaces the missed indoor start — this is the
+        # critical part of the contract: the user still sees an actionable row.
+        indoor = signals['indoorStartsDue']
+        assert len(indoor) == 1
+        assert indoor[0]['variety'] == 'Brandywine'
+        assert indoor[0]['seedStartDate'] == '2026-03-15'
+
+    def test_direct_seed_path_still_included(self, auth_client_a, user_a):
+        """(B) seed_start None + transplant past + incomplete -> row INCLUDED.
+        Direct-seed or pre-purchased-seedling events must still surface."""
+        bed = _make_bed(user_a.id, 'Bed Delta')
+        _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Roma',
+            garden_bed_id=bed.id,
+            seed_start_date=None,                    # no indoor start scheduled
+            transplant_date=datetime(2026, 4, 12),   # past
+            quantity=6,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['transplantsDue']
+        assert len(rows) == 1
+        assert rows[0]['variety'] == 'Roma'
+        assert rows[0]['bedName'] == 'Bed Delta'
+        assert rows[0]['transplantDate'] == '2026-04-12'
+
+    def test_complete_events_still_skipped(self, auth_client_a, user_a):
+        """(C) seed_start past + transplant past + COMPLETE -> row absent.
+        Sanity check: the existing is_complete skip still works with the new
+        guard in place (order of checks shouldn't matter here)."""
+        bed = _make_bed(user_a.id, 'Bed Epsilon')
+        _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='San Marzano',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 12),
+            quantity=4,
+            quantity_completed=4,
+            completed=True,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['transplantsDue'] == []
+
+    def test_future_seed_start_passes_guard(self, auth_client_a, user_a):
+        """(D) seed_start FUTURE + transplant past + incomplete -> row INCLUDED.
+        Defensive / unusual ordering: guard condition `seed_start <= target_date`
+        is False, so the row should surface normally."""
+        bed = _make_bed(user_a.id, 'Bed Zeta')
+        _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Black Krim',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 5, 1),    # future vs TODAY (2026-04-14)
+            transplant_date=datetime(2026, 4, 12),   # past
+            quantity=3,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['transplantsDue']
+        assert len(rows) == 1
+        assert rows[0]['variety'] == 'Black Krim'
+        assert rows[0]['transplantDate'] == '2026-04-12'
+
+
 class TestCompostOverdue:
 
     def test_includes_overdue_pile(self, auth_client_a, user_a):

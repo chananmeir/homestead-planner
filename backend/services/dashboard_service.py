@@ -220,6 +220,14 @@ def _build_transplants_due(user_id, target_date):
     for e in events:
         if e.is_complete:
             continue
+        # If this event has a scheduled indoor seed-start that has already
+        # passed and the event is still incomplete, the prerequisite start
+        # never happened — suppress the transplant-due row. The companion
+        # "indoor start due" builder will still surface the missed start as
+        # the actionable item. See plan: snuggly-marinating-canyon.md.
+        seed_start = _as_date(e.seed_start_date)
+        if seed_start is not None and seed_start <= target_date:
+            continue
         transplant = _as_date(e.transplant_date)
         if transplant is None:
             continue
