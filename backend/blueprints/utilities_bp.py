@@ -868,16 +868,51 @@ def indoor_seed_start_detail(id):
 
     if request.method == 'DELETE':
         try:
-            # Clean up auto-created GardenPlanItem linked to this seed start
+            deleted_planted_items = 0
+            deleted_planting_event = False
+
+            # Clean up auto-created GardenPlanItem linked to this seed start.
+            # GardenPlanItem has no user_id column — user scoping is enforced
+            # transitively: seed_start above is already filtered by user_id,
+            # and indoor_seed_start_id is set only by this user's own flows.
             linked_plan_items = GardenPlanItem.query.filter_by(
                 indoor_seed_start_id=seed_start.id
             ).all()
+
+            # Option B cascade: for each linked plan item, delete PlantedItems
+            # matched ONLY by source_plan_item_id. Intentionally stricter than
+            # the reverse handler at gardens_bp.py:1039 (which matches by
+            # bed_id/plant_id/position) — the forward direction must not
+            # over-delete unrelated successions that happen to share a slot.
+            for item in linked_plan_items:
+                planted_items = PlantedItem.query.filter_by(
+                    source_plan_item_id=item.id,
+                    user_id=current_user.id,
+                ).all()
+                deleted_planted_items += len(planted_items)
+                for pi in planted_items:
+                    db.session.delete(pi)
+
+            # Delete the single PlantingEvent directly linked to the seed start
+            if seed_start.planting_event_id is not None:
+                event = PlantingEvent.query.filter_by(
+                    id=seed_start.planting_event_id,
+                    user_id=current_user.id,
+                ).first()
+                if event is not None:
+                    db.session.delete(event)
+                    deleted_planting_event = True
+
             for item in linked_plan_items:
                 db.session.delete(item)
 
             db.session.delete(seed_start)
             db.session.commit()
-            return jsonify({'message': 'Deleted successfully'}), 200
+            return jsonify({
+                'message': 'Deleted successfully',
+                'deletedPlantedItems': deleted_planted_items,
+                'deletedPlantingEvent': deleted_planting_event,
+            }), 200
         except Exception as e:
             db.session.rollback()
             return jsonify({'error': str(e)}), 400

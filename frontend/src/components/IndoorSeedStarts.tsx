@@ -170,7 +170,20 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) 
     try {
       const response = await apiDelete(`/api/indoor-seed-starts/${selectedSeedStart.id}`);
       if (response.ok) {
-        showSuccess('Seed start deleted');
+        let toastMsg = 'Seed start deleted';
+        try {
+          const body = await response.json();
+          const placements = body?.deletedPlantedItems ?? 0;
+          const removedEvent = body?.deletedPlantingEvent === true;
+          if (placements > 0) {
+            toastMsg += ` — also removed ${placements} garden-bed placement${placements === 1 ? '' : 's'}`;
+          } else if (removedEvent) {
+            toastMsg += ' — also removed the scheduled planting event';
+          }
+        } catch {
+          // malformed JSON — keep default toast
+        }
+        showSuccess(toastMsg);
         loadData();
       } else {
         showError('Failed to delete seed start');
@@ -569,7 +582,11 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) 
         }}
         onConfirm={handleDelete}
         title="Delete Seed Start"
-        message={`Are you sure you want to delete this seed start for ${selectedSeedStart ? getPlantName(selectedSeedStart.plantId) : ''}?`}
+        message={
+          selectedSeedStart?.plantingEventId != null
+            ? `Delete this seed start for ${getPlantName(selectedSeedStart.plantId)}? This will also remove the linked planting from your garden bed.`
+            : `Are you sure you want to delete this seed start for ${selectedSeedStart ? getPlantName(selectedSeedStart.plantId) : ''}?`
+        }
         confirmText="Delete"
         variant="danger"
       />
