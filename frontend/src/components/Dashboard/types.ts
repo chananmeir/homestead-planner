@@ -9,7 +9,9 @@ export interface HarvestReadyRow {
   variety?: string | null;
   bedId?: number | null;
   bedName?: string | null;
-  quantity: number;
+  // PlantingEvent.quantity is a nullable Integer column in the backend;
+  // the API faithfully passes null through. UI must guard before rendering.
+  quantity: number | null;
   daysPastExpected: number;
 }
 
@@ -18,7 +20,7 @@ export interface IndoorStartDueRow {
   plantName: string;
   variety?: string | null;
   seedStartDate: string;
-  quantity: number;
+  quantity: number | null;
 }
 
 export interface TransplantDueRow {
@@ -26,7 +28,7 @@ export interface TransplantDueRow {
   plantName: string;
   variety?: string | null;
   transplantDate: string;
-  quantity: number;
+  quantity: number | null;
   bedId?: number | null;
   bedName?: string | null;
 }

@@ -238,16 +238,36 @@ function rainAlertRow(rain: RainAlert, nav: NeedsAttentionNavHandlers): SignalRo
   };
 }
 
+/**
+ * Build a subtitle by joining only the parts that have content. Using an
+ * array + filter avoids template interpolation of `null`/`undefined` — which
+ * was the source of the "null plants" dashboard bug (PlantingEvent.quantity
+ * is nullable in the backend).
+ */
+function joinSubtitle(parts: (string | null | undefined | false)[]): string {
+  return parts.filter((p): p is string => !!p).join(' · ');
+}
+
+function plantsFragment(quantity: number | null | undefined): string | null {
+  // Omit when null/undefined (unknown) or 0/negative (noise). Per CLAUDE.md
+  // we use `!= null` explicitly rather than a falsy check.
+  if (quantity == null) return null;
+  if (quantity <= 0) return null;
+  return `${quantity} plants`;
+}
+
 function harvestRow(row: HarvestReadyRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
-  const late = row.daysPastExpected > 0 ? ` · ${row.daysPastExpected}d past due` : '';
-  const bed = row.bedName ? ` · ${row.bedName}` : '';
   return {
     key: `harvest-${row.plantingEventId}-${idx}`,
     icon: '🧺',
     tone: 'green',
     title: `Harvest ready — ${label}`,
-    subtitle: `${row.quantity} plants${bed}${late}`,
+    subtitle: joinSubtitle([
+      plantsFragment(row.quantity),
+      row.bedName,
+      row.daysPastExpected > 0 ? `${row.daysPastExpected}d past due` : null,
+    ]),
     onClick: nav.onViewHarvests,
   };
 }
@@ -259,20 +279,26 @@ function indoorStartRow(row: IndoorStartDueRow, idx: number, nav: NeedsAttention
     icon: '🪴',
     tone: 'blue',
     title: `Indoor start due — ${label}`,
-    subtitle: `${row.quantity} plants · ${formatDate(row.seedStartDate)}`,
+    subtitle: joinSubtitle([
+      plantsFragment(row.quantity),
+      formatDate(row.seedStartDate),
+    ]),
     onClick: nav.onViewIndoorStarts,
   };
 }
 
 function transplantRow(row: TransplantDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
-  const bed = row.bedName ? ` · ${row.bedName}` : '';
   return {
     key: `transplant-${row.plantingEventId}-${idx}`,
     icon: '🌱',
     tone: 'blue',
     title: `Transplant due — ${label}`,
-    subtitle: `${row.quantity} plants${bed} · ${formatDate(row.transplantDate)}`,
+    subtitle: joinSubtitle([
+      plantsFragment(row.quantity),
+      row.bedName,
+      formatDate(row.transplantDate),
+    ]),
     onClick: nav.onViewCalendar,
   };
 }
