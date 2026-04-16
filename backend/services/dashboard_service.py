@@ -20,6 +20,7 @@ from models import (
     Property,
     Chicken,
     EggProduction,
+    IndoorSeedStart,
 )
 from plant_database import get_plant_by_id
 from simulation_clock import get_today
@@ -175,6 +176,7 @@ def _build_indoor_starts_due(user_id, target_date):
     )
 
     results = []
+    linked_event_ids = set()
     for e in events:
         if e.is_complete:
             continue
@@ -183,13 +185,53 @@ def _build_indoor_starts_due(user_id, target_date):
             continue
         results.append({
             'plantingEventId': e.id,
+            'indoorSeedStartId': None,
             'plantName': _plant_name(e.plant_id),
             'variety': e.variety,
             'seedStartDate': seed_start.isoformat(),
             'quantity': e.quantity,
         })
+        linked_event_ids.add(e.id)
         if len(results) >= SIGNAL_CAP:
             break
+
+    # Also surface standalone IndoorSeedStart records that the user created
+    # directly in Grow → Indoor Starts. These may not have a corresponding
+    # PlantingEvent (e.g., manually created, or plan item without an outdoor
+    # export). We include any IndoorSeedStart whose status is still 'planned'
+    # (the seed has not actually been seeded yet) and whose start_date has
+    # arrived. Dedup against rows already surfaced via their planting_event_id.
+    if len(results) < SIGNAL_CAP:
+        _, end_of_day = _day_bounds(target_date)
+        seed_starts = (
+            IndoorSeedStart.query
+            .filter(
+                IndoorSeedStart.user_id == user_id,
+                IndoorSeedStart.status == 'planned',
+                IndoorSeedStart.start_date.isnot(None),
+                IndoorSeedStart.start_date <= end_of_day,
+            )
+            .order_by(IndoorSeedStart.start_date.asc())
+            .limit(SIGNAL_CAP * 3)
+            .all()
+        )
+        for s in seed_starts:
+            if s.planting_event_id is not None and s.planting_event_id in linked_event_ids:
+                continue  # already shown via the PlantingEvent path
+            start_date = _as_date(s.start_date)
+            if start_date is None:
+                continue
+            results.append({
+                'plantingEventId': s.planting_event_id,
+                'indoorSeedStartId': s.id,
+                'plantName': _plant_name(s.plant_id),
+                'variety': s.variety,
+                'seedStartDate': start_date.isoformat(),
+                'quantity': s.seeds_started,
+            })
+            if len(results) >= SIGNAL_CAP:
+                break
+
     return results
 
 

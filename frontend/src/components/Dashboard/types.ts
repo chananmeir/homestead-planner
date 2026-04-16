@@ -16,7 +16,11 @@ export interface HarvestReadyRow {
 }
 
 export interface IndoorStartDueRow {
-  plantingEventId: number;
+  // Either plantingEventId (event-driven) or indoorSeedStartId (standalone
+  // seed-start record) will be populated — sometimes both, when an
+  // IndoorSeedStart is linked to an outdoor PlantingEvent.
+  plantingEventId: number | null;
+  indoorSeedStartId?: number | null;
   plantName: string;
   variety?: string | null;
   seedStartDate: string;

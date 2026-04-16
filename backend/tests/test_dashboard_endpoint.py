@@ -21,6 +21,7 @@ from models import (
     SeedInventory,
     Chicken,
     EggProduction,
+    IndoorSeedStart,
 )
 from tests.conftest import login_as
 
@@ -184,6 +185,66 @@ class TestIndoorStartsDue:
             quantity=4,
             quantity_completed=4,
         )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['indoorStartsDue'] == []
+
+
+def _make_seed_start(user_id, **kwargs):
+    defaults = {
+        'plant_id': 'amaranth-1',
+        'variety': None,
+        'start_date': datetime(2026, 4, 14),
+        'seeds_started': 3,
+        'status': 'planned',
+    }
+    defaults.update(kwargs)
+    ss = IndoorSeedStart(user_id=user_id, **defaults)
+    db.session.add(ss)
+    db.session.commit()
+    return ss
+
+
+class TestIndoorStartsDueFromSeedStartRecords:
+    """Standalone IndoorSeedStart records should appear in indoorStartsDue
+    when status='planned' and start_date has arrived, so users can act on
+    indoor plantings they created in the Grow → Indoor Starts tab.
+    """
+
+    def test_standalone_seed_start_appears(self, auth_client_a, user_a):
+        ss = _make_seed_start(user_a.id, plant_id='amaranth-1', seeds_started=3)
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['indoorStartsDue']
+        assert len(rows) == 1
+        assert rows[0]['indoorSeedStartId'] == ss.id
+        assert rows[0]['plantingEventId'] is None
+        assert rows[0]['seedStartDate'] == '2026-04-14'
+        assert rows[0]['quantity'] == 3
+
+    def test_seed_start_linked_to_event_not_double_counted(self, auth_client_a, user_a):
+        event = _make_event(
+            user_a.id,
+            plant_id='pepper-1',
+            seed_start_date=datetime(2026, 4, 14),
+            quantity=10,
+        )
+        _make_seed_start(
+            user_a.id,
+            plant_id='pepper-1',
+            planting_event_id=event.id,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['indoorStartsDue']
+        assert len(rows) == 1  # deduped
+        assert rows[0]['plantingEventId'] == event.id
+
+    def test_seeded_status_is_excluded(self, auth_client_a, user_a):
+        """Seed starts that have already been seeded are no longer 'due'."""
+        _make_seed_start(user_a.id, status='seeded')
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['indoorStartsDue'] == []
+
+    def test_future_start_date_is_excluded(self, auth_client_a, user_a):
+        _make_seed_start(user_a.id, start_date=datetime(2026, 5, 1))
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
         assert resp.get_json()['signals']['indoorStartsDue'] == []
 

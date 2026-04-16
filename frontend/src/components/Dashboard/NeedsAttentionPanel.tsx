@@ -275,7 +275,7 @@ function harvestRow(row: HarvestReadyRow, idx: number, nav: NeedsAttentionNavHan
 function indoorStartRow(row: IndoorStartDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
   return {
-    key: `indoor-${row.plantingEventId}-${idx}`,
+    key: `indoor-${row.plantingEventId ?? `iss-${row.indoorSeedStartId}`}-${idx}`,
     icon: '🪴',
     tone: 'blue',
     title: `Indoor start due — ${label}`,
