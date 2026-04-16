@@ -23,8 +23,10 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     last_login = db.Column(db.DateTime)
 
-    # Relationships will be added when UserSeedInventory model is created in Phase 2
-    # seed_inventory = db.relationship('UserSeedInventory', backref='user', lazy=True, cascade='all, delete-orphan')
+    # Relationships — cascade='all, delete-orphan' ensures child rows are deleted
+    # when a User is deleted (prevents NOT NULL IntegrityError on user_id FKs).
+    # Note: backrefs are defined on child models (e.g., GardenBed.user) and
+    # overridden there to include cascade; see each model's user relationship.
 
     def set_password(self, password):
         """Hash and set the user's password"""
@@ -66,7 +68,7 @@ class GardenBed(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref='garden_beds')
+    user = db.relationship('User', backref=db.backref('garden_beds', cascade='all, delete-orphan'))
     planted_items = db.relationship('PlantedItem', backref='garden_bed', lazy=True, cascade='all, delete-orphan')
 
     def to_dict(self):
@@ -125,7 +127,7 @@ class PlantedItem(db.Model):
     )
 
     # Relationships
-    user = db.relationship('User', backref='planted_items')
+    user = db.relationship('User', backref=db.backref('planted_items', cascade='all, delete-orphan'))
     source_plan_item = db.relationship('GardenPlanItem',
         backref=db.backref('placed_items', lazy='dynamic'))
 
@@ -260,7 +262,7 @@ class PlantingEvent(db.Model):
     )
 
     # Relationships
-    user = db.relationship('User', backref='planting_events')
+    user = db.relationship('User', backref=db.backref('planting_events', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -330,7 +332,7 @@ class CompostPile(db.Model):
     notes = db.Column(db.Text)
 
     # Relationships
-    user = db.relationship('User', backref='compost_piles')
+    user = db.relationship('User', backref=db.backref('compost_piles', cascade='all, delete-orphan'))
     ingredients = db.relationship('CompostIngredient', backref='compost_pile', lazy=True, cascade='all, delete-orphan')
 
     def to_dict(self):
@@ -377,7 +379,7 @@ class Settings(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref='settings')
+    user = db.relationship('User', backref=db.backref('settings', cascade='all, delete-orphan'))
 
     # Note: Changed 'key' to no longer be unique globally, as it should be unique per-user
     __table_args__ = (db.UniqueConstraint('user_id', 'key', name='_user_key_uc'),)
@@ -416,7 +418,7 @@ class Photo(db.Model):
     category = db.Column(db.String(50))  # 'garden', 'plant', 'harvest', 'pest'
 
     # Relationships
-    user = db.relationship('User', backref='photos')
+    user = db.relationship('User', backref=db.backref('photos', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -443,7 +445,7 @@ class HarvestRecord(db.Model):
     quality = db.Column(db.String(20))  # excellent, good, fair, poor
 
     # Relationships
-    user = db.relationship('User', backref='harvest_records')
+    user = db.relationship('User', backref=db.backref('harvest_records', cascade='all, delete-orphan'))
 
     def to_dict(self):
         return {
@@ -481,7 +483,7 @@ class SeedInventory(db.Model):
     is_homegrown = db.Column(db.Boolean, default=False, nullable=False)
 
     # Relationships
-    user = db.relationship('User', backref='seed_inventory')
+    user = db.relationship('User', backref=db.backref('seed_inventory', cascade='all, delete-orphan'))
 
     # Variety-specific agronomic overrides (nullable - NULL means "use plant_id defaults")
     # Core agronomic fields
@@ -591,7 +593,7 @@ class Property(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref='properties')
+    user = db.relationship('User', backref=db.backref('properties', cascade='all, delete-orphan'))
     structures = db.relationship('PlacedStructure', backref='property', lazy=True, cascade='all, delete-orphan')
 
     def to_dict(self):
@@ -637,7 +639,7 @@ class PlacedStructure(db.Model):
     shape_type = db.Column(db.String(20), default='rectangle')  # 'rectangle' or 'circle'
 
     # Relationships
-    user = db.relationship('User', backref='placed_structures')
+    user = db.relationship('User', backref=db.backref('placed_structures', cascade='all, delete-orphan'))
 
     def get_width(self):
         """
@@ -725,7 +727,7 @@ class TrellisStructure(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref='trellis_structures')
+    user = db.relationship('User', backref=db.backref('trellis_structures', cascade='all, delete-orphan'))
 
     def calculate_length(self):
         """Calculate trellis length using Pythagorean theorem"""
@@ -769,7 +771,7 @@ class Chicken(db.Model):
     status = db.Column(db.String(20), default='active')  # active, sold, deceased
 
     # Relationships
-    user = db.relationship('User', backref='chickens')
+    user = db.relationship('User', backref=db.backref('chickens', cascade='all, delete-orphan'))
     coop_location = db.Column(db.String(100))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -831,7 +833,7 @@ class Duck(db.Model):
     hatch_date = db.Column(db.DateTime)
 
     # Relationships
-    user = db.relationship('User', backref='ducks')
+    user = db.relationship('User', backref=db.backref('ducks', cascade='all, delete-orphan'))
     purpose = db.Column(db.String(50))  # eggs, meat, dual-purpose, pet
     sex = db.Column(db.String(20))  # hens, drakes, mixed
     status = db.Column(db.String(20), default='active')  # active, sold, deceased
@@ -901,7 +903,7 @@ class Beehive(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref='beehives')
+    user = db.relationship('User', backref=db.backref('beehives', cascade='all, delete-orphan'))
     inspections = db.relationship('HiveInspection', backref='hive', lazy=True, cascade='all, delete-orphan')
     harvests = db.relationship('HoneyHarvest', backref='hive', lazy=True, cascade='all, delete-orphan')
 
@@ -990,7 +992,7 @@ class Livestock(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = db.relationship('User', backref='livestock')
+    user = db.relationship('User', backref=db.backref('livestock', cascade='all, delete-orphan'))
     health_records = db.relationship('HealthRecord', backref='animal', lazy=True, cascade='all, delete-orphan')
 
     def to_dict(self):
@@ -1067,7 +1069,7 @@ class IndoorSeedStart(db.Model):
     expected_transplant_date = db.Column(db.DateTime)  # Calculated from weeksIndoors
 
     # Relationships
-    user = db.relationship('User', backref='indoor_seed_starts')
+    user = db.relationship('User', backref=db.backref('indoor_seed_starts', cascade='all, delete-orphan'))
     actual_transplant_date = db.Column(db.DateTime)  # When actually moved outside
 
     # Quantity & Germination Tracking
@@ -1320,7 +1322,7 @@ class GardenPlan(db.Model):
     notes = db.Column(db.Text)
 
     # Relationships
-    user = db.relationship('User', backref='garden_plans')
+    user = db.relationship('User', backref=db.backref('garden_plans', cascade='all, delete-orphan'))
     items = db.relationship('GardenPlanItem', backref='garden_plan', lazy=True, cascade='all, delete-orphan')
 
     def to_dict(self):
