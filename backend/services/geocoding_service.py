@@ -3,9 +3,12 @@ Geocoding service for address validation and coordinate lookup.
 Supports Geocodio and Google Maps Geocoding APIs.
 """
 
+import logging
 import requests
 import os
 from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 class GeocodingService:
@@ -208,17 +211,22 @@ class GeocodingService:
         """
         try:
             url = f"https://phzmapi.org/{zipcode}.json"
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=10)
 
             if response.status_code == 200:
                 data = response.json()
                 zone = data.get('zone')
                 if zone:
                     return zone
+            else:
+                logger.warning(
+                    f"phzmapi.org returned {response.status_code} for ZIP {zipcode}: "
+                    f"{response.text[:200]}"
+                )
 
-        except (requests.exceptions.RequestException, ValueError, KeyError) as e:
+        except (requests.exceptions.RequestException, ValueError, KeyError):
             # Log error but don't raise - fallback tiers will handle
-            print(f"Zone API lookup failed for ZIP {zipcode}: {e}")
+            logger.exception(f"phzmapi.org lookup failed for ZIP {zipcode}")
 
         return None
 

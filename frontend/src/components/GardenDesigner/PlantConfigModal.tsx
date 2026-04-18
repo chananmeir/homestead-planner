@@ -2003,15 +2003,26 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         )}
 
         {/* Frost date source notice - warn when using default Zone 5b */}
-        {!validating && frostDateSource === 'default' && warnings.some(w => w.type === 'frost_risk' || w.type === 'frost_risk_protected') && (
-          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
-            <p className="text-amber-800 font-medium">Frost dates may be inaccurate</p>
-            <p className="text-amber-700 mt-1">
-              Using default Zone 5b frost dates (last frost April 15). Set your USDA hardiness zone
-              in Property Designer for accurate frost warnings.
-            </p>
-          </div>
-        )}
+        {!validating && frostDateSource === 'default' && warnings.some(w => w.type === 'frost_risk' || w.type === 'frost_risk_protected') && (() => {
+          const currentZipcode = localStorage.getItem('weatherZipCode');
+          return (
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
+              <p className="text-amber-800 font-medium">Frost dates may be inaccurate</p>
+              {currentZipcode ? (
+                <p className="text-amber-700 mt-1">
+                  Could not resolve your USDA zone from ZIP {currentZipcode}. Using default Zone 5b
+                  frost dates (last frost April 15). Set your zone manually in Property Designer for
+                  accurate frost warnings.
+                </p>
+              ) : (
+                <p className="text-amber-700 mt-1">
+                  Using default Zone 5b frost dates (last frost April 15). Set your USDA hardiness zone
+                  in Property Designer for accurate frost warnings.
+                </p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Frost dates derived from weather zip code */}
         {!validating && frostDateSource === 'zipcode' && warnings.some(w => w.type === 'frost_risk' || w.type === 'frost_risk_protected') && (

@@ -64,9 +64,17 @@ _CACHE_EXPIRY = timedelta(hours=24)
 def _get_zone_from_zipcode(zipcode: str) -> Optional[str]:
     """Derive USDA zone from a ZIP code using the geocoding service API lookup.
 
+    Lookup order:
+    1. phzmapi.org direct ZIP lookup (via _lookup_zone_via_api)
+    2. If that fails, geocode the ZIP and fall back to the regional lat/lon
+       heuristic in get_hardiness_zone (which resolves Atlanta -> 8a, etc.)
+
     Results are cached for 24 hours to avoid repeated external API calls.
     Returns None on failure (not cached, so retries work next time).
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     if not zipcode:
         return None
 
@@ -84,9 +92,30 @@ def _get_zone_from_zipcode(zipcode: str) -> Optional[str]:
                 'cached_at': datetime.utcnow(),
             }
             return zone
-    except Exception as e:
-        import logging
-        logging.warning(f"Failed to derive zone from zipcode {zipcode}: {e}")
+    except Exception:
+        logger.exception(f"Failed to derive zone from zipcode {zipcode} via phzmapi.org")
+
+    # Fallback: geocode the ZIP and use the lat/lon regional heuristic.
+    # phzmapi.org can return None for unknown ZIPs, rate-limit, or be offline,
+    # so we try the same resolver the header uses (get_hardiness_zone) which
+    # has a regional fallback that correctly handles ZIPs outside the cache.
+    try:
+        from services.geocoding_service import geocoding_service
+        address_info = geocoding_service.validate_address(zipcode)
+        if address_info is not None:
+            lat = address_info.get('latitude')
+            lon = address_info.get('longitude')
+            formatted_address = address_info.get('formatted_address')
+            if lat is not None and lon is not None:
+                zone = geocoding_service.get_hardiness_zone(lat, lon, formatted_address)
+                if zone:
+                    _zipcode_zone_cache[zipcode] = {
+                        'zone': zone,
+                        'cached_at': datetime.utcnow(),
+                    }
+                    return zone
+    except Exception:
+        logger.exception(f"Failed lat/lon fallback for zipcode {zipcode}")
 
     return None
 
