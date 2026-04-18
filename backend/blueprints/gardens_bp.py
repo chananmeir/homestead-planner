@@ -382,8 +382,8 @@ def add_planted_item():
             position_x=position.get('x', 0),
             position_y=position.get('y', 0),
             notes=data.get('notes', ''),
-            completed=False,
-            quantity_completed=None
+            completed=True,
+            quantity_completed=data.get('quantity', 1)
         )
 
         # Server-side conflict enforcement for auto-created planting event
@@ -421,6 +421,21 @@ def add_planted_item():
             indoor_seed_start = _auto_create_indoor_seed_start(
                 current_user.id, planting_event, plant, data.get('quantity', 1)
             )
+
+        # Mark original exported PlantingEvents as completed when placing from a plan.
+        # Mirrors the batch path logic (lines 708-720) so that the calendar grouped
+        # marker clears after single-position placement too.
+        if source_plan_item_id:
+            export_key_prefix = f"{current_user.id}_{source_plan_item_id}_{data['gardenBedId']}_"
+            original_events = PlantingEvent.query.filter(
+                PlantingEvent.user_id == current_user.id,
+                PlantingEvent.export_key.like(f"{export_key_prefix}%"),
+                PlantingEvent.completed == False  # noqa: E712
+            ).all()
+            for evt in original_events:
+                evt.completed = True
+                evt.quantity_completed = evt.quantity or data.get('quantity', 1)
+                _sync_indoor_start_on_completion(evt)
 
         db.session.commit()
 

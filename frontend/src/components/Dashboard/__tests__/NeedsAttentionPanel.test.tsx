@@ -31,8 +31,10 @@ const emptyPayload = (): DashboardToday => ({
     harvestReady: [],
     indoorStartsDue: [],
     transplantsDue: [],
-    frostRisk: { atRisk: false, forecastLowF: null, windowHours: 24, source: 'weather-forecast' },
-    rainAlert: { expected: false, inchesExpected: 0.0, windowHours: 48 },
+    directSeedDue: [],
+    germinationCheck: [],
+    frostRisk: { signalKey: 'frost-risk', atRisk: false, forecastLowF: null, windowHours: 24, source: 'weather-forecast' },
+    rainAlert: { signalKey: 'rain-alert', expected: false, inchesExpected: 0.0, windowHours: 48 },
     compostOverdue: [],
     seedLowStock: [],
     seedExpiring: [],
@@ -67,13 +69,13 @@ describe('NeedsAttentionPanel', () => {
   test('renders rows for each non-empty signal category', async () => {
     const payload = emptyPayload();
     payload.signals.harvestReady = [
-      { plantingEventId: 7, plantName: 'Lettuce', variety: 'Buttercrunch', bedId: 3, bedName: 'Bed Alpha', quantity: 12, daysPastExpected: 4 },
+      { signalKey: 'harvest:7', plantingEventId: 7, plantName: 'Lettuce', variety: 'Buttercrunch', bedId: 3, bedName: 'Bed Alpha', quantity: 12, daysPastExpected: 4 },
     ];
     payload.signals.transplantsDue = [
-      { plantingEventId: 11, plantName: 'Tomato', variety: 'Cherokee Purple', transplantDate: '2026-04-14', quantity: 4, bedId: 4, bedName: 'Bed Beta' },
+      { signalKey: 'transplant:11', plantingEventId: 11, plantName: 'Tomato', variety: 'Cherokee Purple', transplantDate: '2026-04-14', quantity: 4, bedId: 4, bedName: 'Bed Beta' },
     ];
     payload.signals.compostOverdue = [
-      { pileId: 5, pileName: 'Main', daysSinceLastTurn: 13, turnFrequencyDays: 7 },
+      { signalKey: 'compost:5', pileId: 5, pileName: 'Main', daysSinceLastTurn: 13, turnFrequencyDays: 7 },
     ];
 
     installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
@@ -88,8 +90,8 @@ describe('NeedsAttentionPanel', () => {
 
   test('renders frost risk + rain alert rows when flags are true', async () => {
     const payload = emptyPayload();
-    payload.signals.frostRisk = { atRisk: true, forecastLowF: 28, windowHours: 24, source: 'weather-forecast' };
-    payload.signals.rainAlert = { expected: true, inchesExpected: 0.65, windowHours: 48 };
+    payload.signals.frostRisk = { signalKey: 'frost-risk', atRisk: true, forecastLowF: 28, windowHours: 24, source: 'weather-forecast' };
+    payload.signals.rainAlert = { signalKey: 'rain-alert', expected: true, inchesExpected: 0.65, windowHours: 48 };
 
     installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
     render(<NeedsAttentionPanel {...makeNav()} />);
@@ -113,7 +115,7 @@ describe('NeedsAttentionPanel', () => {
   test('row click fires the matching nav handler', async () => {
     const payload = emptyPayload();
     payload.signals.harvestReady = [
-      { plantingEventId: 7, plantName: 'Lettuce', variety: null, bedId: 3, bedName: 'Bed Alpha', quantity: 12, daysPastExpected: 4 },
+      { signalKey: 'harvest:7', plantingEventId: 7, plantName: 'Lettuce', variety: null, bedId: 3, bedName: 'Bed Alpha', quantity: 12, daysPastExpected: 4 },
     ];
     installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
 
@@ -142,6 +144,7 @@ describe('NeedsAttentionPanel', () => {
     const payload = emptyPayload();
     // Build 7 harvest-ready rows so we exceed the DEFAULT_VISIBLE cap of 5.
     payload.signals.harvestReady = Array.from({ length: 7 }, (_, i) => ({
+      signalKey: `harvest:${100 + i}`,
       plantingEventId: 100 + i,
       plantName: `Crop ${i}`,
       variety: null,

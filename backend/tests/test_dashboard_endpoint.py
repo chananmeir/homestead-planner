@@ -83,8 +83,8 @@ class TestDashboardAuthAndShape:
         signals = body['signals']
         # Empty arrays for list-type signals
         for key in ('harvestReady', 'indoorStartsDue', 'transplantsDue',
-                    'compostOverdue', 'seedLowStock', 'seedExpiring',
-                    'livestockActionsDue'):
+                    'directSeedDue', 'compostOverdue', 'seedLowStock',
+                    'seedExpiring', 'livestockActionsDue'):
             assert signals[key] == [], f"{key} should be []"
 
         # Object-type signals have structural defaults
@@ -374,6 +374,78 @@ class TestTransplantsDueMissedSeedStartGuard:
         assert len(rows) == 1
         assert rows[0]['variety'] == 'Black Krim'
         assert rows[0]['transplantDate'] == '2026-04-12'
+
+
+class TestDirectSeedDue:
+
+    def test_includes_direct_seed_due_today(self, auth_client_a, user_a):
+        bed = _make_bed(user_a.id, 'Bed Herb')
+        _make_event(
+            user_a.id,
+            plant_id='carrot-1',
+            variety='Nantes',
+            garden_bed_id=bed.id,
+            direct_seed_date=datetime(2026, 4, 14),
+            quantity=20,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['directSeedDue']
+        assert len(rows) == 1
+        row = rows[0]
+        assert row['plantName'] is not None
+        assert row['variety'] == 'Nantes'
+        assert row['bedName'] == 'Bed Herb'
+        assert row['bedId'] == bed.id
+        assert row['directSeedDate'] == '2026-04-14'
+        assert row['quantity'] == 20
+
+    def test_includes_past_direct_seed(self, auth_client_a, user_a):
+        _make_event(
+            user_a.id,
+            plant_id='lettuce-1',
+            variety='Buttercrunch',
+            direct_seed_date=datetime(2026, 4, 10),  # 4 days ago
+            quantity=30,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['directSeedDue']
+        assert len(rows) == 1
+        assert rows[0]['variety'] == 'Buttercrunch'
+
+    def test_excludes_completed_direct_seed(self, auth_client_a, user_a):
+        _make_event(
+            user_a.id,
+            plant_id='carrot-1',
+            variety='Nantes',
+            direct_seed_date=datetime(2026, 4, 14),
+            quantity=20,
+            quantity_completed=20,
+            completed=True,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['directSeedDue'] == []
+
+    def test_excludes_future_direct_seed(self, auth_client_a, user_a):
+        _make_event(
+            user_a.id,
+            plant_id='carrot-1',
+            direct_seed_date=datetime(2026, 5, 1),  # after TODAY
+            quantity=10,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['directSeedDue'] == []
+
+    def test_user_isolation(self, auth_client_b, user_a):
+        """User A's direct-seed events must not appear for user B."""
+        _make_event(
+            user_a.id,
+            plant_id='carrot-1',
+            variety='Danvers',
+            direct_seed_date=datetime(2026, 4, 14),
+            quantity=15,
+        )
+        resp = _get_today(auth_client_b, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['directSeedDue'] == []
 
 
 class TestCompostOverdue:

@@ -132,7 +132,10 @@ function AppContent() {
   const [activeGroup, setActiveGroup] = useState<NavGroupId>('dashboard');
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
-  const [locationInfo, setLocationInfo] = useState<{ zipCode: string; zone: string; city: string } | null>(null);
+  const [locationInfo, setLocationInfo] = useState<{
+    zipCode: string; zone: string; city: string;
+    weatherTemp?: number; weatherConditions?: string; weatherIcon?: string;
+  } | null>(null);
   const [designerBedId, setDesignerBedId] = useState<number | null>(null);
   const [designerDate, setDesignerDate] = useState<string | null>(null);
   const [transplantSeedStartId, setTransplantSeedStartId] = useState<number | null>(null);
@@ -167,6 +170,9 @@ function AppContent() {
             zipCode,
             zone: data.location?.zone || '',
             city: data.location?.city || '',
+            weatherTemp: data.weather?.temperature,
+            weatherConditions: data.weather?.conditions,
+            weatherIcon: data.weather?.icon,
           });
         }
       } catch {
@@ -195,6 +201,9 @@ function AppContent() {
               zipCode: newZip,
               zone: data.location?.zone || '',
               city: data.location?.city || '',
+              weatherTemp: data.weather?.temperature,
+              weatherConditions: data.weather?.conditions,
+              weatherIcon: data.weather?.icon,
             });
           }
         } catch { /* zip already shown */ }
@@ -293,11 +302,18 @@ function AppContent() {
                   <div className="text-right">
                     <span className="text-green-100">Welcome, {user?.username}</span>
                     {locationInfo && (
-                      <p className="text-green-200 text-xs">
-                        {locationInfo.city && `${locationInfo.city} · `}
-                        {locationInfo.zipCode}
-                        {locationInfo.zone && ` · Zone ${locationInfo.zone}`}
-                      </p>
+                      <>
+                        <p className="text-green-200 text-xs">
+                          {locationInfo.city && `${locationInfo.city} · `}
+                          {locationInfo.zipCode}
+                          {locationInfo.zone && ` · Zone ${locationInfo.zone}`}
+                        </p>
+                        {locationInfo.weatherTemp != null && (
+                          <p className="text-green-200 text-xs">
+                            {locationInfo.weatherIcon} {Math.round(locationInfo.weatherTemp)}°F {locationInfo.weatherConditions}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                   <button

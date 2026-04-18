@@ -26,6 +26,19 @@ python migrations/custom/data/add_spinach.py
 
 ### Recent Migrations
 
+**2026-04-16**: Added `DashboardSnooze` table
+- **Migration**: `d37b8238c461_add_dashboardsnooze_table.py` (Flask-Migrate)
+- **Purpose**: Tracks user-snoozed dashboard signals so they are hidden until `snooze_until` date
+- **Columns**:
+  - `id` (Integer, PK)
+  - `user_id` (Integer, FK → users.id, NOT NULL, indexed)
+  - `signal_key` (String(200), NOT NULL) — identifies the specific dashboard signal
+  - `snooze_until` (Date, NOT NULL) — signal hidden until this date
+  - `created_at` (DateTime, nullable, default=utcnow)
+- **Constraints**: `UNIQUE(user_id, signal_key)` → one snooze record per user per signal (upsert pattern)
+- **Cascade**: `User.dashboard_snoozes` relationship uses `cascade='all, delete-orphan'`
+- **Note**: Migration uses `CREATE TABLE IF NOT EXISTS` to handle `db.create_all()` running during Flask app init
+
 **2026-04-11**: Added `last_frost_date` and `first_frost_date` to `property` table
 - **Migration**: `256f54bf5501_add_last_frost_date_and_first_frost_.py` (Flask-Migrate)
 - **Purpose**: Allow per-property frost date overrides instead of hardcoded Zone 5b defaults

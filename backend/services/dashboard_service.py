@@ -137,6 +137,7 @@ def _build_harvest_ready(user_id, target_date):
             continue
         days_past = (target_date - harvest_date).days
         results.append({
+            'signalKey': f'harvest-{e.id}',
             'plantingEventId': e.id,
             'plantName': _plant_name(e.plant_id),
             'variety': e.variety,
@@ -184,6 +185,7 @@ def _build_indoor_starts_due(user_id, target_date):
         if seed_start is None:
             continue
         results.append({
+            'signalKey': f'indoor-{e.id}',
             'plantingEventId': e.id,
             'indoorSeedStartId': None,
             'plantName': _plant_name(e.plant_id),
@@ -222,6 +224,7 @@ def _build_indoor_starts_due(user_id, target_date):
             if start_date is None:
                 continue
             results.append({
+                'signalKey': f'indoor-iss-{s.id}',
                 'plantingEventId': s.planting_event_id,
                 'indoorSeedStartId': s.id,
                 'plantName': _plant_name(s.plant_id),
@@ -274,10 +277,110 @@ def _build_transplants_due(user_id, target_date):
         if transplant is None:
             continue
         results.append({
+            'signalKey': f'transplant-{e.id}',
             'plantingEventId': e.id,
             'plantName': _plant_name(e.plant_id),
             'variety': e.variety,
             'transplantDate': transplant.isoformat(),
+            'quantity': e.quantity,
+            'bedId': e.garden_bed_id,
+            'bedName': bed_lookup.get(e.garden_bed_id),
+        })
+        if len(results) >= SIGNAL_CAP:
+            break
+    return results
+
+
+def _build_direct_seed_due(user_id, target_date):
+    """PlantingEvents with direct_seed_date <= target_date, not complete."""
+    _, end_of_day = _day_bounds(target_date)
+
+    events = (
+        PlantingEvent.query
+        .filter(
+            PlantingEvent.user_id == user_id,
+            PlantingEvent.event_type == 'planting',
+            PlantingEvent.direct_seed_date.isnot(None),
+            PlantingEvent.direct_seed_date <= end_of_day,
+        )
+        .order_by(PlantingEvent.direct_seed_date.asc())
+        .limit(SIGNAL_CAP * 3)
+        .all()
+    )
+
+    bed_ids = {e.garden_bed_id for e in events if e.garden_bed_id is not None}
+    bed_lookup = {}
+    if bed_ids:
+        for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
+            bed_lookup[bed.id] = bed.name
+
+    results = []
+    for e in events:
+        if e.is_complete:
+            continue
+        direct_seed = _as_date(e.direct_seed_date)
+        if direct_seed is None:
+            continue
+        results.append({
+            'signalKey': f'direct-seed-{e.id}',
+            'plantingEventId': e.id,
+            'plantName': _plant_name(e.plant_id),
+            'variety': e.variety,
+            'directSeedDate': direct_seed.isoformat(),
+            'quantity': e.quantity,
+            'bedId': e.garden_bed_id,
+            'bedName': bed_lookup.get(e.garden_bed_id),
+        })
+        if len(results) >= SIGNAL_CAP:
+            break
+    return results
+
+
+def _build_germination_check(user_id, target_date):
+    """PlantingEvents where direct_seed_date + germination_days <= target_date, not complete."""
+    # Query all direct-seeded, incomplete planting events (no date filter in SQL —
+    # we need the plant's germination_days to compute the threshold, done in Python)
+    events = (
+        PlantingEvent.query
+        .filter(
+            PlantingEvent.user_id == user_id,
+            PlantingEvent.event_type == 'planting',
+            PlantingEvent.direct_seed_date.isnot(None),
+        )
+        .order_by(PlantingEvent.direct_seed_date.asc())
+        .limit(SIGNAL_CAP * 3)
+        .all()
+    )
+
+    bed_ids = {e.garden_bed_id for e in events if e.garden_bed_id is not None}
+    bed_lookup = {}
+    if bed_ids:
+        for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
+            bed_lookup[bed.id] = bed.name
+
+    DEFAULT_GERMINATION_DAYS = 10
+    results = []
+    for e in events:
+        if e.is_complete:
+            continue
+        seed_date = _as_date(e.direct_seed_date)
+        if seed_date is None:
+            continue
+        plant = get_plant_by_id(e.plant_id)
+        germ_days = DEFAULT_GERMINATION_DAYS
+        if plant:
+            germ_days = plant.get('germination_days') or DEFAULT_GERMINATION_DAYS
+        expected_germ = seed_date + timedelta(days=germ_days)
+        if expected_germ > target_date:
+            continue  # Not yet time to check
+        results.append({
+            'signalKey': f'germination-{e.id}',
+            'plantingEventId': e.id,
+            'plantName': _plant_name(e.plant_id),
+            'variety': e.variety,
+            'directSeedDate': seed_date.isoformat(),
+            'expectedGerminationDate': expected_germ.isoformat(),
+            'germinationDays': germ_days,
             'quantity': e.quantity,
             'bedId': e.garden_bed_id,
             'bedName': bed_lookup.get(e.garden_bed_id),
@@ -295,6 +398,7 @@ def _build_frost_risk(user_id, target_date):
     Returns None-like default if no location available or forecast fails.
     """
     default = {
+        'signalKey': 'frost-risk',
         'atRisk': False,
         'forecastLowF': None,
         'windowHours': FROST_RISK_WINDOW_HOURS,
@@ -322,6 +426,7 @@ def _build_frost_risk(user_id, target_date):
     at_risk = low is not None and low <= FROST_RISK_TEMP_F
 
     return {
+        'signalKey': 'frost-risk',
         'atRisk': bool(at_risk),
         'forecastLowF': low,
         'windowHours': FROST_RISK_WINDOW_HOURS,
@@ -332,6 +437,7 @@ def _build_frost_risk(user_id, target_date):
 def _build_rain_alert(user_id, target_date):
     """Rain alert using same weather source, summed across the next 48h."""
     default = {
+        'signalKey': 'rain-alert',
         'expected': False,
         'inchesExpected': 0.0,
         'windowHours': RAIN_WINDOW_HOURS,
@@ -359,6 +465,7 @@ def _build_rain_alert(user_id, target_date):
             total += float(precip)
 
     return {
+        'signalKey': 'rain-alert',
         'expected': total >= RAIN_ALERT_INCHES,
         'inchesExpected': round(total, 2),
         'windowHours': RAIN_WINDOW_HOURS,
@@ -395,6 +502,7 @@ def _build_compost_overdue(user_id, target_date):
             continue
 
         results.append({
+            'signalKey': f'compost-{pile.id}',
             'pileId': pile.id,
             'pileName': pile.name,
             'daysSinceLastTurn': days_since,
@@ -423,6 +531,7 @@ def _build_seed_low_stock(user_id, target_date):
 
     return [
         {
+            'signalKey': f'seed-low-{s.id}',
             'seedId': s.id,
             'plantName': _plant_name(s.plant_id),
             'variety': s.variety,
@@ -455,6 +564,7 @@ def _build_seed_expiring(user_id, target_date):
             continue
         days_until = (exp_date - target_date).days
         results.append({
+            'signalKey': f'seed-exp-{s.id}',
             'seedId': s.id,
             'plantName': _plant_name(s.plant_id),
             'variety': s.variety,
@@ -493,6 +603,7 @@ def _build_livestock_actions(user_id, target_date):
         return []
 
     return [{
+        'signalKey': 'livestock-egg-collection',
         'type': 'egg-collection',
         'label': 'Egg collection not yet logged today',
         'animal': 'Chickens',
@@ -513,6 +624,8 @@ def build_dashboard_today(user_id, target_date):
         'harvestReady': _build_harvest_ready(user_id, target_date),
         'indoorStartsDue': _build_indoor_starts_due(user_id, target_date),
         'transplantsDue': _build_transplants_due(user_id, target_date),
+        'directSeedDue': _build_direct_seed_due(user_id, target_date),
+        'germinationCheck': _build_germination_check(user_id, target_date),
         'frostRisk': _build_frost_risk(user_id, target_date),
         'rainAlert': _build_rain_alert(user_id, target_date),
         'compostOverdue': _build_compost_overdue(user_id, target_date),
@@ -520,6 +633,29 @@ def build_dashboard_today(user_id, target_date):
         'seedExpiring': _build_seed_expiring(user_id, target_date),
         'livestockActionsDue': _build_livestock_actions(user_id, target_date),
     }
+
+    # Filter out snoozed signals
+    from models import DashboardSnooze
+    snoozed = DashboardSnooze.query.filter(
+        DashboardSnooze.user_id == user_id,
+        DashboardSnooze.snooze_until >= target_date,
+    ).all()
+    snoozed_keys = {s.signal_key for s in snoozed}
+
+    if snoozed_keys:
+        # Filter array signals
+        for key in ['harvestReady', 'indoorStartsDue', 'transplantsDue', 'directSeedDue',
+                     'germinationCheck', 'compostOverdue', 'seedLowStock', 'seedExpiring',
+                     'livestockActionsDue']:
+            if key in signals and isinstance(signals[key], list):
+                signals[key] = [r for r in signals[key] if r.get('signalKey') not in snoozed_keys]
+
+        # Filter scalar signals (frost/rain)
+        if signals.get('frostRisk', {}).get('signalKey') in snoozed_keys:
+            signals['frostRisk']['atRisk'] = False
+        if signals.get('rainAlert', {}).get('signalKey') in snoozed_keys:
+            signals['rainAlert']['expected'] = False
+
     return {
         'date': target_date.isoformat(),
         'signals': signals,

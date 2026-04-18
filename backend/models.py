@@ -1453,3 +1453,15 @@ class GardenPlanItem(db.Model):
             'createdAt': self.created_at.isoformat() if self.created_at else None,
             'updatedAt': self.updated_at.isoformat() if self.updated_at else None
         }
+
+
+class DashboardSnooze(db.Model):
+    """Tracks user-snoozed dashboard signals. A snoozed signal is hidden until snooze_until."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    signal_key = db.Column(db.String(200), nullable=False)
+    snooze_until = db.Column(db.Date, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('dashboard_snoozes', cascade='all, delete-orphan'))
+    __table_args__ = (db.UniqueConstraint('user_id', 'signal_key', name='_user_signal_snooze_uc'),)

@@ -8,6 +8,8 @@ import type {
   HarvestReadyRow,
   IndoorStartDueRow,
   TransplantDueRow,
+  DirectSeedDueRow,
+  GerminationCheckRow,
   FrostRisk,
   RainAlert,
   CompostOverdueRow,
@@ -29,6 +31,7 @@ export interface NeedsAttentionNavHandlers {
 
 interface SignalRow {
   key: string;
+  signalKey?: string;
   icon: string;
   tone: Tone;
   title: string;
@@ -97,6 +100,23 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionNavHandlers> = (nav) => {
     return buildRows(data.signals, nav);
   }, [data, nav]);
 
+  const handleSnooze = async (signalKey: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ signalKey, days: 3 }),
+      });
+      if (resp.ok) {
+        setReloadKey(k => k + 1);
+      }
+    } catch (err) {
+      console.error('[NeedsAttentionPanel] snooze failed:', err);
+    }
+  };
+
   const visibleRows = expanded ? rows : rows.slice(0, DEFAULT_VISIBLE);
   const hiddenCount = rows.length - visibleRows.length;
 
@@ -142,7 +162,7 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionNavHandlers> = (nav) => {
             <button
               key={row.key}
               onClick={row.onClick}
-              className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${toneClasses[row.tone]}`}
+              className={`group w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${toneClasses[row.tone]}`}
             >
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-base flex-shrink-0 ${toneIconBg[row.tone]}`} aria-hidden="true">
                 {row.icon}
@@ -153,6 +173,17 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionNavHandlers> = (nav) => {
                   <div className="text-xs opacity-80 truncate">{row.subtitle}</div>
                 )}
               </div>
+              {row.signalKey && (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => handleSnooze(row.signalKey!, e)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSnooze(row.signalKey!, e as any); }}
+                  className="text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 hover:!opacity-100 bg-gray-200/60 hover:bg-gray-300/80 text-gray-600 hover:text-gray-800 transition-all flex-shrink-0"
+                >
+                  Skip 3d
+                </div>
+              )}
             </button>
           ))}
           {hiddenCount > 0 && (
@@ -207,6 +238,8 @@ function buildRows(
   signals.harvestReady?.forEach((r, i) => rows.push(harvestRow(r, i, nav)));
   signals.indoorStartsDue?.forEach((r, i) => rows.push(indoorStartRow(r, i, nav)));
   signals.transplantsDue?.forEach((r, i) => rows.push(transplantRow(r, i, nav)));
+  signals.directSeedDue?.forEach((r, i) => rows.push(directSeedRow(r, i, nav)));
+  signals.germinationCheck?.forEach((r, i) => rows.push(germinationRow(r, i, nav)));
   signals.compostOverdue?.forEach((r, i) => rows.push(compostRow(r, i, nav)));
   signals.seedLowStock?.forEach((r, i) => rows.push(seedLowRow(r, i, nav)));
   signals.seedExpiring?.forEach((r, i) => rows.push(seedExpiringRow(r, i, nav)));
@@ -219,6 +252,7 @@ function frostRiskRow(risk: FrostRisk, nav: NeedsAttentionNavHandlers): SignalRo
   const temp = risk.forecastLowF != null ? `${Math.round(risk.forecastLowF)}°F` : 'forecast low';
   return {
     key: 'frost-risk',
+    signalKey: risk.signalKey,
     icon: '❄️',
     tone: 'red',
     title: `Frost risk — ${temp}`,
@@ -230,6 +264,7 @@ function frostRiskRow(risk: FrostRisk, nav: NeedsAttentionNavHandlers): SignalRo
 function rainAlertRow(rain: RainAlert, nav: NeedsAttentionNavHandlers): SignalRow {
   return {
     key: 'rain-alert',
+    signalKey: rain.signalKey,
     icon: '🌧️',
     tone: 'yellow',
     title: `Rain expected — ${rain.inchesExpected.toFixed(2)}"`,
@@ -260,6 +295,7 @@ function harvestRow(row: HarvestReadyRow, idx: number, nav: NeedsAttentionNavHan
   const label = buildPlantLabel(row.plantName, row.variety);
   return {
     key: `harvest-${row.plantingEventId}-${idx}`,
+    signalKey: row.signalKey,
     icon: '🧺',
     tone: 'green',
     title: `Harvest ready — ${label}`,
@@ -276,6 +312,7 @@ function indoorStartRow(row: IndoorStartDueRow, idx: number, nav: NeedsAttention
   const label = buildPlantLabel(row.plantName, row.variety);
   return {
     key: `indoor-${row.plantingEventId ?? `iss-${row.indoorSeedStartId}`}-${idx}`,
+    signalKey: row.signalKey,
     icon: '🪴',
     tone: 'blue',
     title: `Indoor start due — ${label}`,
@@ -291,6 +328,7 @@ function transplantRow(row: TransplantDueRow, idx: number, nav: NeedsAttentionNa
   const label = buildPlantLabel(row.plantName, row.variety);
   return {
     key: `transplant-${row.plantingEventId}-${idx}`,
+    signalKey: row.signalKey,
     icon: '🌱',
     tone: 'blue',
     title: `Transplant due — ${label}`,
@@ -303,9 +341,44 @@ function transplantRow(row: TransplantDueRow, idx: number, nav: NeedsAttentionNa
   };
 }
 
+function directSeedRow(row: DirectSeedDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+  const label = buildPlantLabel(row.plantName, row.variety);
+  return {
+    key: `direct-seed-${row.plantingEventId}-${idx}`,
+    signalKey: row.signalKey,
+    icon: '\u{1F330}',
+    tone: 'blue',
+    title: `Direct seed due \u2014 ${label}`,
+    subtitle: joinSubtitle([
+      plantsFragment(row.quantity),
+      row.bedName,
+      formatDate(row.directSeedDate),
+    ]),
+    onClick: nav.onViewCalendar,
+  };
+}
+
+function germinationRow(row: GerminationCheckRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+  const label = buildPlantLabel(row.plantName, row.variety);
+  return {
+    key: `germination-${row.plantingEventId}-${idx}`,
+    signalKey: row.signalKey,
+    icon: '\u{1F331}',
+    tone: 'green',
+    title: `Check germination \u2014 ${label}`,
+    subtitle: joinSubtitle([
+      plantsFragment(row.quantity),
+      row.bedName,
+      `seeded ${formatDate(row.directSeedDate)}`,
+    ]),
+    onClick: nav.onViewGardenDesigner,
+  };
+}
+
 function compostRow(row: CompostOverdueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
   return {
     key: `compost-${row.pileId}-${idx}`,
+    signalKey: row.signalKey,
     icon: '♻️',
     tone: 'yellow',
     title: `Compost overdue — ${row.pileName}`,
@@ -319,6 +392,7 @@ function seedLowRow(row: SeedLowStockRow, idx: number, nav: NeedsAttentionNavHan
   const tone: Tone = row.quantityRemaining <= 1 ? 'red' : 'yellow';
   return {
     key: `seed-low-${row.seedId}-${idx}`,
+    signalKey: row.signalKey,
     icon: '🌾',
     tone,
     title: `Low seed stock — ${label}`,
@@ -331,6 +405,7 @@ function seedExpiringRow(row: SeedExpiringRow, idx: number, nav: NeedsAttentionN
   const label = buildPlantLabel(row.plantName, row.variety);
   return {
     key: `seed-exp-${row.seedId}-${idx}`,
+    signalKey: row.signalKey,
     icon: '⏳',
     tone: 'yellow',
     title: `Seed expiring — ${label}`,
@@ -342,6 +417,7 @@ function seedExpiringRow(row: SeedExpiringRow, idx: number, nav: NeedsAttentionN
 function livestockRow(row: LivestockActionDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
   return {
     key: `livestock-${row.type}-${idx}`,
+    signalKey: row.signalKey,
     icon: '🐔',
     tone: 'blue',
     title: row.label,

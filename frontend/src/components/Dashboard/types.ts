@@ -4,6 +4,7 @@
  */
 
 export interface HarvestReadyRow {
+  signalKey: string;
   plantingEventId: number;
   plantName: string;
   variety?: string | null;
@@ -16,6 +17,7 @@ export interface HarvestReadyRow {
 }
 
 export interface IndoorStartDueRow {
+  signalKey: string;
   // Either plantingEventId (event-driven) or indoorSeedStartId (standalone
   // seed-start record) will be populated — sometimes both, when an
   // IndoorSeedStart is linked to an outdoor PlantingEvent.
@@ -28,6 +30,7 @@ export interface IndoorStartDueRow {
 }
 
 export interface TransplantDueRow {
+  signalKey: string;
   plantingEventId: number;
   plantName: string;
   variety?: string | null;
@@ -37,7 +40,32 @@ export interface TransplantDueRow {
   bedName?: string | null;
 }
 
+export interface DirectSeedDueRow {
+  signalKey: string;
+  plantingEventId: number;
+  plantName: string;
+  variety?: string | null;
+  directSeedDate: string;
+  quantity: number | null;
+  bedId?: number | null;
+  bedName?: string | null;
+}
+
+export interface GerminationCheckRow {
+  signalKey: string;
+  plantingEventId: number;
+  plantName: string;
+  variety?: string | null;
+  directSeedDate: string;
+  expectedGerminationDate: string;
+  germinationDays: number;
+  quantity: number | null;
+  bedId?: number | null;
+  bedName?: string | null;
+}
+
 export interface FrostRisk {
+  signalKey: string;
   atRisk: boolean;
   forecastLowF?: number | null;
   windowHours: number;
@@ -45,12 +73,14 @@ export interface FrostRisk {
 }
 
 export interface RainAlert {
+  signalKey: string;
   expected: boolean;
   inchesExpected: number;
   windowHours: number;
 }
 
 export interface CompostOverdueRow {
+  signalKey: string;
   pileId: number;
   pileName: string;
   daysSinceLastTurn: number;
@@ -58,6 +88,7 @@ export interface CompostOverdueRow {
 }
 
 export interface SeedLowStockRow {
+  signalKey: string;
   seedId: number;
   plantName: string;
   variety?: string | null;
@@ -65,6 +96,7 @@ export interface SeedLowStockRow {
 }
 
 export interface SeedExpiringRow {
+  signalKey: string;
   seedId: number;
   plantName: string;
   variety?: string | null;
@@ -73,6 +105,7 @@ export interface SeedExpiringRow {
 }
 
 export interface LivestockActionDueRow {
+  signalKey: string;
   type: string;
   label: string;
   animal?: string | null;
@@ -82,6 +115,8 @@ export interface DashboardSignals {
   harvestReady: HarvestReadyRow[];
   indoorStartsDue: IndoorStartDueRow[];
   transplantsDue: TransplantDueRow[];
+  directSeedDue: DirectSeedDueRow[];
+  germinationCheck: GerminationCheckRow[];
   frostRisk: FrostRisk;
   rainAlert: RainAlert;
   compostOverdue: CompostOverdueRow[];
