@@ -33,6 +33,7 @@ const emptyPayload = (): DashboardToday => ({
     transplantsDue: [],
     directSeedDue: [],
     germinationCheck: [],
+    indoorGerminationCheck: [],
     frostRisk: { signalKey: 'frost-risk', atRisk: false, forecastLowF: null, windowHours: 24, source: 'weather-forecast' },
     rainAlert: { signalKey: 'rain-alert', expected: false, inchesExpected: 0.0, windowHours: 48 },
     compostOverdue: [],
@@ -138,6 +139,126 @@ describe('NeedsAttentionPanel', () => {
     });
     const calledUrl = String((fetchMock.mock.calls[0] as any[])[0]);
     expect(calledUrl).toMatch(/\/api\/dashboard\/today\?date=2026-04-14/);
+  });
+
+  // -------------------------------------------------------------------------
+  // Indoor germination check signal
+  // -------------------------------------------------------------------------
+
+  test('renders an indoor germination row when payload includes one', async () => {
+    const payload = emptyPayload();
+    payload.signals.indoorGerminationCheck = [
+      {
+        signalKey: 'indoor-germ-iss-7',
+        plantingEventId: null,
+        indoorSeedStartId: 7,
+        plantName: 'Tomato',
+        variety: 'Cherokee Purple',
+        seedStartDate: '2026-04-01',
+        expectedGerminationDate: '2026-04-08',
+        germinationDays: 7,
+        quantity: 12,
+      },
+    ];
+
+    installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Check indoor germination — Tomato \(Cherokee Purple\)/i)
+      ).toBeInTheDocument();
+    });
+
+    // Subtitle should mention the quantity and the (locale-formatted) date.
+    // formatDate uses { month: 'short', day: 'numeric' } => "Apr 1" in en-US.
+    expect(screen.getByText(/12 plants/i)).toBeInTheDocument();
+    expect(screen.getByText(/started Apr 1/i)).toBeInTheDocument();
+  });
+
+  test('clicking the indoor germination row triggers nav.onViewIndoorStarts', async () => {
+    const payload = emptyPayload();
+    payload.signals.indoorGerminationCheck = [
+      {
+        signalKey: 'indoor-germ-iss-7',
+        plantingEventId: null,
+        indoorSeedStartId: 7,
+        plantName: 'Tomato',
+        variety: 'Cherokee Purple',
+        seedStartDate: '2026-04-01',
+        expectedGerminationDate: '2026-04-08',
+        germinationDays: 7,
+        quantity: 12,
+      },
+    ];
+
+    installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+    const nav = makeNav();
+    render(<NeedsAttentionPanel {...nav} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Check indoor germination — Tomato/i)
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Check indoor germination — Tomato/i));
+
+    expect(nav.onViewIndoorStarts).toHaveBeenCalledTimes(1);
+    // Other handlers must NOT fire — confirms row is wired specifically to
+    // onViewIndoorStarts and not to a sibling like onViewGardenDesigner.
+    expect(nav.onViewGardenDesigner).not.toHaveBeenCalled();
+    expect(nav.onViewCalendar).not.toHaveBeenCalled();
+    expect(nav.onViewHarvests).not.toHaveBeenCalled();
+    expect(nav.onViewCompost).not.toHaveBeenCalled();
+    expect(nav.onViewSeeds).not.toHaveBeenCalled();
+    expect(nav.onViewLivestock).not.toHaveBeenCalled();
+    expect(nav.onViewWeather).not.toHaveBeenCalled();
+  });
+
+  test('renders both direct-seed germinationCheck AND indoorGerminationCheck rows when both are populated', async () => {
+    const payload = emptyPayload();
+    payload.signals.germinationCheck = [
+      {
+        signalKey: 'germination-42',
+        plantingEventId: 42,
+        plantName: 'Carrot',
+        variety: 'Nantes',
+        directSeedDate: '2026-04-04',
+        expectedGerminationDate: '2026-04-14',
+        germinationDays: 10,
+        quantity: 30,
+        bedId: 5,
+        bedName: 'Bed Herb',
+      },
+    ];
+    payload.signals.indoorGerminationCheck = [
+      {
+        signalKey: 'indoor-germ-iss-7',
+        plantingEventId: null,
+        indoorSeedStartId: 7,
+        plantName: 'Tomato',
+        variety: 'Cherokee Purple',
+        seedStartDate: '2026-04-01',
+        expectedGerminationDate: '2026-04-08',
+        germinationDays: 7,
+        quantity: 12,
+      },
+    ];
+
+    installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    // Both titles should be present — proves buildRows wiring is additive
+    // and order-independent for the two related signals.
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Check germination — Carrot \(Nantes\)/i)
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/Check indoor germination — Tomato \(Cherokee Purple\)/i)
+    ).toBeInTheDocument();
   });
 
   test('caps visible rows at 5 with a "+ N more" toggle that expands', async () => {

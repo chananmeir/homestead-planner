@@ -10,6 +10,7 @@ import type {
   TransplantDueRow,
   DirectSeedDueRow,
   GerminationCheckRow,
+  IndoorGerminationCheckRow,
   FrostRisk,
   RainAlert,
   CompostOverdueRow,
@@ -240,6 +241,7 @@ function buildRows(
   signals.transplantsDue?.forEach((r, i) => rows.push(transplantRow(r, i, nav)));
   signals.directSeedDue?.forEach((r, i) => rows.push(directSeedRow(r, i, nav)));
   signals.germinationCheck?.forEach((r, i) => rows.push(germinationRow(r, i, nav)));
+  signals.indoorGerminationCheck?.forEach((r, i) => rows.push(indoorGerminationRow(r, i, nav)));
   signals.compostOverdue?.forEach((r, i) => rows.push(compostRow(r, i, nav)));
   signals.seedLowStock?.forEach((r, i) => rows.push(seedLowRow(r, i, nav)));
   signals.seedExpiring?.forEach((r, i) => rows.push(seedExpiringRow(r, i, nav)));
@@ -372,6 +374,25 @@ function germinationRow(row: GerminationCheckRow, idx: number, nav: NeedsAttenti
       `seeded ${formatDate(row.directSeedDate)}`,
     ]),
     onClick: nav.onViewGardenDesigner,
+  };
+}
+
+function indoorGerminationRow(row: IndoorGerminationCheckRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+  const label = buildPlantLabel(row.plantName, row.variety);
+  const keySuffix = row.indoorSeedStartId != null
+    ? `iss-${row.indoorSeedStartId}`
+    : `pe-${row.plantingEventId}`;
+  return {
+    key: `indoor-germ-${keySuffix}-${idx}`,
+    signalKey: row.signalKey,
+    icon: '\u{1F33F}',
+    tone: 'green',
+    title: `Check indoor germination \u2014 ${label}`,
+    subtitle: joinSubtitle([
+      plantsFragment(row.quantity),
+      `started ${formatDate(row.seedStartDate)}`,
+    ]),
+    onClick: nav.onViewIndoorStarts,
   };
 }
 

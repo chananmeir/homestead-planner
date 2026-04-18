@@ -64,6 +64,20 @@ export interface GerminationCheckRow {
   bedName?: string | null;
 }
 
+export interface IndoorGerminationCheckRow {
+  signalKey: string;
+  // Either or both may be set: indoorSeedStartId is preferred when present,
+  // plantingEventId is the fallback path. At least one will always be populated.
+  plantingEventId: number | null;
+  indoorSeedStartId: number | null;
+  plantName: string;
+  variety?: string | null;
+  seedStartDate: string;            // ISO date
+  expectedGerminationDate: string;  // ISO date
+  germinationDays: number;
+  quantity: number | null;
+}
+
 export interface FrostRisk {
   signalKey: string;
   atRisk: boolean;
@@ -117,6 +131,7 @@ export interface DashboardSignals {
   transplantsDue: TransplantDueRow[];
   directSeedDue: DirectSeedDueRow[];
   germinationCheck: GerminationCheckRow[];
+  indoorGerminationCheck: IndoorGerminationCheckRow[];
   frostRisk: FrostRisk;
   rainAlert: RainAlert;
   compostOverdue: CompostOverdueRow[];

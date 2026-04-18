@@ -390,6 +390,149 @@ def _build_germination_check(user_id, target_date):
     return results
 
 
+def _build_indoor_germination_check(user_id, target_date):
+    """
+    Indoor seed starts whose expected germination date has passed but have
+    not been marked germinated yet.
+
+    Two data paths, deduped:
+      a) IndoorSeedStart records (primary; richer data).
+         Status must still be 'planned' or 'seeded' (i.e., NOT in
+         germinating/growing/ready/transplanted) AND actual_germination_date
+         is NULL.
+         If expected_germination_date is set, compare it to end_of_day(target).
+         Otherwise fall back to start_date + plant.germination_days.
+      b) PlantingEvent records (fallback for events without a linked ISS).
+         Filter by seed_start_date set, not is_complete, and
+         seed_start_date + plant.germination_days <= target_date.
+         Suppress events whose id is in the linked_event_ids set from path (a).
+         Also suppress events whose transplant_date <= target_date (the
+         "transplant due" signal will surface them — analogous to the
+         suppression in _build_transplants_due).
+
+    Sibling of _build_germination_check (which stays direct-seed-only).
+    """
+    _, end_of_day = _day_bounds(target_date)
+    DEFAULT_GERMINATION_DAYS = 10
+
+    results = []
+    linked_event_ids = set()
+
+    # ---- Path (a): IndoorSeedStart records ----
+    iss_records = (
+        IndoorSeedStart.query
+        .filter(
+            IndoorSeedStart.user_id == user_id,
+            IndoorSeedStart.actual_germination_date.is_(None),
+            IndoorSeedStart.status.notin_(
+                ('germinating', 'growing', 'ready', 'transplanted')
+            ),
+        )
+        .order_by(IndoorSeedStart.start_date.asc())
+        .limit(SIGNAL_CAP * 3)
+        .all()
+    )
+
+    for s in iss_records:
+        start_date = _as_date(s.start_date)
+        if start_date is None:
+            continue
+        expected_germ = _as_date(s.expected_germination_date)
+
+        if expected_germ is not None:
+            if expected_germ > target_date:
+                continue
+            germ_days_used = None
+            if start_date is not None:
+                germ_days_used = (expected_germ - start_date).days
+            if germ_days_used is None or germ_days_used < 0:
+                # Fall back to plant default if start_date missing or weird
+                plant_for_default = get_plant_by_id(s.plant_id)
+                germ_days_used = DEFAULT_GERMINATION_DAYS
+                if plant_for_default:
+                    plant_germ = plant_for_default.get('germination_days')
+                    germ_days_used = plant_germ if plant_germ is not None else DEFAULT_GERMINATION_DAYS
+        else:
+            # Compute fallback from start_date + plant.germination_days
+            if start_date is None:
+                continue
+            plant = get_plant_by_id(s.plant_id)
+            germ_days_used = DEFAULT_GERMINATION_DAYS
+            if plant:
+                plant_germ = plant.get('germination_days')
+                germ_days_used = plant_germ if plant_germ is not None else DEFAULT_GERMINATION_DAYS
+            expected_germ = start_date + timedelta(days=germ_days_used)
+            if expected_germ > target_date:
+                continue
+
+        results.append({
+            'signalKey': f'indoor-germ-iss-{s.id}',
+            'plantingEventId': s.planting_event_id,
+            'indoorSeedStartId': s.id,
+            'plantName': _plant_name(s.plant_id),
+            'variety': s.variety,
+            'seedStartDate': start_date.isoformat(),
+            'expectedGerminationDate': expected_germ.isoformat(),
+            'germinationDays': germ_days_used,
+            'quantity': s.seeds_started,
+        })
+        if s.planting_event_id is not None:
+            linked_event_ids.add(s.planting_event_id)
+        if len(results) >= SIGNAL_CAP:
+            break
+
+    # ---- Path (b): PlantingEvent fallback ----
+    if len(results) < SIGNAL_CAP:
+        events = (
+            PlantingEvent.query
+            .filter(
+                PlantingEvent.user_id == user_id,
+                PlantingEvent.event_type == 'planting',
+                PlantingEvent.seed_start_date.isnot(None),
+            )
+            .order_by(PlantingEvent.seed_start_date.asc())
+            .limit(SIGNAL_CAP * 3)
+            .all()
+        )
+
+        for e in events:
+            if e.id in linked_event_ids:
+                continue  # already surfaced via ISS path
+            if e.is_complete:
+                continue
+            seed_start = _as_date(e.seed_start_date)
+            if seed_start is None:
+                continue
+            # Suppress when transplant has come due — the "transplants due"
+            # signal will own the actionable item from this point forward.
+            transplant = _as_date(e.transplant_date)
+            if transplant is not None and transplant <= target_date:
+                continue
+            plant = get_plant_by_id(e.plant_id)
+            germ_days = DEFAULT_GERMINATION_DAYS
+            if plant:
+                plant_germ = plant.get('germination_days')
+                germ_days = plant_germ if plant_germ is not None else DEFAULT_GERMINATION_DAYS
+            expected_germ = seed_start + timedelta(days=germ_days)
+            if expected_germ > target_date:
+                continue
+            results.append({
+                'signalKey': f'indoor-germ-pe-{e.id}',
+                'plantingEventId': e.id,
+                'indoorSeedStartId': None,
+                'plantName': _plant_name(e.plant_id),
+                'variety': e.variety,
+                'seedStartDate': seed_start.isoformat(),
+                'expectedGerminationDate': expected_germ.isoformat(),
+                'germinationDays': germ_days,
+                'quantity': e.quantity,
+            })
+            if len(results) >= SIGNAL_CAP:
+                break
+
+    return results
+
+
 def _build_frost_risk(user_id, target_date):
     """
     Frost risk signal. Uses the same weather forecast source as the
@@ -626,6 +769,7 @@ def build_dashboard_today(user_id, target_date):
         'transplantsDue': _build_transplants_due(user_id, target_date),
         'directSeedDue': _build_direct_seed_due(user_id, target_date),
         'germinationCheck': _build_germination_check(user_id, target_date),
+        'indoorGerminationCheck': _build_indoor_germination_check(user_id, target_date),
         'frostRisk': _build_frost_risk(user_id, target_date),
         'rainAlert': _build_rain_alert(user_id, target_date),
         'compostOverdue': _build_compost_overdue(user_id, target_date),
@@ -645,8 +789,8 @@ def build_dashboard_today(user_id, target_date):
     if snoozed_keys:
         # Filter array signals
         for key in ['harvestReady', 'indoorStartsDue', 'transplantsDue', 'directSeedDue',
-                     'germinationCheck', 'compostOverdue', 'seedLowStock', 'seedExpiring',
-                     'livestockActionsDue']:
+                     'germinationCheck', 'indoorGerminationCheck', 'compostOverdue',
+                     'seedLowStock', 'seedExpiring', 'livestockActionsDue']:
             if key in signals and isinstance(signals[key], list):
                 signals[key] = [r for r in signals[key] if r.get('signalKey') not in snoozed_keys]
 
