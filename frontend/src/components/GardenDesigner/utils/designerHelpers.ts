@@ -54,10 +54,6 @@ export function formatConflictError(errorData: {
   return errorData.message || errorData.error || 'Failed to place plants';
 }
 
-/** Format a Date as YYYY-MM-DD using local date components */
-export const formatLocalDate = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
 /** Safe date formatter - returns "Date TBD" for invalid/missing dates */
 export const formatDateSafe = (dateValue: Date | string | null | undefined): string => {
   if (!dateValue) return 'Date TBD';

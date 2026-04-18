@@ -26,7 +26,7 @@ import SetSeedDateModal from './GardenDesigner/SetSeedDateModal';
 import WeatherAlertBanner from './GardenDesigner/WeatherAlertBanner';
 import BedOverviewGrid from './GardenDesigner/BedOverviewGrid';
 import { parseLocalDate } from '../utils/dateUtils';
-import { useNow, useToday } from '../contexts/SimulationContext';
+import { useNow, useToday, useSimulation } from '../contexts/SimulationContext';
 import { usePlantingEvents } from './GardenDesigner/hooks/usePlantingEvents';
 import { GuildSelector } from './GardenDesigner/GuildSelector';
 import { GuildPreview } from './GardenDesigner/GuildPreview';
@@ -36,7 +36,7 @@ import {
 } from './GardenDesigner/types';
 import {
   BADGE_POSITION, BADGE_DIMENSIONS, BADGE_COLORS,
-  formatConflictError, formatLocalDate, formatDateSafe,
+  formatConflictError, formatDateSafe,
   calculateHarvestDate, calculateTooltipPosition,
   getFuturePlantingsAtPosition as getFuturePlantingsAtPositionHelper,
 } from './GardenDesigner/utils/designerHelpers';
@@ -48,6 +48,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   const { activePlanId, planRefreshKey, bumpPlanRefresh, ensureActivePlan } = useActivePlan();
   const now = useNow();
   const today = useToday();
+  const { isSimulating, simulatedDate } = useSimulation();
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [activeBed, setActiveBed] = useState<GardenBed | null>(null);
@@ -92,7 +93,22 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
   // Date filtering state - default to today
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({ mode: 'single', date: today });
+  // Tracks whether the user has manually moved the date picker; prevents the
+  // simulation-sync effect below from clobbering an intentional choice.
+  const userChangedDateFilterRef = useRef(false);
   const { plantingEvents, futurePlantingEvents, fetchPlantingEvents, fetchFuturePlantingEvents } = usePlantingEvents(dateFilter);
+
+  // Simulation status is fetched async on mount; when it resolves after initial
+  // render, sync dateFilter to the simulated date (unless the user already
+  // changed it). Without this the modal operates on real-today while the rest
+  // of the app reports simulated-today.
+  useEffect(() => {
+    if (userChangedDateFilterRef.current) return;
+    if (isSimulating && simulatedDate && dateFilter.mode === 'single' && dateFilter.date !== simulatedDate) {
+      setDateFilter({ mode: 'single', date: simulatedDate });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSimulating, simulatedDate]);
   const [showFuturePlantings, setShowFuturePlantings] = useState<boolean>(() => localStorage.getItem('showFuturePlantings') === 'true');
   const [showGridLabels, setShowGridLabels] = useState<boolean>(() => localStorage.getItem('showGridLabels') !== 'false');
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -581,6 +597,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
   // Handle date filter changes and update URL
   const handleDateFilterChange = (newFilter: DateFilterValue) => {
+    userChangedDateFilterRef.current = true;
     setDateFilter(newFilter);
     updateDateFilterUrl(newFilter);
   };
@@ -3794,6 +3811,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         initialVariety={pendingPlant?.initialVariety}
         activePlanId={activePlanId ?? undefined}
         onDateChange={(newDate) => {
+          userChangedDateFilterRef.current = true;
           const updatedFilter = { ...dateFilter, date: newDate };
           setDateFilter(updatedFilter);
           updateDateFilterUrl(updatedFilter);

@@ -7,6 +7,7 @@ import { extractCropName } from '../../utils/plantUtils';
 import { autoPlacePlants, FillDirection } from './utils/autoPlacement';
 import { useToast } from '../common/Toast';
 import { useNow } from '../../contexts/SimulationContext';
+import { parseLocalDate, formatLocalDate } from '../../utils/dateUtils';
 import { coordinateToGridLabel, gridLabelToCoordinate, isValidGridLabel, getGridBoundsDescription } from './utils/gridCoordinates';
 import { getMIGardenerSpacing } from '../../utils/migardenerSpacing';
 import PlantIcon from '../common/PlantIcon';
@@ -1271,14 +1272,15 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         }
 
         const positionDates = effectivePreviewPositions.map((pos, index) => {
-          const baseDate = new Date(plantingDate!);
+          // Parse as local midnight and format as local YYYY-MM-DD to avoid TZ shift
+          const baseDate = parseLocalDate(plantingDate!);
           const staggerIndex = rowIndexMap ? (rowIndexMap.get(pos.y) ?? index) : index;
           const offsetDays = staggerIndex * weekInterval * 7;
           const squareDate = new Date(baseDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
           return {
             x: pos.x,
             y: pos.y,
-            date: squareDate.toISOString().split('T')[0]
+            date: formatLocalDate(squareDate)
           };
         });
 
@@ -1391,7 +1393,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
               )}
               {plantingDate && (
                 <p className="text-sm text-gray-600 mt-1">
-                  Planting for: <span className="font-medium text-green-700">{new Date(plantingDate).toLocaleDateString()}</span>
+                  Planting for: <span className="font-medium text-green-700">{parseLocalDate(plantingDate).toLocaleDateString()}</span>
                 </p>
               )}
               <div className="flex items-center gap-2 mt-1">
@@ -2127,8 +2129,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                       </div>
                       {plantingDate && (
                         <p className="mt-2 text-xs text-gray-500 bg-blue-50 p-2 rounded border border-blue-200">
-                          {quantityTerminology.unitLabel.slice(0, -1)} 1: {new Date(plantingDate).toLocaleDateString()}<br/>
-                          {quantityTerminology.unitLabel.slice(0, -1)} {numberOfSquares}: {new Date(new Date(plantingDate).getTime() + (numberOfSquares - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                          {quantityTerminology.unitLabel.slice(0, -1)} 1: {parseLocalDate(plantingDate).toLocaleDateString()}<br/>
+                          {quantityTerminology.unitLabel.slice(0, -1)} {numberOfSquares}: {new Date(parseLocalDate(plantingDate).getTime() + (numberOfSquares - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
                         </p>
                       )}
                     </div>
@@ -2195,13 +2197,13 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                         <p className="mt-2 text-xs text-gray-500 bg-blue-50 p-2 rounded border border-blue-200">
                           {rowNumber ? (
                             <>
-                              📅 Row {rowNumber}: {new Date(plantingDate).toLocaleDateString()}<br/>
-                              📅 Row {rowNumber + quantity - 1}: {new Date(new Date(plantingDate).getTime() + (quantity - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                              📅 Row {rowNumber}: {parseLocalDate(plantingDate).toLocaleDateString()}<br/>
+                              📅 Row {rowNumber + quantity - 1}: {new Date(parseLocalDate(plantingDate).getTime() + (quantity - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
                             </>
                           ) : (
                             <>
-                              📅 {quantityTerminology.unitLabel.slice(0, -1)} 1: {new Date(plantingDate).toLocaleDateString()}<br/>
-                              📅 {quantityTerminology.unitLabel.slice(0, -1)} {numberOfSquares}: {new Date(new Date(plantingDate).getTime() + (numberOfSquares - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                              📅 {quantityTerminology.unitLabel.slice(0, -1)} 1: {parseLocalDate(plantingDate).toLocaleDateString()}<br/>
+                              📅 {quantityTerminology.unitLabel.slice(0, -1)} {numberOfSquares}: {new Date(parseLocalDate(plantingDate).getTime() + (numberOfSquares - 1) * weekInterval * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
                             </>
                           )}
                         </p>

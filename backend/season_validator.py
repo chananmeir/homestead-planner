@@ -8,7 +8,7 @@ Checks if planting conditions are appropriate based on:
 
 import logging
 from datetime import datetime, date, timedelta
-from simulation_clock import get_now, get_today
+from simulation_clock import get_now, get_today, is_simulating
 from plant_database import get_plant_by_id
 from soil_temperature import get_soil_temperature_with_adjustments
 from historical_soil_temp import get_historical_soil_temp_for_date, get_historical_daily_soil_temps, get_month_name
@@ -267,9 +267,14 @@ def validate_planting_conditions(
 
                 logger.info(f"Date check: today={today}, planting_day={planting_day}, days_until={days_until_planting}")
 
-                if days_until_planting > 1:
-                    # Future date: use historical daily averages for precision
-                    logger.info(f"Future planting date detected: {planting_day} ({days_until_planting} days ahead)")
+                # Use historical averages when planting is >1 day out, OR whenever
+                # simulation mode is active. Live weather APIs (Open-Meteo current
+                # soil temp) always return the real system clock's value, so they
+                # must not be used when the user is simulating a different "today".
+                # Mirrors the routing philosophy in simulation_weather.py.
+                if days_until_planting > 1 or is_simulating():
+                    # Future date (or simulated today): use historical daily averages
+                    logger.info(f"Using historical averages for {planting_day} ({days_until_planting} days ahead, simulating={is_simulating()})")
 
                     # Get daily averages for the planting month
                     daily_averages = get_historical_daily_soil_temps(
@@ -631,57 +636,51 @@ def calculate_cooler_planting_dates(
 
     search_date = current_date if isinstance(current_date, date) else current_date.date()
 
-    # Find spring window (search backwards from current date)
+    # Search forward 365 days from search_date. All returned dates are >= search_date.
+    # A cool-weather crop has two valid windows per year: the "spring" window that
+    # exists BEFORE the annual hot period, and the "fall" window that exists AFTER
+    # the hot period. We walk forward through the year and assign each hit to one
+    # or the other depending on whether we've already passed through a hot stretch.
     spring_optimal_start = None
     spring_optimal_end = None
     spring_earliest_safe = None
-
-    for days_back in range(180, 0, -1):  # Search up to 6 months back
-        check_date = search_date - timedelta(days=days_back)
-        month = check_date.month
-        day = check_date.day
-
-        # Get historical daily average for this day
-        daily_temps = get_historical_daily_soil_temps(latitude, longitude, month)
-        if not daily_temps or day not in daily_temps:
-            continue
-
-        avg_temp = daily_temps[day] + protection_offset
-
-        # Find earliest safe date (>= min)
-        if avg_temp >= soil_temp_min and spring_earliest_safe is None:
-            spring_earliest_safe = check_date
-
-        # Find optimal window (>= min + 10°F, <= min + 20°F)
-        if avg_temp >= soil_temp_min + OPTIMAL_OFFSET and avg_temp <= soil_temp_min + MAX_TEMP_OFFSET:
-            if spring_optimal_start is None:
-                spring_optimal_start = check_date
-            spring_optimal_end = check_date  # Keep updating as we search forward
-
-    # Find fall window (search forward from current date)
     fall_optimal_start = None
     fall_optimal_end = None
     fall_earliest_safe = None
     found_hot_period = False
 
-    for days_ahead in range(180):  # Search up to 6 months ahead
+    # Cache daily_temps per (month) to avoid repeated lookups across the year
+    month_temp_cache = {}
+
+    for days_ahead in range(365):
         check_date = search_date + timedelta(days=days_ahead)
         month = check_date.month
         day = check_date.day
 
-        daily_temps = get_historical_daily_soil_temps(latitude, longitude, month)
+        if month not in month_temp_cache:
+            month_temp_cache[month] = get_historical_daily_soil_temps(latitude, longitude, month)
+        daily_temps = month_temp_cache[month]
         if not daily_temps or day not in daily_temps:
             continue
 
         avg_temp = daily_temps[day] + protection_offset
 
-        # Skip until we get past the hot period
+        # Detect the hot period: temps exceed the max acceptable threshold
         if avg_temp > soil_temp_min + MAX_TEMP_OFFSET:
             found_hot_period = True
             continue
 
-        # Once we're past the hot period and temps cool down
-        if found_hot_period and avg_temp <= soil_temp_min + MAX_TEMP_OFFSET:
+        if not found_hot_period:
+            # Pre-hot: assign to spring window
+            if avg_temp >= soil_temp_min and spring_earliest_safe is None:
+                spring_earliest_safe = check_date
+
+            if avg_temp >= soil_temp_min + OPTIMAL_OFFSET and avg_temp <= soil_temp_min + MAX_TEMP_OFFSET:
+                if spring_optimal_start is None:
+                    spring_optimal_start = check_date
+                spring_optimal_end = check_date  # Extend as long as consecutive days stay optimal
+        else:
+            # Post-hot: assign to fall window
             if avg_temp >= soil_temp_min and fall_earliest_safe is None:
                 fall_earliest_safe = check_date
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ValidationWarning, DateSuggestion } from '../../types';
+import { parseLocalDate, formatLocalDate } from '../../utils/dateUtils';
 
 interface WarningDisplayProps {
   warnings: ValidationWarning[];
@@ -41,9 +42,9 @@ const WarningDisplay: React.FC<WarningDisplayProps> = ({
     }
 
     const daysToWait = parseInt(waitingMatch[1], 10);
-    const currentDate = new Date(currentPlantingDate);
+    const currentDate = parseLocalDate(currentPlantingDate);
     const suggestedDate = new Date(currentDate.getTime() + daysToWait * 24 * 60 * 60 * 1000);
-    const suggestedDateStr = suggestedDate.toISOString().split('T')[0];
+    const suggestedDateStr = formatLocalDate(suggestedDate);
     const displayDate = suggestedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     // Split message around the "waiting X more days" part
@@ -127,7 +128,7 @@ const WarningDisplay: React.FC<WarningDisplayProps> = ({
                               )}
                             </p>
                             <p className="font-semibold text-sm text-green-900">
-                              {new Date(suggestion.earliest_safe_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                              {parseLocalDate(suggestion.earliest_safe_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                             </p>
                             <p className="mt-1 text-xs text-green-600">
                               {suggestion.earliest_safe_date === suggestion.optimal_start
@@ -141,7 +142,7 @@ const WarningDisplay: React.FC<WarningDisplayProps> = ({
                               onClick={() => onChangeDateClick(suggestion.earliest_safe_date!)}
                               className="px-3 py-1.5 bg-yellow-600 text-white text-xs font-medium rounded hover:bg-yellow-700 transition-colors whitespace-nowrap flex-shrink-0"
                             >
-                              Use {new Date(suggestion.earliest_safe_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              Use {parseLocalDate(suggestion.earliest_safe_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                             </button>
                           )}
                         </div>
@@ -163,7 +164,7 @@ const WarningDisplay: React.FC<WarningDisplayProps> = ({
                             onClick={() => onChangeDateClick(suggestion.optimal_start!)}
                             className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded hover:bg-green-700 transition-colors whitespace-nowrap flex-shrink-0"
                           >
-                            Use {new Date(suggestion.optimal_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            Use {parseLocalDate(suggestion.optimal_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </button>
                         )}
                       </div>
