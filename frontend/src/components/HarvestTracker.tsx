@@ -21,7 +21,20 @@ interface Plant {
   category: string;
 }
 
-const HarvestTracker: React.FC = () => {
+interface HarvestTrackerProps {
+  // Trigger signal for "a Needs Attention 'Harvest ready' item was clicked".
+  // When this value changes to a non-null value, the tracker clears search,
+  // filters, and date range so the user can immediately log a harvest.
+  //
+  // NOTE: This is NOT a row id. HarvestRecord rows have no link to
+  // PlantingEvent in the backend (HarvestRecord has planted_item_id, not
+  // planting_event_id), and the "Harvest ready" signal fires BEFORE any
+  // HarvestRecord exists. Any changing numeric value (including reused
+  // PlantingEvent ids) works as a trigger — we only care about transitions.
+  focusSignal?: number | null;
+}
+
+const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
   const { showSuccess, showError } = useToast();
   const [harvests, setHarvests] = useState<HarvestRecord[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -41,6 +54,14 @@ const HarvestTracker: React.FC = () => {
   const [dateRange, setDateRange] = useState<DateRange>({ startDate: null, endDate: null });
   const [sortBy, setSortBy] = useState<string>('harvestDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  useEffect(() => {
+    if (focusSignal != null) {
+      setSearchQuery('');
+      setActiveFilters({});
+      setDateRange({ startDate: null, endDate: null });
+    }
+  }, [focusSignal]);
 
   useEffect(() => {
     loadData();
@@ -396,7 +417,11 @@ const HarvestTracker: React.FC = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredAndSortedHarvests.map((harvest) => (
-                  <tr key={harvest.id} data-testid={`harvest-row-${harvest.id}`} className="hover:bg-gray-50">
+                  <tr
+                    key={harvest.id}
+                    data-testid={`harvest-row-${harvest.id}`}
+                    className="hover:bg-gray-50"
+                  >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(harvest.harvestDate).toLocaleDateString()}
                     </td>

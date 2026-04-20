@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
+import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
 import { useToast } from './common/Toast';
 import { Modal } from './common/Modal';
 import { ConfirmDialog } from './common/ConfirmDialog';
@@ -69,9 +70,11 @@ interface IndoorSeedStart {
 
 interface IndoorSeedStartsProps {
   onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number) => void;
+  focusIndoorStartId?: number | null;
+  onFocusConsumed?: () => void;
 }
 
-const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) => {
+const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, focusIndoorStartId, onFocusConsumed }) => {
   const now = useNow();
   const [seedStarts, setSeedStarts] = useState<IndoorSeedStart[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -85,6 +88,30 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) 
   const [showImportModal, setShowImportModal] = useState(false);
   const [failedCascadeSeedStart, setFailedCascadeSeedStart] = useState<IndoorSeedStart | null>(null);
   const { showSuccess, showError } = useToast();
+
+  // Two-phase focus resolution: first renders resolve against whatever seedStarts
+  // is currently loaded (possibly empty on mount); when the list finishes loading,
+  // this memo recomputes and the useFocusHighlight hook re-fires the scroll.
+  const resolvedFocusId = React.useMemo(() => {
+    if (focusIndoorStartId == null) return null;
+    const directMatch = seedStarts.find(s => s.id === focusIndoorStartId);
+    if (directMatch) return directMatch.id;
+    const eventMatch = seedStarts.find(s => s.plantingEventId === focusIndoorStartId);
+    return eventMatch ? eventMatch.id : focusIndoorStartId;
+  }, [focusIndoorStartId, seedStarts]);
+
+  const { registerRef, highlightedId } = useFocusHighlight<number>(resolvedFocusId, onFocusConsumed);
+
+  // Force filter to include the focused row so scrolling can find it
+  useEffect(() => {
+    if (focusIndoorStartId == null) return;
+    const target = seedStarts.find(
+      s => s.id === focusIndoorStartId || s.plantingEventId === focusIndoorStartId
+    );
+    if (target != null && filterStatus !== 'all' && target.status !== filterStatus) {
+      setFilterStatus('all');
+    }
+  }, [focusIndoorStartId, seedStarts, filterStatus]);
 
   useEffect(() => {
     loadData();
@@ -314,8 +341,12 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed }) 
             return (
               <div
                 key={start.id}
+                ref={registerRef(start.id)}
+                data-focus-id={start.id}
                 data-testid={`iss-card-${start.id}`}
-                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6"
+                className={`bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6 ${
+                  highlightedId === start.id ? 'ring-2 ring-amber-400 ring-offset-2 transition-all' : ''
+                }`}
               >
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">

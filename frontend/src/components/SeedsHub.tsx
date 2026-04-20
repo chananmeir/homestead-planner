@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import MySeedInventory from './MySeedInventory';
 import SeedCatalog from './SeedCatalog';
 
@@ -9,8 +9,20 @@ const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: 'catalog', label: 'Seed Catalog' },
 ];
 
-export default function SeedsHub() {
+interface SeedsHubProps {
+  focusSeedId?: number | null;
+  onFocusConsumed?: () => void;
+}
+
+export default function SeedsHub({ focusSeedId, onFocusConsumed }: SeedsHubProps = {}) {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('inventory');
+
+  // Force Inventory tab when a focus request arrives so the target row is visible.
+  useEffect(() => {
+    if (focusSeedId != null) {
+      setActiveSubTab('inventory');
+    }
+  }, [focusSeedId]);
 
   return (
     <div>
@@ -32,7 +44,9 @@ export default function SeedsHub() {
         </div>
       </div>
 
-      {activeSubTab === 'inventory' && <MySeedInventory />}
+      {activeSubTab === 'inventory' && (
+        <MySeedInventory focusSeedId={focusSeedId} onFocusConsumed={onFocusConsumed} />
+      )}
       {activeSubTab === 'catalog' && <SeedCatalog />}
     </div>
   );

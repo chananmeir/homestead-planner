@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ConfirmDialog, useToast, SearchBar, SortDropdown, FilterBar } from './common';
 import type { SortOption, SortDirection, FilterGroup } from './common';
 import { AnimalFormModal } from './Livestock/AnimalFormModal';
+import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
 import { API_BASE_URL } from '../config';
 
 interface Animal {
@@ -65,7 +66,17 @@ const CATEGORY_NAME_SINGULAR: Record<string, string> = {
   'Other Livestock': 'Other Livestock',
 };
 
-const Livestock: React.FC = () => {
+interface LivestockProps {
+  focusType?: string | null;
+  onFocusConsumed?: () => void;
+}
+
+// Maps a dashboard focusType to the category tab that should be active for it.
+const FOCUS_TYPE_TO_CATEGORY: Record<string, 'chickens' | 'ducks' | 'bees' | 'other'> = {
+  'egg-collection': 'chickens',
+};
+
+const Livestock: React.FC<LivestockProps> = ({ focusType, onFocusConsumed }) => {
   const { showSuccess, showError } = useToast();
   const [activeCategory, setActiveCategory] = useState<'chickens' | 'ducks' | 'bees' | 'other'>('chickens');
   const [chickens, setChickens] = useState<Animal[]>([]);
@@ -89,6 +100,32 @@ const Livestock: React.FC = () => {
   const [nutritionData, setNutritionData] = useState<LivestockNutrition | null>(null);
   const [nutritionLoading, setNutritionLoading] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+
+  // Switch to the category that owns the focused action before scroll/highlight fires.
+  useEffect(() => {
+    if (focusType != null) {
+      const targetCategory = FOCUS_TYPE_TO_CATEGORY[focusType];
+      if (targetCategory != null) {
+        setActiveCategory(targetCategory);
+      }
+    }
+  }, [focusType]);
+
+  // Gate the focus id so the hook's scroll/highlight effect only runs AFTER the
+  // activeCategory has switched to the category that owns the focused element.
+  // Without this gate, the hook fires on the same commit as the setActiveCategory
+  // effect — the target ref isn't registered yet, scrollIntoView is skipped, and
+  // focusType doesn't change again to retrigger the effect.
+  const effectiveFocusId = useMemo(() => {
+    if (focusType == null) return null;
+    const targetCategory = FOCUS_TYPE_TO_CATEGORY[focusType];
+    // Unknown focus types (not in the map) pass through unchanged so future
+    // focus ids don't require map updates to work.
+    if (targetCategory == null) return focusType;
+    return targetCategory === activeCategory ? focusType : null;
+  }, [focusType, activeCategory]);
+
+  const { registerRef, highlightedId } = useFocusHighlight<string>(effectiveFocusId, onFocusConsumed);
 
   const loadNutritionData = async () => {
     try {
@@ -863,7 +900,15 @@ const Livestock: React.FC = () => {
       </div>
 
       {/* Content Area */}
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div
+        ref={activeCategory === 'chickens' ? registerRef('egg-collection') : undefined}
+        data-focus-id={activeCategory === 'chickens' ? 'egg-collection' : undefined}
+        className={`bg-white rounded-lg shadow-md p-6 ${
+          highlightedId === 'egg-collection' && activeCategory === 'chickens'
+            ? 'ring-2 ring-amber-400 ring-offset-2 transition-all'
+            : ''
+        }`}
+      >
         {loading ? (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>

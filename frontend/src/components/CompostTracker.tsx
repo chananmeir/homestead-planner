@@ -3,8 +3,15 @@ import { CompostPile } from '../types';
 import { format, addDays, differenceInDays } from 'date-fns';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 import { useNow } from '../contexts/SimulationContext';
+import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
 
-const CompostTracker: React.FC = () => {
+interface CompostTrackerProps {
+  focusPileId?: number | null;
+  onFocusConsumed?: () => void;
+}
+
+const CompostTracker: React.FC<CompostTrackerProps> = ({ focusPileId, onFocusConsumed }) => {
+  const { registerRef, highlightedId } = useFocusHighlight<number>(focusPileId, onFocusConsumed);
   const now = useNow();
   const [compostPiles, setCompostPiles] = useState<CompostPile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -464,7 +471,15 @@ const CompostTracker: React.FC = () => {
       ) : (
         <div className="space-y-6">
           {compostPiles.map((pile) => (
-            <div key={pile.id} data-testid={`compost-pile-${pile.id}`} className="bg-white rounded-lg shadow-md p-6">
+            <div
+              key={pile.id}
+              ref={registerRef(pile.id)}
+              data-focus-id={pile.id}
+              data-testid={`compost-pile-${pile.id}`}
+              className={`bg-white rounded-lg shadow-md p-6 ${
+                highlightedId === pile.id ? 'ring-2 ring-amber-400 ring-offset-2 transition-all' : ''
+              }`}
+            >
               {/* Pile Header */}
               <div className="flex justify-between items-start mb-4">
                 <div>

@@ -70,6 +70,7 @@ describe('Dashboard (index.tsx)', () => {
       openHarvests: jest.fn(),
       openPhotos: jest.fn(),
       openIndoorStarts: jest.fn(),
+      onNavigate: jest.fn(),
     };
 
     render(<Dashboard {...nav} />);

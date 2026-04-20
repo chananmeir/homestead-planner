@@ -150,3 +150,17 @@ export interface DashboardToday {
   signals: DashboardSignals;
   meta: DashboardTodayMeta;
 }
+
+export type NeedsAttentionTarget =
+  | { kind: 'harvest'; plantingEventId: number }
+  | { kind: 'indoorStart'; indoorSeedStartId?: number | null; plantingEventId?: number | null }
+  | { kind: 'transplant'; plantingEventId: number; bedId?: number | null }
+  | { kind: 'directSeed'; plantingEventId: number; bedId?: number | null }
+  | { kind: 'germinationCheck'; plantingEventId: number; bedId?: number | null }
+  | { kind: 'indoorGerminationCheck'; indoorSeedStartId?: number | null; plantingEventId?: number | null }
+  | { kind: 'compost'; pileId: number }
+  | { kind: 'seedLow'; seedId: number }
+  | { kind: 'seedExpiring'; seedId: number }
+  | { kind: 'livestock'; type: string }
+  | { kind: 'weatherFrost' }
+  | { kind: 'weatherRain' };

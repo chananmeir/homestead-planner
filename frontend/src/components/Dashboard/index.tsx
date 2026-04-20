@@ -6,6 +6,7 @@ import UpcomingTimeline from './UpcomingTimeline';
 import DashboardGardenSnapshot from './DashboardGardenSnapshot';
 import WeatherSummaryTile from './WeatherSummaryTile';
 import PlansSection from './PlansSection';
+import type { NeedsAttentionTarget } from './types';
 
 export interface DashboardNavHandlers {
   openGardenDesigner: () => void;
@@ -19,6 +20,7 @@ export interface DashboardNavHandlers {
   openHarvests: () => void;
   openPhotos: () => void;
   openIndoorStarts: () => void;
+  onNavigate: (target: NeedsAttentionTarget) => void;
 }
 
 const Dashboard: React.FC<DashboardNavHandlers> = (nav) => {
@@ -35,16 +37,7 @@ const Dashboard: React.FC<DashboardNavHandlers> = (nav) => {
       {/* Section 2 + Weather: Needs Attention alongside compact weather tile */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <NeedsAttentionPanel
-            onViewCalendar={nav.openPlantingCalendar}
-            onViewHarvests={nav.openHarvests}
-            onViewIndoorStarts={nav.openIndoorStarts}
-            onViewCompost={nav.openCompost}
-            onViewSeeds={nav.openSeeds}
-            onViewLivestock={nav.openLivestock}
-            onViewWeather={nav.openWeather}
-            onViewGardenDesigner={nav.openGardenDesigner}
-          />
+          <NeedsAttentionPanel onNavigate={nav.onNavigate} />
         </div>
         <div>
           <WeatherSummaryTile onOpenWeather={nav.openWeather} />

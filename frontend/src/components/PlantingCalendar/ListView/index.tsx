@@ -9,9 +9,11 @@ interface ListViewProps {
   setPlantingEvents: React.Dispatch<React.SetStateAction<PlantingCalendarType[]>>;
   lastFrostDate?: Date;
   firstFrostDate?: Date;
+  registerEventRef?: (id: number) => (el: HTMLElement | null) => void;
+  highlightedEventId?: number | null;
 }
 
-const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, lastFrostDate: lastFrostProp, firstFrostDate: firstFrostProp }) => {
+const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, lastFrostDate: lastFrostProp, firstFrostDate: firstFrostProp, registerEventRef, highlightedEventId }) => {
   const [lastFrostDate, setLastFrostDate] = useState<Date>(lastFrostProp || new Date(new Date().getFullYear() + '-04-15'));
   const [firstFrostDate, setFirstFrostDate] = useState<Date>(firstFrostProp || new Date(new Date().getFullYear() + '-10-15'));
 
@@ -349,7 +351,14 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                         }
 
                         return (
-                          <div key={event.id} className="p-4 rounded-lg border bg-white border-orange-200">
+                          <div
+                            key={event.id}
+                            ref={registerEventRef ? registerEventRef(event.id) : undefined}
+                            data-focus-id={event.id}
+                            className={`p-4 rounded-lg border bg-white border-orange-200 transition-all ${
+                              highlightedEventId === event.id ? 'ring-2 ring-amber-400 ring-offset-2' : ''
+                            }`}
+                          >
                             <div className="flex justify-between items-start">
                               <div className="flex items-center gap-2">
                                 <span className="text-2xl">🍁</span>
@@ -385,12 +394,14 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                       return (
                         <div
                           key={event.id}
+                          ref={registerEventRef ? registerEventRef(event.id) : undefined}
                           data-testid="planting-event-item"
+                          data-focus-id={event.id}
                           className={`p-4 rounded-lg border transition-all ${
                             event.isComplete || event.completed
                               ? 'bg-green-50 border-green-200 opacity-60'
                               : 'bg-white border-gray-200'
-                          }`}
+                          } ${highlightedEventId === event.id ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}
                         >
                           <div className="flex justify-between items-start">
                             <div className="flex-1">

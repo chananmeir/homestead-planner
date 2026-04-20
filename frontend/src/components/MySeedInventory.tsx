@@ -7,6 +7,7 @@ import { SeedImportModal } from './SeedInventory/SeedImportModal';
 
 import { API_BASE_URL } from '../config';
 import { useNow } from '../contexts/SimulationContext';
+import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
 interface Seed {
   id: number;
   plantId: string;
@@ -124,7 +125,13 @@ const filterBySoilTemperature = (
   });
 };
 
-const SeedInventory: React.FC = () => {
+interface SeedInventoryProps {
+  focusSeedId?: number | null;
+  onFocusConsumed?: () => void;
+}
+
+const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsumed } = {}) => {
+  const { registerRef, highlightedId } = useFocusHighlight<number>(focusSeedId, onFocusConsumed);
   const now = useNow();
   const { showSuccess, showError } = useToast();
   const [seeds, setSeeds] = useState<Seed[]>([]);
@@ -888,7 +895,15 @@ const SeedInventory: React.FC = () => {
               const lowQuantity = seed.quantity <= 1;
 
               return (
-                <div key={seed.id} data-testid={`seed-card-${seed.id}`} className="bg-white border-2 border-gray-200 rounded-lg p-5 hover:shadow-lg transition-shadow">
+                <div
+                  key={seed.id}
+                  ref={registerRef(seed.id)}
+                  data-focus-id={seed.id}
+                  data-testid={`seed-card-${seed.id}`}
+                  className={`bg-white border-2 border-gray-200 rounded-lg p-5 hover:shadow-lg transition-shadow ${
+                    highlightedId === seed.id ? 'ring-2 ring-amber-400 ring-offset-2 transition-all' : ''
+                  }`}
+                >
                   {/* Header with Alerts and Actions */}
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">

@@ -18,14 +18,17 @@ import MapleTappingSeasonCard from './MapleTappingSeasonCard';
 import TimelineView from './TimelineView';
 import EventDetailModal from './CalendarGrid/EventDetailModal';
 import DayDetailModal from './CalendarGrid/DayDetailModal';
+import { useFocusHighlight } from '../Dashboard/hooks/useFocusHighlight';
 
 interface PlantingCalendarProps {
   onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number, plantingEventId?: number) => void;
   // When set to 'soil-temp', scrolls the Soil Temperature card into view on mount.
   initialView?: 'soil-temp';
+  focusPlantingEventId?: number | null;
+  onFocusConsumed?: () => void;
 }
 
-const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, initialView }) => {
+const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, initialView, focusPlantingEventId, onFocusConsumed }) => {
   const now = useNow();
   const [viewMode, setViewMode] = useState<'list' | 'grid' | 'timeline'>('list');
   const [currentDate, setCurrentDate] = useState<Date>(now);
@@ -87,6 +90,18 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, in
       soilTempCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [initialView]);
+
+  // Force list view when a focus request arrives — list has stable per-event DOM rows.
+  // viewMode intentionally excluded from deps: this should only force list view when a
+  // new focus request arrives, not on every user-initiated view switch.
+  useEffect(() => {
+    if (focusPlantingEventId != null && viewMode !== 'list') {
+      setViewMode('list');
+    }
+  }, [focusPlantingEventId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { registerRef: registerEventRef, highlightedId: highlightedEventId } =
+    useFocusHighlight<number>(focusPlantingEventId ?? null, onFocusConsumed);
 
   const handleMonthChange = (date: Date) => {
     setCurrentDate(date);
@@ -577,6 +592,8 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, in
               setPlantingEvents={setPlantingEvents}
               lastFrostDate={lastFrostDate}
               firstFrostDate={firstFrostDate}
+              registerEventRef={registerEventRef}
+              highlightedEventId={highlightedEventId}
             />
           )}
 

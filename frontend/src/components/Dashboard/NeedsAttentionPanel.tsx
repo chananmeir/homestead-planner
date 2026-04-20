@@ -17,17 +17,11 @@ import type {
   SeedLowStockRow,
   SeedExpiringRow,
   LivestockActionDueRow,
+  NeedsAttentionTarget,
 } from './types';
 
-export interface NeedsAttentionNavHandlers {
-  onViewCalendar: () => void;
-  onViewHarvests: () => void;
-  onViewIndoorStarts: () => void;
-  onViewCompost: () => void;
-  onViewSeeds: () => void;
-  onViewLivestock: () => void;
-  onViewWeather: () => void;
-  onViewGardenDesigner: () => void;
+export interface NeedsAttentionPanelProps {
+  onNavigate: (target: NeedsAttentionTarget) => void;
 }
 
 interface SignalRow {
@@ -37,7 +31,7 @@ interface SignalRow {
   tone: Tone;
   title: string;
   subtitle?: string;
-  onClick: () => void;
+  onClick: (() => void) | null;
 }
 
 type Tone = 'red' | 'yellow' | 'green' | 'blue' | 'gray';
@@ -60,7 +54,7 @@ const toneIconBg: Record<Tone, string> = {
   gray: 'bg-gray-100 text-gray-700',
 };
 
-const NeedsAttentionPanel: React.FC<NeedsAttentionNavHandlers> = (nav) => {
+const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate }) => {
   const today = useToday();
   const [data, setData] = useState<DashboardToday | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,10 +92,10 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionNavHandlers> = (nav) => {
 
   const rows: SignalRow[] = useMemo(() => {
     if (!data) return [];
-    return buildRows(data.signals, nav);
-  }, [data, nav]);
+    return buildRows(data.signals, onNavigate);
+  }, [data, onNavigate]);
 
-  const handleSnooze = async (signalKey: string, e: React.MouseEvent) => {
+  const handleSnooze = async (signalKey: string, e: React.MouseEvent | React.KeyboardEvent) => {
     e.stopPropagation();
     try {
       const resp = await fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
@@ -159,34 +153,38 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionNavHandlers> = (nav) => {
         </div>
       ) : (
         <div className="space-y-2">
-          {visibleRows.map(row => (
-            <button
-              key={row.key}
-              onClick={row.onClick}
-              className={`group w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${toneClasses[row.tone]}`}
-            >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-base flex-shrink-0 ${toneIconBg[row.tone]}`} aria-hidden="true">
-                {row.icon}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{row.title}</div>
-                {row.subtitle && (
-                  <div className="text-xs opacity-80 truncate">{row.subtitle}</div>
-                )}
-              </div>
-              {row.signalKey && (
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => handleSnooze(row.signalKey!, e)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSnooze(row.signalKey!, e as any); }}
-                  className="text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 hover:!opacity-100 bg-gray-200/60 hover:bg-gray-300/80 text-gray-600 hover:text-gray-800 transition-all flex-shrink-0"
-                >
-                  Skip 3d
+          {visibleRows.map(row => {
+            const clickable = row.onClick != null;
+            return (
+              <button
+                key={row.key}
+                onClick={clickable ? row.onClick! : undefined}
+                disabled={!clickable}
+                className={`group w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${toneClasses[row.tone]} ${!clickable ? 'opacity-60 cursor-not-allowed' : ''}`}
+              >
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-base flex-shrink-0 ${toneIconBg[row.tone]}`} aria-hidden="true">
+                  {row.icon}
                 </div>
-              )}
-            </button>
-          ))}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{row.title}</div>
+                  {row.subtitle && (
+                    <div className="text-xs opacity-80 truncate">{row.subtitle}</div>
+                  )}
+                </div>
+                {row.signalKey && (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => handleSnooze(row.signalKey!, e)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSnooze(row.signalKey!, e); }}
+                    className="text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 hover:!opacity-100 bg-gray-200/60 hover:bg-gray-300/80 text-gray-600 hover:text-gray-800 transition-all flex-shrink-0"
+                  >
+                    Skip 3d
+                  </div>
+                )}
+              </button>
+            );
+          })}
           {hiddenCount > 0 && (
             <button
               onClick={() => setExpanded(true)}
@@ -219,38 +217,46 @@ const SkeletonRow: React.FC = () => (
   </div>
 );
 
+type NavigateFn = (target: NeedsAttentionTarget) => void;
+
+// Warn at most once per missing-id signal kind per session so broken backend
+// payloads surface without flooding the console.
+const warnedKinds = new Set<string>();
+function warnMissingId(kind: string, row: unknown): void {
+  if (warnedKinds.has(kind)) return;
+  warnedKinds.add(kind);
+  console.warn(`[NeedsAttentionPanel] ${kind} row missing required id — row is non-clickable`, row);
+}
+
 /**
  * Build prioritized rows. Order: frost risk -> rain alert -> harvest ready ->
  * indoor starts due -> transplants due -> compost overdue -> seed low stock ->
  * seed expiring -> livestock actions.
  */
-function buildRows(
-  signals: DashboardSignals,
-  nav: NeedsAttentionNavHandlers
-): SignalRow[] {
+function buildRows(signals: DashboardSignals, onNavigate: NavigateFn): SignalRow[] {
   const rows: SignalRow[] = [];
 
   if (signals.frostRisk?.atRisk) {
-    rows.push(frostRiskRow(signals.frostRisk, nav));
+    rows.push(frostRiskRow(signals.frostRisk, onNavigate));
   }
   if (signals.rainAlert?.expected) {
-    rows.push(rainAlertRow(signals.rainAlert, nav));
+    rows.push(rainAlertRow(signals.rainAlert, onNavigate));
   }
-  signals.harvestReady?.forEach((r, i) => rows.push(harvestRow(r, i, nav)));
-  signals.indoorStartsDue?.forEach((r, i) => rows.push(indoorStartRow(r, i, nav)));
-  signals.transplantsDue?.forEach((r, i) => rows.push(transplantRow(r, i, nav)));
-  signals.directSeedDue?.forEach((r, i) => rows.push(directSeedRow(r, i, nav)));
-  signals.germinationCheck?.forEach((r, i) => rows.push(germinationRow(r, i, nav)));
-  signals.indoorGerminationCheck?.forEach((r, i) => rows.push(indoorGerminationRow(r, i, nav)));
-  signals.compostOverdue?.forEach((r, i) => rows.push(compostRow(r, i, nav)));
-  signals.seedLowStock?.forEach((r, i) => rows.push(seedLowRow(r, i, nav)));
-  signals.seedExpiring?.forEach((r, i) => rows.push(seedExpiringRow(r, i, nav)));
-  signals.livestockActionsDue?.forEach((r, i) => rows.push(livestockRow(r, i, nav)));
+  signals.harvestReady?.forEach((r, i) => rows.push(harvestRow(r, i, onNavigate)));
+  signals.indoorStartsDue?.forEach((r, i) => rows.push(indoorStartRow(r, i, onNavigate)));
+  signals.transplantsDue?.forEach((r, i) => rows.push(transplantRow(r, i, onNavigate)));
+  signals.directSeedDue?.forEach((r, i) => rows.push(directSeedRow(r, i, onNavigate)));
+  signals.germinationCheck?.forEach((r, i) => rows.push(germinationRow(r, i, onNavigate)));
+  signals.indoorGerminationCheck?.forEach((r, i) => rows.push(indoorGerminationRow(r, i, onNavigate)));
+  signals.compostOverdue?.forEach((r, i) => rows.push(compostRow(r, i, onNavigate)));
+  signals.seedLowStock?.forEach((r, i) => rows.push(seedLowRow(r, i, onNavigate)));
+  signals.seedExpiring?.forEach((r, i) => rows.push(seedExpiringRow(r, i, onNavigate)));
+  signals.livestockActionsDue?.forEach((r, i) => rows.push(livestockRow(r, i, onNavigate)));
 
   return rows;
 }
 
-function frostRiskRow(risk: FrostRisk, nav: NeedsAttentionNavHandlers): SignalRow {
+function frostRiskRow(risk: FrostRisk, onNavigate: NavigateFn): SignalRow {
   const temp = risk.forecastLowF != null ? `${Math.round(risk.forecastLowF)}°F` : 'forecast low';
   return {
     key: 'frost-risk',
@@ -259,11 +265,11 @@ function frostRiskRow(risk: FrostRisk, nav: NeedsAttentionNavHandlers): SignalRo
     tone: 'red',
     title: `Frost risk — ${temp}`,
     subtitle: `Within ${risk.windowHours}h · ${risk.source}`,
-    onClick: nav.onViewWeather,
+    onClick: () => onNavigate({ kind: 'weatherFrost' }),
   };
 }
 
-function rainAlertRow(rain: RainAlert, nav: NeedsAttentionNavHandlers): SignalRow {
+function rainAlertRow(rain: RainAlert, onNavigate: NavigateFn): SignalRow {
   return {
     key: 'rain-alert',
     signalKey: rain.signalKey,
@@ -271,7 +277,7 @@ function rainAlertRow(rain: RainAlert, nav: NeedsAttentionNavHandlers): SignalRo
     tone: 'yellow',
     title: `Rain expected — ${rain.inchesExpected.toFixed(2)}"`,
     subtitle: `Within ${rain.windowHours}h`,
-    onClick: nav.onViewWeather,
+    onClick: () => onNavigate({ kind: 'weatherRain' }),
   };
 }
 
@@ -293,8 +299,10 @@ function plantsFragment(quantity: number | null | undefined): string | null {
   return `${quantity} plants`;
 }
 
-function harvestRow(row: HarvestReadyRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function harvestRow(row: HarvestReadyRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
+  const hasId = row.plantingEventId != null;
+  if (!hasId) warnMissingId('harvest', row);
   return {
     key: `harvest-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
@@ -306,12 +314,14 @@ function harvestRow(row: HarvestReadyRow, idx: number, nav: NeedsAttentionNavHan
       row.bedName,
       row.daysPastExpected > 0 ? `${row.daysPastExpected}d past due` : null,
     ]),
-    onClick: nav.onViewHarvests,
+    onClick: hasId ? () => onNavigate({ kind: 'harvest', plantingEventId: row.plantingEventId }) : null,
   };
 }
 
-function indoorStartRow(row: IndoorStartDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function indoorStartRow(row: IndoorStartDueRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
+  const hasId = row.indoorSeedStartId != null || row.plantingEventId != null;
+  if (!hasId) warnMissingId('indoorStart', row);
   return {
     key: `indoor-${row.plantingEventId ?? `iss-${row.indoorSeedStartId}`}-${idx}`,
     signalKey: row.signalKey,
@@ -322,12 +332,20 @@ function indoorStartRow(row: IndoorStartDueRow, idx: number, nav: NeedsAttention
       plantsFragment(row.quantity),
       formatDate(row.seedStartDate),
     ]),
-    onClick: nav.onViewIndoorStarts,
+    onClick: hasId
+      ? () => onNavigate({
+          kind: 'indoorStart',
+          indoorSeedStartId: row.indoorSeedStartId,
+          plantingEventId: row.plantingEventId,
+        })
+      : null,
   };
 }
 
-function transplantRow(row: TransplantDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function transplantRow(row: TransplantDueRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
+  const hasId = row.plantingEventId != null;
+  if (!hasId) warnMissingId('transplant', row);
   return {
     key: `transplant-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
@@ -339,12 +357,16 @@ function transplantRow(row: TransplantDueRow, idx: number, nav: NeedsAttentionNa
       row.bedName,
       formatDate(row.transplantDate),
     ]),
-    onClick: nav.onViewCalendar,
+    onClick: hasId
+      ? () => onNavigate({ kind: 'transplant', plantingEventId: row.plantingEventId, bedId: row.bedId })
+      : null,
   };
 }
 
-function directSeedRow(row: DirectSeedDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function directSeedRow(row: DirectSeedDueRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
+  const hasId = row.plantingEventId != null;
+  if (!hasId) warnMissingId('directSeed', row);
   return {
     key: `direct-seed-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
@@ -356,12 +378,16 @@ function directSeedRow(row: DirectSeedDueRow, idx: number, nav: NeedsAttentionNa
       row.bedName,
       formatDate(row.directSeedDate),
     ]),
-    onClick: nav.onViewCalendar,
+    onClick: hasId
+      ? () => onNavigate({ kind: 'directSeed', plantingEventId: row.plantingEventId, bedId: row.bedId })
+      : null,
   };
 }
 
-function germinationRow(row: GerminationCheckRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function germinationRow(row: GerminationCheckRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
+  const hasId = row.plantingEventId != null;
+  if (!hasId) warnMissingId('germinationCheck', row);
   return {
     key: `germination-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
@@ -373,15 +399,19 @@ function germinationRow(row: GerminationCheckRow, idx: number, nav: NeedsAttenti
       row.bedName,
       `seeded ${formatDate(row.directSeedDate)}`,
     ]),
-    onClick: nav.onViewGardenDesigner,
+    onClick: hasId
+      ? () => onNavigate({ kind: 'germinationCheck', plantingEventId: row.plantingEventId, bedId: row.bedId })
+      : null,
   };
 }
 
-function indoorGerminationRow(row: IndoorGerminationCheckRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function indoorGerminationRow(row: IndoorGerminationCheckRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
   const keySuffix = row.indoorSeedStartId != null
     ? `iss-${row.indoorSeedStartId}`
     : `pe-${row.plantingEventId}`;
+  const hasId = row.indoorSeedStartId != null || row.plantingEventId != null;
+  if (!hasId) warnMissingId('indoorGerminationCheck', row);
   return {
     key: `indoor-germ-${keySuffix}-${idx}`,
     signalKey: row.signalKey,
@@ -392,11 +422,19 @@ function indoorGerminationRow(row: IndoorGerminationCheckRow, idx: number, nav: 
       plantsFragment(row.quantity),
       `started ${formatDate(row.seedStartDate)}`,
     ]),
-    onClick: nav.onViewIndoorStarts,
+    onClick: hasId
+      ? () => onNavigate({
+          kind: 'indoorGerminationCheck',
+          indoorSeedStartId: row.indoorSeedStartId,
+          plantingEventId: row.plantingEventId,
+        })
+      : null,
   };
 }
 
-function compostRow(row: CompostOverdueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function compostRow(row: CompostOverdueRow, idx: number, onNavigate: NavigateFn): SignalRow {
+  const hasId = row.pileId != null;
+  if (!hasId) warnMissingId('compost', row);
   return {
     key: `compost-${row.pileId}-${idx}`,
     signalKey: row.signalKey,
@@ -404,13 +442,15 @@ function compostRow(row: CompostOverdueRow, idx: number, nav: NeedsAttentionNavH
     tone: 'yellow',
     title: `Compost overdue — ${row.pileName}`,
     subtitle: `${row.daysSinceLastTurn}d since last turn (every ${row.turnFrequencyDays}d)`,
-    onClick: nav.onViewCompost,
+    onClick: hasId ? () => onNavigate({ kind: 'compost', pileId: row.pileId }) : null,
   };
 }
 
-function seedLowRow(row: SeedLowStockRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function seedLowRow(row: SeedLowStockRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
   const tone: Tone = row.quantityRemaining <= 1 ? 'red' : 'yellow';
+  const hasId = row.seedId != null;
+  if (!hasId) warnMissingId('seedLow', row);
   return {
     key: `seed-low-${row.seedId}-${idx}`,
     signalKey: row.signalKey,
@@ -418,12 +458,14 @@ function seedLowRow(row: SeedLowStockRow, idx: number, nav: NeedsAttentionNavHan
     tone,
     title: `Low seed stock — ${label}`,
     subtitle: `${row.quantityRemaining} remaining`,
-    onClick: nav.onViewSeeds,
+    onClick: hasId ? () => onNavigate({ kind: 'seedLow', seedId: row.seedId }) : null,
   };
 }
 
-function seedExpiringRow(row: SeedExpiringRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function seedExpiringRow(row: SeedExpiringRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
+  const hasId = row.seedId != null;
+  if (!hasId) warnMissingId('seedExpiring', row);
   return {
     key: `seed-exp-${row.seedId}-${idx}`,
     signalKey: row.signalKey,
@@ -431,11 +473,11 @@ function seedExpiringRow(row: SeedExpiringRow, idx: number, nav: NeedsAttentionN
     tone: 'yellow',
     title: `Seed expiring — ${label}`,
     subtitle: `${row.daysUntilExpiry}d left · ${formatDate(row.expiresOn)}`,
-    onClick: nav.onViewSeeds,
+    onClick: hasId ? () => onNavigate({ kind: 'seedExpiring', seedId: row.seedId }) : null,
   };
 }
 
-function livestockRow(row: LivestockActionDueRow, idx: number, nav: NeedsAttentionNavHandlers): SignalRow {
+function livestockRow(row: LivestockActionDueRow, idx: number, onNavigate: NavigateFn): SignalRow {
   return {
     key: `livestock-${row.type}-${idx}`,
     signalKey: row.signalKey,
@@ -443,7 +485,7 @@ function livestockRow(row: LivestockActionDueRow, idx: number, nav: NeedsAttenti
     tone: 'blue',
     title: row.label,
     subtitle: row.animal ?? undefined,
-    onClick: nav.onViewLivestock,
+    onClick: () => onNavigate({ kind: 'livestock', type: row.type }),
   };
 }
 

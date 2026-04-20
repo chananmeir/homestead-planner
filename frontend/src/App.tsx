@@ -25,6 +25,7 @@ import { LoginModal } from './components/Auth/LoginModal';
 import { RegisterModal } from './components/Auth/RegisterModal';
 import { LoginRequiredMessage } from './components/Auth/LoginRequiredMessage';
 import { API_BASE_URL } from './config';
+import type { NeedsAttentionTarget } from './components/Dashboard/types';
 
 // Preserved internal tab keys — each represents an existing module.
 type Tab =
@@ -141,6 +142,15 @@ function AppContent() {
   const [transplantSeedStartId, setTransplantSeedStartId] = useState<number | null>(null);
   const [plantingEventId, setPlantingEventId] = useState<number | null>(null);
 
+  // Phase B: focus-state atoms for Needs Attention deep-links. Destinations
+  // will consume these in Phase C; here we only plumb them through.
+  const [harvestFocusId, setHarvestFocusId] = useState<number | null>(null);
+  const [seedFocusId, setSeedFocusId] = useState<number | null>(null);
+  const [compostFocusId, setCompostFocusId] = useState<number | null>(null);
+  const [indoorStartFocusId, setIndoorStartFocusId] = useState<number | null>(null);
+  const [livestockFocusType, setLivestockFocusType] = useState<string | null>(null);
+  const [calendarFocusEventId, setCalendarFocusEventId] = useState<number | null>(null);
+
   // Build nav groups including conditional Admin.
   const navGroups: NavGroup[] = [
     ...NAV_GROUPS,
@@ -224,6 +234,14 @@ function AppContent() {
       setDesignerDate(null);
       setTransplantSeedStartId(null);
     }
+    // Phase B: clear focus atoms for tabs we're leaving. Clearing them all on
+    // every tab switch is simple and prevents stale state.
+    if (tab !== 'harvests') setHarvestFocusId(null);
+    if (tab !== 'seeds') setSeedFocusId(null);
+    if (tab !== 'compost') setCompostFocusId(null);
+    if (tab !== 'indoor-starts') setIndoorStartFocusId(null);
+    if (tab !== 'livestock') setLivestockFocusType(null);
+    if (tab !== 'planting-calendar' && tab !== 'soil-temp') setCalendarFocusEventId(null);
     setActiveTab(tab);
     if (group) setActiveGroup(group);
   };
@@ -244,6 +262,80 @@ function AppContent() {
     if (first) goToTab(first.id, groupId);
   };
 
+  // Needs Attention router: sets focus atoms + navigates to the matching tab.
+  // Destination components will consume the focus atoms in Phase C.
+  const handleNeedsAttentionNavigate = (target: NeedsAttentionTarget) => {
+    switch (target.kind) {
+      case 'harvest':
+        setHarvestFocusId(target.plantingEventId);
+        goToTab('harvests', 'track');
+        return;
+      case 'indoorStart':
+      case 'indoorGerminationCheck': {
+        const focus = target.indoorSeedStartId ?? target.plantingEventId ?? null;
+        setIndoorStartFocusId(focus);
+        goToTab('indoor-starts', 'grow');
+        return;
+      }
+      case 'transplant':
+        if (target.bedId != null) {
+          setDesignerBedId(target.bedId);
+          setPlantingEventId(target.plantingEventId);
+          setTransplantSeedStartId(null);
+          goToTab('designer', 'design');
+        } else {
+          setCalendarFocusEventId(target.plantingEventId);
+          goToTab('planting-calendar', 'grow');
+        }
+        return;
+      case 'germinationCheck':
+        if (target.bedId != null) {
+          setDesignerBedId(target.bedId);
+          setPlantingEventId(target.plantingEventId);
+          setTransplantSeedStartId(null);
+          goToTab('designer', 'design');
+        } else {
+          setCalendarFocusEventId(target.plantingEventId);
+          goToTab('planting-calendar', 'grow');
+        }
+        return;
+      case 'directSeed':
+        if (target.bedId != null) {
+          setDesignerBedId(target.bedId);
+          setPlantingEventId(target.plantingEventId);
+          setTransplantSeedStartId(null);
+          goToTab('designer', 'design');
+        } else {
+          setCalendarFocusEventId(target.plantingEventId);
+          goToTab('planting-calendar', 'grow');
+        }
+        return;
+      case 'compost':
+        setCompostFocusId(target.pileId);
+        goToTab('compost', 'manage');
+        return;
+      case 'seedLow':
+      case 'seedExpiring':
+        setSeedFocusId(target.seedId);
+        goToTab('seeds', 'manage');
+        return;
+      case 'livestock':
+        setLivestockFocusType(target.type);
+        goToTab('livestock', 'manage');
+        return;
+      case 'weatherFrost':
+      case 'weatherRain':
+        goToTab('weather', 'grow');
+        return;
+      default: {
+        // Exhaustiveness guard — TS will fail if a new NeedsAttentionTarget
+        // kind is added without a matching case above.
+        const _exhaustive: never = target;
+        return _exhaustive;
+      }
+    }
+  };
+
   // Shortcut helpers for Dashboard buttons (sets both group + tab).
   const nav = {
     openGardenDesigner: () => goToTab('designer', 'design'),
@@ -257,6 +349,7 @@ function AppContent() {
     openHarvests: () => goToTab('harvests', 'track'),
     openPhotos: () => goToTab('photos', 'track'),
     openIndoorStarts: () => goToTab('indoor-starts', 'grow'),
+    onNavigate: handleNeedsAttentionNavigate,
   };
 
   if (loading) {
@@ -421,25 +514,32 @@ function AppContent() {
 
               {/* Grow group */}
               {activeTab === 'planting-calendar' && (
-                <PlantingCalendar onNavigateToBed={(bedId, date, seedStartId, eventId) => {
-                  setDesignerBedId(bedId);
-                  setDesignerDate(date || null);
-                  setTransplantSeedStartId(seedStartId || null);
-                  setPlantingEventId(eventId || null);
-                  goToTab('designer', 'design');
-                }} />
+                <PlantingCalendar
+                  focusPlantingEventId={calendarFocusEventId}
+                  onNavigateToBed={(bedId, date, seedStartId, eventId) => {
+                    setDesignerBedId(bedId);
+                    setDesignerDate(date || null);
+                    setTransplantSeedStartId(seedStartId || null);
+                    setPlantingEventId(eventId || null);
+                    goToTab('designer', 'design');
+                  }}
+                />
               )}
               {activeTab === 'indoor-starts' && (
-                <IndoorSeedStarts onNavigateToBed={(bedId, date, seedStartId) => {
-                  setDesignerBedId(bedId);
-                  setDesignerDate(date || null);
-                  setTransplantSeedStartId(seedStartId || null);
-                  goToTab('designer', 'design');
-                }} />
+                <IndoorSeedStarts
+                  focusIndoorStartId={indoorStartFocusId}
+                  onNavigateToBed={(bedId, date, seedStartId) => {
+                    setDesignerBedId(bedId);
+                    setDesignerDate(date || null);
+                    setTransplantSeedStartId(seedStartId || null);
+                    goToTab('designer', 'design');
+                  }}
+                />
               )}
               {activeTab === 'soil-temp' && (
                 <PlantingCalendar
                   initialView="soil-temp"
+                  focusPlantingEventId={calendarFocusEventId}
                   onNavigateToBed={(bedId, date, seedStartId, eventId) => {
                     setDesignerBedId(bedId);
                     setDesignerDate(date || null);
@@ -452,14 +552,14 @@ function AppContent() {
               {activeTab === 'weather' && <WeatherAlerts />}
 
               {/* Track group */}
-              {activeTab === 'harvests' && <HarvestTracker />}
+              {activeTab === 'harvests' && <HarvestTracker focusSignal={harvestFocusId} />}
               {activeTab === 'photos' && <PhotoGallery />}
               {activeTab === 'nutrition' && <NutritionalDashboard />}
 
               {/* Manage group */}
-              {activeTab === 'seeds' && <SeedsHub />}
-              {activeTab === 'livestock' && <Livestock />}
-              {activeTab === 'compost' && <CompostTracker />}
+              {activeTab === 'seeds' && <SeedsHub focusSeedId={seedFocusId} />}
+              {activeTab === 'livestock' && <Livestock focusType={livestockFocusType} />}
+              {activeTab === 'compost' && <CompostTracker focusPileId={compostFocusId} />}
 
               {/* Admin */}
               {activeTab === 'admin' && user?.isAdmin && <AdminUserManagement />}
