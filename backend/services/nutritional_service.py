@@ -15,6 +15,7 @@ from datetime import datetime
 import os
 from services.breed_service import BreedService
 from simulation_clock import get_now, get_utc_now
+from utils.helpers import parse_iso_date
 
 # Path to database
 DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'instance', 'homestead.db')
@@ -666,7 +667,7 @@ class NutritionalService:
         # Handle both datetime objects and strings
         if isinstance(hatch_date, str):
             try:
-                hatch_date = datetime.fromisoformat(hatch_date.replace('Z', '+00:00'))
+                hatch_date = parse_iso_date(hatch_date)
             except (ValueError, AttributeError):
                 return None
 
@@ -689,7 +690,7 @@ class NutritionalService:
         # Handle both datetime objects and strings
         if isinstance(birth_date, str):
             try:
-                birth_date = datetime.fromisoformat(birth_date.replace('Z', '+00:00'))
+                birth_date = parse_iso_date(birth_date)
             except (ValueError, AttributeError):
                 return None
 

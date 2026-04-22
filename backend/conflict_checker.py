@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any, Tuple
 from plant_database import get_plant_by_id
 from migardener_spacing import get_migardener_spacing
+from utils.helpers import parse_iso_date
 
 
 def check_spatial_overlap(
@@ -84,13 +85,13 @@ def check_temporal_overlap(
 
     # Convert to comparable format if needed
     if isinstance(event_a_start, str):
-        event_a_start = datetime.fromisoformat(event_a_start.replace('Z', '+00:00'))
+        event_a_start = parse_iso_date(event_a_start)
     if isinstance(event_a_end, str):
-        event_a_end = datetime.fromisoformat(event_a_end.replace('Z', '+00:00'))
+        event_a_end = parse_iso_date(event_a_end)
     if isinstance(event_b_start, str):
-        event_b_start = datetime.fromisoformat(event_b_start.replace('Z', '+00:00'))
+        event_b_start = parse_iso_date(event_b_start)
     if isinstance(event_b_end, str):
-        event_b_end = datetime.fromisoformat(event_b_end.replace('Z', '+00:00'))
+        event_b_end = parse_iso_date(event_b_end)
 
     # Ranges overlap if: start_a < end_b AND start_b < end_a
     # Uses strict inequality so that sequential plantings (harvest day == plant day)
@@ -318,7 +319,7 @@ def has_conflict(
         new_start = get_in_ground_date(new_event)
         new_end = new_event.get('expectedHarvestDate')
         if isinstance(new_end, str):
-            new_end = datetime.fromisoformat(new_end.replace('Z', '+00:00'))
+            new_end = parse_iso_date(new_end)
 
     conflicts = []
 
@@ -383,7 +384,7 @@ def has_conflict(
                 exist_start = get_in_ground_date(existing)
                 exist_end = existing.get('expectedHarvestDate')
                 if isinstance(exist_end, str):
-                    exist_end = datetime.fromisoformat(exist_end.replace('Z', '+00:00'))
+                    exist_end = parse_iso_date(exist_end)
 
             # Check temporal overlap
             temporal_conflict = check_temporal_overlap(

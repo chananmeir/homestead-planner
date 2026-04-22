@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from app import app
 from models import db, PlantedItem, PlantingEvent, GardenBed, GardenPlanItem
 from plant_database import get_plant_by_id
+from utils.helpers import parse_iso_date
 
 DRY_RUN = '--commit' not in sys.argv
 USER_ID = 1
@@ -82,8 +83,7 @@ def to_datetime(d):
     if d is None:
         return datetime(2026, 3, 15)
     if isinstance(d, str):
-        d = d.replace('Z', '+00:00')
-        return datetime.fromisoformat(d)
+        return parse_iso_date(d)
     if isinstance(d, datetime):
         return d
     # datetime.date
