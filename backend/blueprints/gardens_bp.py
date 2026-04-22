@@ -44,6 +44,82 @@ def _sync_indoor_start_on_completion(event):
 from utils.helpers import parse_iso_date
 
 
+def _find_existing_indoor_seed_start(user_id, planting_event, window_days=14):
+    """Find an existing IndoorSeedStart that matches this placement.
+
+    Returns an active (non-cancelled, non-transplanted) IndoorSeedStart for the
+    same user + plant + variety whose expected_transplant_date is within
+    +/- window_days of the new PlantingEvent's transplant_date. Prefers
+    candidates that are NOT yet linked to a PlantingEvent, then the closest
+    date match.
+
+    Used by placement paths so that dragging a plant onto the designer
+    advances an existing imported/manual indoor start instead of duplicating it.
+    """
+    transplant_date = planting_event.transplant_date
+    if not transplant_date:
+        return None
+
+    date_min = transplant_date - timedelta(days=window_days)
+    date_max = transplant_date + timedelta(days=window_days)
+
+    if planting_event.variety is None:
+        variety_filter = IndoorSeedStart.variety.is_(None)
+    else:
+        variety_filter = IndoorSeedStart.variety == planting_event.variety
+
+    candidates = IndoorSeedStart.query.filter(
+        IndoorSeedStart.user_id == user_id,
+        IndoorSeedStart.plant_id == planting_event.plant_id,
+        variety_filter,
+        IndoorSeedStart.cancelled_at.is_(None),
+        IndoorSeedStart.status != 'transplanted',
+        IndoorSeedStart.expected_transplant_date.isnot(None),
+        IndoorSeedStart.expected_transplant_date.between(date_min, date_max),
+    ).all()
+
+    if not candidates:
+        return None
+
+    # Prefer unlinked candidates (no planting_event_id yet); among those,
+    # prefer the one whose expected_transplant_date is closest to ours.
+    def _sort_key(ss):
+        already_linked = 1 if ss.planting_event_id is not None else 0
+        delta = abs((ss.expected_transplant_date - transplant_date).days)
+        return (already_linked, delta, ss.id)
+
+    candidates.sort(key=_sort_key)
+    return candidates[0]
+
+
+def _link_existing_indoor_seed_start(seed_start, planting_event):
+    """Link an existing IndoorSeedStart to the newly-placed PlantingEvent and
+    advance its status to 'transplanted'.
+
+    Mirrors the bookkeeping done by the /transplant endpoint, but without
+    creating a new PlantingEvent — the designer placement already created one.
+    """
+    seed_start.planting_event_id = planting_event.id
+    seed_start.status = 'transplanted'
+    if seed_start.actual_transplant_date is None:
+        seed_start.actual_transplant_date = (
+            planting_event.transplant_date
+            or planting_event.direct_seed_date
+            or datetime.utcnow()
+        )
+    # Propagate seed_start_date onto the PlantingEvent so the timeline
+    # reflects the real indoor-start date (mirrors the auto-create path).
+    if seed_start.start_date and not planting_event.seed_start_date:
+        planting_event.seed_start_date = seed_start.start_date
+
+    logging.info(
+        f"[LINK-SEED-START] Linked existing IndoorSeedStart #{seed_start.id} "
+        f"to PlantingEvent #{planting_event.id} "
+        f"({planting_event.plant_id}, variety={planting_event.variety}); "
+        f"status -> transplanted"
+    )
+
+
 def _auto_create_indoor_seed_start(user_id, planting_event, plant, quantity):
     """Auto-create an IndoorSeedStart when placing a transplant-method plant.
 
@@ -415,12 +491,23 @@ def add_planted_item():
         db.session.add(planting_event)
         db.session.flush()  # Get planting_event.id for linking
 
-        # Auto-create indoor seed start for transplant-method plants
+        # Auto-create indoor seed start for transplant-method plants.
+        # If an existing IndoorSeedStart already covers this plant + variety +
+        # transplant date window, link and advance it rather than duplicating.
         indoor_seed_start = None
+        indoor_seed_start_linked = False
         if planting_method == 'transplant':
-            indoor_seed_start = _auto_create_indoor_seed_start(
-                current_user.id, planting_event, plant, data.get('quantity', 1)
+            existing_seed_start = _find_existing_indoor_seed_start(
+                current_user.id, planting_event
             )
+            if existing_seed_start is not None:
+                _link_existing_indoor_seed_start(existing_seed_start, planting_event)
+                indoor_seed_start = existing_seed_start
+                indoor_seed_start_linked = True
+            else:
+                indoor_seed_start = _auto_create_indoor_seed_start(
+                    current_user.id, planting_event, plant, data.get('quantity', 1)
+                )
 
         # Mark original exported PlantingEvents as completed when placing from a plan.
         # Mirrors the batch path logic (lines 708-720) so that the calendar grouped
@@ -441,7 +528,8 @@ def add_planted_item():
 
         response_data = item.to_dict()
         if indoor_seed_start:
-            response_data['indoorSeedStartCreated'] = True
+            response_data['indoorSeedStartCreated'] = not indoor_seed_start_linked
+            response_data['indoorSeedStartLinked'] = indoor_seed_start_linked
             response_data['indoorSeedStartId'] = indoor_seed_start.id
         return jsonify(response_data), 201
     except KeyError as e:
@@ -687,6 +775,7 @@ def batch_add_planted_items():
         # Group by transplant_date to create one IndoorSeedStart per date
         # (all positions in a batch share the same plant+variety).
         indoor_seed_starts_created = 0
+        indoor_seed_starts_linked = 0
         if planting_method == 'transplant' and plant and plant.get('weeksIndoors', 0) > 0:
             # Group created events by transplant_date
             date_groups = {}
@@ -702,19 +791,37 @@ def batch_add_planted_items():
             # Flush to get planting event IDs before creating IndoorSeedStarts
             db.session.flush()
 
+            # Track IndoorSeedStart ids already reused inside this request so
+            # multiple date-groups don't all latch onto the same existing record.
+            reused_seed_start_ids = set()
+
             for date_key, group in date_groups.items():
                 # Use the first event in the group as representative (linked to the IndoorSeedStart)
                 representative_event = group['events'][0]
                 total_qty = group['total_qty']
 
-                seed_start = _auto_create_indoor_seed_start(
-                    current_user.id, representative_event, plant, total_qty
+                # Prefer linking an existing IndoorSeedStart over creating a new one.
+                existing_seed_start = _find_existing_indoor_seed_start(
+                    current_user.id, representative_event
                 )
-                if seed_start:
-                    indoor_seed_starts_created += 1
-                    # Set seed_start_date on all events in this date group
+                if existing_seed_start is not None and existing_seed_start.id in reused_seed_start_ids:
+                    existing_seed_start = None  # already consumed by another group
+
+                if existing_seed_start is not None:
+                    _link_existing_indoor_seed_start(existing_seed_start, representative_event)
+                    reused_seed_start_ids.add(existing_seed_start.id)
+                    indoor_seed_starts_linked += 1
                     for evt in group['events'][1:]:
                         evt.seed_start_date = representative_event.seed_start_date
+                else:
+                    seed_start = _auto_create_indoor_seed_start(
+                        current_user.id, representative_event, plant, total_qty
+                    )
+                    if seed_start:
+                        indoor_seed_starts_created += 1
+                        # Set seed_start_date on all events in this date group
+                        for evt in group['events'][1:]:
+                            evt.seed_start_date = representative_event.seed_start_date
 
         # Mark original exported PlantingEvents as completed when placing from a plan.
         # The export creates events with export_key like "{userId}_{planItemId}_{bedId}_{date}_{idx}".
@@ -756,6 +863,8 @@ def batch_add_planted_items():
         }
         if indoor_seed_starts_created > 0:
             response_data['indoorSeedStartsCreated'] = indoor_seed_starts_created
+        if indoor_seed_starts_linked > 0:
+            response_data['indoorSeedStartsLinked'] = indoor_seed_starts_linked
         return jsonify(response_data), 201
 
     except KeyError as e:
