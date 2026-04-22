@@ -1,0 +1,3063 @@
+{
+  "_meta": {
+    "generator": "frontend/scripts/emit-parity-snapshot.js",
+    "regenerate": "cd frontend && npm run parity:emit",
+    "description": "Frontend-emitted source of truth for cross-stack parity tests. Do not hand-edit — regenerate after changing any synced lookup table."
+  },
+  "sfgPlantsPerCell": {
+    "watermelon": 0.5,
+    "watermelon-1": 0.5,
+    "melon": 0.5,
+    "melon-1": 0.5,
+    "cantaloupe": 0.5,
+    "cantaloupe-1": 0.5,
+    "pumpkin": 0.5,
+    "pumpkin-1": 0.5,
+    "tomato": 1,
+    "tomato-1": 1,
+    "pepper": 1,
+    "pepper-1": 1,
+    "eggplant": 1,
+    "eggplant-1": 1,
+    "broccoli": 1,
+    "broccoli-1": 1,
+    "cauliflower": 1,
+    "cauliflower-1": 1,
+    "cabbage": 1,
+    "cabbage-1": 1,
+    "brussels-sprouts": 1,
+    "brussels-sprouts-1": 1,
+    "kale": 1,
+    "kale-1": 1,
+    "collards": 1,
+    "collards-1": 1,
+    "collard": 1,
+    "collard-1": 1,
+    "cilantro": 1,
+    "cilantro-1": 1,
+    "squash": 1,
+    "squash-1": 1,
+    "cucumber": 1,
+    "cucumber-1": 1,
+    "okra": 1,
+    "okra-1": 1,
+    "corn": 1,
+    "corn-1": 1,
+    "celery": 1,
+    "celery-1": 1,
+    "lettuce-head": 1,
+    "lettuce-head-1": 1,
+    "lettuce-crisphead": 1,
+    "lettuce-crisphead-1": 1,
+    "lettuce": 4,
+    "lettuce-1": 4,
+    "lettuce-leaf": 4,
+    "lettuce-leaf-1": 4,
+    "lettuce-romaine": 4,
+    "lettuce-romaine-1": 4,
+    "mustard-greens": 4,
+    "mustard-greens-1": 4,
+    "bok-choy": 4,
+    "bok-choy-1": 4,
+    "marigold": 4,
+    "marigold-1": 4,
+    "nasturtium": 4,
+    "nasturtium-1": 4,
+    "zinnia": 4,
+    "zinnia-1": 4,
+    "parsley": 4,
+    "parsley-1": 4,
+    "chard": 4,
+    "chard-1": 4,
+    "beet": 4,
+    "beet-1": 4,
+    "onion": 4,
+    "onion-1": 4,
+    "shallot": 4,
+    "shallot-1": 4,
+    "garlic": 4,
+    "garlic-1": 4,
+    "leek": 4,
+    "leek-1": 4,
+    "kohlrabi": 4,
+    "kohlrabi-1": 4,
+    "thyme": 4,
+    "thyme-1": 4,
+    "pea": 8,
+    "pea-1": 8,
+    "bean-pole": 8,
+    "bean-pole-1": 8,
+    "arugula": 9,
+    "arugula-1": 9,
+    "turnip": 9,
+    "turnip-1": 9,
+    "spinach": 9,
+    "spinach-1": 9,
+    "bush-bean": 9,
+    "bush-bean-1": 9,
+    "bean": 9,
+    "bean-1": 9,
+    "asian-greens": 9,
+    "asian-greens-1": 9,
+    "scallion": 9,
+    "scallion-1": 9,
+    "carrot": 16,
+    "carrot-1": 16,
+    "radish": 16,
+    "radish-1": 16,
+    "chive": 16,
+    "chive-1": 16
+  },
+  "migardenerOverrides": {
+    "lettuce-1": {
+      "rowSpacing": 4,
+      "plantSpacing": 1
+    },
+    "arugula-1": {
+      "rowSpacing": 4,
+      "plantSpacing": 1
+    },
+    "spinach-1": {
+      "rowSpacing": null,
+      "plantSpacing": 4
+    },
+    "kale-1": {
+      "rowSpacing": null,
+      "plantSpacing": 8
+    },
+    "chard-1": {
+      "rowSpacing": null,
+      "plantSpacing": 9
+    },
+    "mustard-1": {
+      "rowSpacing": null,
+      "plantSpacing": 3
+    },
+    "bok-choy-1": {
+      "rowSpacing": 8,
+      "plantSpacing": 6
+    },
+    "cabbage-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 12
+    },
+    "broccoli-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 12
+    },
+    "cauliflower-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 12
+    },
+    "brussels-sprouts-1": {
+      "rowSpacing": 24,
+      "plantSpacing": 18
+    },
+    "radish-1": {
+      "rowSpacing": 4,
+      "plantSpacing": 1
+    },
+    "carrot-1": {
+      "rowSpacing": 6,
+      "plantSpacing": 2
+    },
+    "beet-1": {
+      "rowSpacing": 12,
+      "plantSpacing": 3
+    },
+    "turnip-1": {
+      "rowSpacing": 8,
+      "plantSpacing": 3
+    },
+    "parsnip-1": {
+      "rowSpacing": 12,
+      "plantSpacing": 3
+    },
+    "onion-1": {
+      "rowSpacing": 4,
+      "plantSpacing": 4
+    },
+    "scallion-1": {
+      "rowSpacing": 4,
+      "plantSpacing": 2
+    },
+    "potato-1": {
+      "rowSpacing": 20,
+      "plantSpacing": 9
+    },
+    "tomato-1": {
+      "rowSpacing": 24,
+      "plantSpacing": 18
+    },
+    "pepper-1": {
+      "rowSpacing": 21,
+      "plantSpacing": 18
+    },
+    "eggplant-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 15
+    },
+    "cucumber-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 12
+    },
+    "cucumber-wisconsin-smr-pickling": {
+      "rowSpacing": 18,
+      "plantSpacing": 12
+    },
+    "cucumber-bush-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 12
+    },
+    "cucumber-vining-trellised-1": {
+      "rowSpacing": 24,
+      "plantSpacing": 18
+    },
+    "cucumber-vining-ground-1": {
+      "rowSpacing": 48,
+      "plantSpacing": 36
+    },
+    "watermelon-1": {
+      "rowSpacing": 72,
+      "plantSpacing": 60
+    },
+    "okra-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 10
+    },
+    "corn-1": {
+      "rowSpacing": 12,
+      "plantSpacing": 6
+    },
+    "sunflower-single-headed-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 15
+    },
+    "peanut-1": {
+      "rowSpacing": 24,
+      "plantSpacing": 18
+    },
+    "swiss-chard-1": {
+      "rowSpacing": 12,
+      "plantSpacing": 9
+    },
+    "celery-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 12
+    },
+    "pea-1": {
+      "rowSpacing": 60,
+      "plantSpacing": 1.5
+    },
+    "bean-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 5.5
+    },
+    "bean-bush-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 6
+    },
+    "bean-pole-1": {
+      "rowSpacing": 18,
+      "plantSpacing": 6
+    },
+    "pole-beans-1": {
+      "rowSpacing": 36,
+      "plantSpacing": 6
+    },
+    "asparagus-1": {
+      "rowSpacing": 12,
+      "plantSpacing": 8
+    },
+    "artichoke-1": {
+      "rowSpacing": 48,
+      "plantSpacing": 36
+    },
+    "ginger-1": {
+      "rowSpacing": 30,
+      "plantSpacing": 24
+    },
+    "grape-1": {
+      "rowSpacing": 72,
+      "plantSpacing": 60
+    },
+    "blackberry-1": {
+      "rowSpacing": 96,
+      "plantSpacing": 36
+    },
+    "raspberry-1": {
+      "rowSpacing": 72,
+      "plantSpacing": 24
+    },
+    "fig-1": {
+      "rowSpacing": 78,
+      "plantSpacing": 66
+    },
+    "goji-berry-1": {
+      "rowSpacing": 36,
+      "plantSpacing": 30
+    },
+    "shallot-from-sets": {
+      "rowSpacing": 12,
+      "plantSpacing": 10
+    },
+    "shallot-from-seed": {
+      "rowSpacing": 6,
+      "plantSpacing": 3
+    },
+    "cilantro-1": {
+      "rowSpacing": 4,
+      "plantSpacing": 2
+    },
+    "basil-1": {
+      "rowSpacing": 12,
+      "plantSpacing": 8
+    },
+    "parsley-1": {
+      "rowSpacing": 8,
+      "plantSpacing": 4
+    },
+    "dill-1": {
+      "rowSpacing": 12,
+      "plantSpacing": 6
+    },
+    "bee-balm-1": {
+      "rowSpacing": 30,
+      "plantSpacing": 24
+    }
+  },
+  "intensiveOverrides": {
+    "tomato-1": 18,
+    "pepper-1": 12,
+    "eggplant-1": 18,
+    "broccoli-1": 15,
+    "cauliflower-1": 15,
+    "cabbage-1": 15,
+    "kale-1": 12,
+    "lettuce-1": 8,
+    "spinach-1": 6,
+    "chard-1": 8,
+    "arugula-1": 4,
+    "carrot-1": 3,
+    "beet-1": 4,
+    "radish-1": 2,
+    "onion-1": 4,
+    "garlic-1": 6,
+    "potato-1": 10,
+    "bean-1": 6,
+    "pea-1": 4,
+    "squash-1": 24,
+    "cucumber-1": 12,
+    "melon-1": 18,
+    "corn-1": 15,
+    "basil-1": 8,
+    "parsley-1": 6,
+    "marigold-1": 8,
+    "nasturtium-1": 10
+  },
+  "plantDatabase": [
+    {
+      "id": "spinach-1",
+      "name": "Spinach",
+      "spacing": 4,
+      "rowSpacing": 12,
+      "daysToMaturity": 40,
+      "category": "vegetable"
+    },
+    {
+      "id": "kale-1",
+      "name": "Kale (Lacinato)",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 55,
+      "category": "vegetable"
+    },
+    {
+      "id": "mache-1",
+      "name": "Mâche (Corn Salad)",
+      "spacing": 2,
+      "rowSpacing": 6,
+      "daysToMaturity": 50,
+      "category": "vegetable"
+    },
+    {
+      "id": "claytonia-1",
+      "name": "Claytonia (Miner's Lettuce)",
+      "spacing": 3,
+      "rowSpacing": 6,
+      "daysToMaturity": 40,
+      "category": "vegetable"
+    },
+    {
+      "id": "arugula-1",
+      "name": "Arugula",
+      "spacing": 3,
+      "rowSpacing": 6,
+      "daysToMaturity": 30,
+      "category": "vegetable",
+      "migardener": {
+        "plantingStyle": "row_based",
+        "seedDensityPerInch": 1,
+        "rowSpacingInches": 4
+      }
+    },
+    {
+      "id": "carrot-1",
+      "name": "Carrot",
+      "spacing": 2,
+      "rowSpacing": 12,
+      "daysToMaturity": 70,
+      "category": "vegetable"
+    },
+    {
+      "id": "beet-1",
+      "name": "Beet",
+      "spacing": 3,
+      "rowSpacing": 12,
+      "daysToMaturity": 55,
+      "category": "vegetable"
+    },
+    {
+      "id": "radish-1",
+      "name": "Radish",
+      "spacing": 2,
+      "rowSpacing": 6,
+      "daysToMaturity": 25,
+      "category": "vegetable"
+    },
+    {
+      "id": "turnip-1",
+      "name": "Turnip",
+      "spacing": 4,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "vegetable"
+    },
+    {
+      "id": "onion-1",
+      "name": "Onion",
+      "spacing": 4,
+      "rowSpacing": 12,
+      "daysToMaturity": 100,
+      "category": "vegetable"
+    },
+    {
+      "id": "leek-1",
+      "name": "Leek",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 120,
+      "category": "vegetable"
+    },
+    {
+      "id": "broccoli-1",
+      "name": "Broccoli",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 60,
+      "category": "vegetable"
+    },
+    {
+      "id": "cabbage-1",
+      "name": "Cabbage",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 70,
+      "category": "vegetable"
+    },
+    {
+      "id": "tomato-1",
+      "name": "Tomato",
+      "spacing": 24,
+      "rowSpacing": 36,
+      "daysToMaturity": 75,
+      "category": "vegetable"
+    },
+    {
+      "id": "pepper-1",
+      "name": "Pepper",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 70,
+      "category": "vegetable"
+    },
+    {
+      "id": "cucumber-1",
+      "name": "Cucumber",
+      "spacing": 12,
+      "rowSpacing": 36,
+      "daysToMaturity": 55,
+      "category": "vegetable"
+    },
+    {
+      "id": "zucchini-1",
+      "name": "Zucchini",
+      "spacing": 24,
+      "rowSpacing": 36,
+      "daysToMaturity": 50,
+      "category": "vegetable"
+    },
+    {
+      "id": "pea-1",
+      "name": "Pea",
+      "spacing": 2,
+      "rowSpacing": 18,
+      "daysToMaturity": 60,
+      "category": "vegetable",
+      "migardener": {
+        "plantingStyle": "trellis_linear",
+        "linearFeetPerPlant": 0.125
+      }
+    },
+    {
+      "id": "pole-beans-1",
+      "name": "Pole Beans",
+      "spacing": 6,
+      "rowSpacing": 36,
+      "daysToMaturity": 65,
+      "category": "vegetable",
+      "migardener": {
+        "plantingStyle": "trellis_linear",
+        "linearFeetPerPlant": 0.5
+      }
+    },
+    {
+      "id": "lettuce-1",
+      "name": "Lettuce (Mixed)",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 45,
+      "category": "vegetable",
+      "migardener": {
+        "plantingStyle": "row_based",
+        "seedDensityPerInch": 1,
+        "rowSpacingInches": 4
+      }
+    },
+    {
+      "id": "basil-1",
+      "name": "Basil",
+      "spacing": 10,
+      "rowSpacing": 12,
+      "daysToMaturity": 60,
+      "category": "herb"
+    },
+    {
+      "id": "parsley-1",
+      "name": "Parsley",
+      "spacing": 8,
+      "rowSpacing": 12,
+      "daysToMaturity": 70,
+      "category": "herb"
+    },
+    {
+      "id": "cilantro-1",
+      "name": "Cilantro",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "herb"
+    },
+    {
+      "id": "dill-1",
+      "name": "Dill",
+      "spacing": 10,
+      "rowSpacing": 12,
+      "daysToMaturity": 40,
+      "category": "herb"
+    },
+    {
+      "id": "strawberry-1",
+      "name": "Strawberry",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 120,
+      "category": "fruit"
+    },
+    {
+      "id": "clover-1",
+      "name": "Crimson Clover",
+      "spacing": 0,
+      "rowSpacing": 0,
+      "daysToMaturity": 90,
+      "category": "cover-crop"
+    },
+    {
+      "id": "rye-1",
+      "name": "Winter Rye",
+      "spacing": 0,
+      "rowSpacing": 0,
+      "daysToMaturity": 60,
+      "category": "cover-crop"
+    },
+    {
+      "id": "almond-1",
+      "name": "Almond",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 1825,
+      "category": "nut"
+    },
+    {
+      "id": "amaranth-1",
+      "name": "Amaranth",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 75,
+      "category": "vegetable"
+    },
+    {
+      "id": "apple-1",
+      "name": "Apple",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 1825,
+      "category": "fruit"
+    },
+    {
+      "id": "apricot-1",
+      "name": "Apricot",
+      "spacing": 200,
+      "rowSpacing": 200,
+      "daysToMaturity": 1095,
+      "category": "fruit"
+    },
+    {
+      "id": "aronia-1",
+      "name": "Aronia",
+      "spacing": 48,
+      "rowSpacing": 60,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "asian-pear-1",
+      "name": "Asian Pear",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 1460,
+      "category": "fruit"
+    },
+    {
+      "id": "asparagus-1",
+      "name": "Asparagus",
+      "spacing": 18,
+      "rowSpacing": 60,
+      "daysToMaturity": 730,
+      "category": "vegetable"
+    },
+    {
+      "id": "asparagus-uc-157",
+      "name": "Asparagus",
+      "spacing": 18,
+      "rowSpacing": 36,
+      "daysToMaturity": 730,
+      "category": "vegetable"
+    },
+    {
+      "id": "bean-1",
+      "name": "Bean",
+      "spacing": 4,
+      "rowSpacing": 21,
+      "daysToMaturity": 60,
+      "category": "vegetable"
+    },
+    {
+      "id": "blackberry-1",
+      "name": "Blackberry",
+      "spacing": 36,
+      "rowSpacing": 96,
+      "daysToMaturity": 365,
+      "category": "fruit",
+      "migardener": {
+        "plantingStyle": "trellis_linear",
+        "linearFeetPerPlant": 3
+      }
+    },
+    {
+      "id": "blueberry-1",
+      "name": "Blueberry",
+      "spacing": 48,
+      "rowSpacing": 72,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "bok-choy-1",
+      "name": "Bok Choy",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 45,
+      "category": "vegetable"
+    },
+    {
+      "id": "borage-1",
+      "name": "Borage",
+      "spacing": 18,
+      "rowSpacing": 18,
+      "daysToMaturity": 55,
+      "category": "flower"
+    },
+    {
+      "id": "brussels-sprouts-1",
+      "name": "Brussels Sprouts",
+      "spacing": 18,
+      "rowSpacing": 30,
+      "daysToMaturity": 120,
+      "category": "vegetable"
+    },
+    {
+      "id": "burdock-1",
+      "name": "Burdock",
+      "spacing": 12,
+      "rowSpacing": 24,
+      "daysToMaturity": 120,
+      "category": "vegetable"
+    },
+    {
+      "id": "calendula-1",
+      "name": "Calendula",
+      "spacing": 12,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "flower"
+    },
+    {
+      "id": "caraway-1",
+      "name": "Caraway",
+      "spacing": 8,
+      "rowSpacing": 12,
+      "daysToMaturity": 105,
+      "category": "herb"
+    },
+    {
+      "id": "catnip-1",
+      "name": "Catnip",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 90,
+      "category": "herb"
+    },
+    {
+      "id": "cauliflower-1",
+      "name": "Cauliflower",
+      "spacing": 12,
+      "rowSpacing": 24,
+      "daysToMaturity": 75,
+      "category": "vegetable"
+    },
+    {
+      "id": "celery-1",
+      "name": "Celery",
+      "spacing": 8,
+      "rowSpacing": 12,
+      "daysToMaturity": 85,
+      "category": "vegetable"
+    },
+    {
+      "id": "chard-1",
+      "name": "Swiss Chard",
+      "spacing": 6,
+      "rowSpacing": 18,
+      "daysToMaturity": 50,
+      "category": "vegetable"
+    },
+    {
+      "id": "cherry-1",
+      "name": "Cherry",
+      "spacing": 210,
+      "rowSpacing": 210,
+      "daysToMaturity": 1460,
+      "category": "fruit"
+    },
+    {
+      "id": "chestnut-1",
+      "name": "Chestnut",
+      "spacing": 360,
+      "rowSpacing": 360,
+      "daysToMaturity": 1825,
+      "category": "nut"
+    },
+    {
+      "id": "chia-1",
+      "name": "Chia",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 140,
+      "category": "herb"
+    },
+    {
+      "id": "chia-white",
+      "name": "Chia",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 140,
+      "category": "herb"
+    },
+    {
+      "id": "chives-1",
+      "name": "Chives",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 60,
+      "category": "herb"
+    },
+    {
+      "id": "collard-greens-1",
+      "name": "Collard Greens",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 60,
+      "category": "vegetable"
+    },
+    {
+      "id": "collard-vates",
+      "name": "Collard Greens",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 65,
+      "category": "vegetable"
+    },
+    {
+      "id": "corn-1",
+      "name": "Corn",
+      "spacing": 12,
+      "rowSpacing": 36,
+      "daysToMaturity": 75,
+      "category": "vegetable"
+    },
+    {
+      "id": "cucumber-wisconsin-smr-pickling",
+      "name": "Cucumber",
+      "spacing": 12,
+      "rowSpacing": 36,
+      "daysToMaturity": 55,
+      "category": "vegetable"
+    },
+    {
+      "id": "currant-1",
+      "name": "Currant",
+      "spacing": 48,
+      "rowSpacing": 72,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "datura-1",
+      "name": "Datura Moonflower",
+      "spacing": 24,
+      "rowSpacing": 36,
+      "daysToMaturity": 90,
+      "category": "flower"
+    },
+    {
+      "id": "eggplant-1",
+      "name": "Eggplant",
+      "spacing": 18,
+      "rowSpacing": 30,
+      "daysToMaturity": 70,
+      "category": "vegetable"
+    },
+    {
+      "id": "elderberry-1",
+      "name": "Elderberry",
+      "spacing": 72,
+      "rowSpacing": 120,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "endive-1",
+      "name": "Endive",
+      "spacing": 9,
+      "rowSpacing": 12,
+      "daysToMaturity": 80,
+      "category": "vegetable"
+    },
+    {
+      "id": "fennel-1",
+      "name": "Fennel",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 65,
+      "category": "herb"
+    },
+    {
+      "id": "fenugreek-1",
+      "name": "Fenugreek",
+      "spacing": 4,
+      "rowSpacing": 12,
+      "daysToMaturity": 35,
+      "category": "herb"
+    },
+    {
+      "id": "fig-1",
+      "name": "Fig",
+      "spacing": 180,
+      "rowSpacing": 180,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "garlic-1",
+      "name": "Garlic",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 240,
+      "category": "vegetable"
+    },
+    {
+      "id": "goji-1",
+      "name": "Goji Berry",
+      "spacing": 48,
+      "rowSpacing": 60,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "gooseberry-1",
+      "name": "Gooseberry",
+      "spacing": 48,
+      "rowSpacing": 72,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "gourd-bi-color-pear",
+      "name": "Gourd",
+      "spacing": 24,
+      "rowSpacing": 72,
+      "daysToMaturity": 95,
+      "category": "vegetable"
+    },
+    {
+      "id": "grape-1",
+      "name": "Grape",
+      "spacing": 96,
+      "rowSpacing": 96,
+      "daysToMaturity": 1095,
+      "category": "fruit",
+      "migardener": {
+        "plantingStyle": "trellis_linear",
+        "linearFeetPerPlant": 8
+      }
+    },
+    {
+      "id": "hazelnut-1",
+      "name": "Hazelnut",
+      "spacing": 180,
+      "rowSpacing": 180,
+      "daysToMaturity": 730,
+      "category": "nut"
+    },
+    {
+      "id": "honeyberry-1",
+      "name": "Honeyberry",
+      "spacing": 48,
+      "rowSpacing": 60,
+      "daysToMaturity": 730,
+      "category": "fruit"
+    },
+    {
+      "id": "kohlrabi-1",
+      "name": "Kohlrabi",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "vegetable"
+    },
+    {
+      "id": "lavender-1",
+      "name": "Lavender",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 90,
+      "category": "herb"
+    },
+    {
+      "id": "lemon-1",
+      "name": "Lemon",
+      "spacing": 180,
+      "rowSpacing": 180,
+      "daysToMaturity": 1095,
+      "category": "fruit"
+    },
+    {
+      "id": "lemon-balm-1",
+      "name": "Lemon Balm",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 70,
+      "category": "herb"
+    },
+    {
+      "id": "lime-1",
+      "name": "Lime",
+      "spacing": 180,
+      "rowSpacing": 180,
+      "daysToMaturity": 1095,
+      "category": "fruit"
+    },
+    {
+      "id": "marigold-1",
+      "name": "Marigold",
+      "spacing": 10,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "flower"
+    },
+    {
+      "id": "marjoram-1",
+      "name": "Marjoram",
+      "spacing": 8,
+      "rowSpacing": 12,
+      "daysToMaturity": 70,
+      "category": "herb"
+    },
+    {
+      "id": "melon-1",
+      "name": "Melon",
+      "spacing": 21,
+      "rowSpacing": 66,
+      "daysToMaturity": 89,
+      "category": "vegetable"
+    },
+    {
+      "id": "mint-1",
+      "name": "Mint",
+      "spacing": 8,
+      "rowSpacing": 24,
+      "daysToMaturity": 60,
+      "category": "herb"
+    },
+    {
+      "id": "mulberry-1",
+      "name": "Mulberry",
+      "spacing": 300,
+      "rowSpacing": 300,
+      "daysToMaturity": 1095,
+      "category": "fruit"
+    },
+    {
+      "id": "mullein-1",
+      "name": "Mullein",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 85,
+      "category": "herb"
+    },
+    {
+      "id": "mustard-1",
+      "name": "Mustard Greens",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 40,
+      "category": "vegetable"
+    },
+    {
+      "id": "nasturtium-1",
+      "name": "Nasturtium",
+      "spacing": 12,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "flower"
+    },
+    {
+      "id": "nectarine-1",
+      "name": "Nectarine",
+      "spacing": 200,
+      "rowSpacing": 200,
+      "daysToMaturity": 1095,
+      "category": "fruit"
+    },
+    {
+      "id": "okra-1",
+      "name": "Okra",
+      "spacing": 12,
+      "rowSpacing": 36,
+      "daysToMaturity": 55,
+      "category": "vegetable"
+    },
+    {
+      "id": "orange-1",
+      "name": "Orange",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 1460,
+      "category": "fruit"
+    },
+    {
+      "id": "oregano-1",
+      "name": "Oregano",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 80,
+      "category": "herb"
+    },
+    {
+      "id": "pawpaw-1",
+      "name": "Pawpaw",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 2190,
+      "category": "fruit"
+    },
+    {
+      "id": "peach-1",
+      "name": "Peach",
+      "spacing": 200,
+      "rowSpacing": 200,
+      "daysToMaturity": 1095,
+      "category": "fruit"
+    },
+    {
+      "id": "pear-1",
+      "name": "Pear",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 1825,
+      "category": "fruit"
+    },
+    {
+      "id": "pecan-1",
+      "name": "Pecan",
+      "spacing": 480,
+      "rowSpacing": 480,
+      "daysToMaturity": 2555,
+      "category": "nut"
+    },
+    {
+      "id": "persimmon-1",
+      "name": "Persimmon",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 1825,
+      "category": "fruit"
+    },
+    {
+      "id": "plum-1",
+      "name": "Plum",
+      "spacing": 240,
+      "rowSpacing": 240,
+      "daysToMaturity": 1460,
+      "category": "fruit"
+    },
+    {
+      "id": "potato-1",
+      "name": "Potato",
+      "spacing": 12,
+      "rowSpacing": 30,
+      "daysToMaturity": 90,
+      "category": "vegetable"
+    },
+    {
+      "id": "pumpkin-1",
+      "name": "Pumpkin",
+      "spacing": 24,
+      "rowSpacing": 72,
+      "daysToMaturity": 100,
+      "category": "vegetable"
+    },
+    {
+      "id": "purple-coneflower-1",
+      "name": "Purple Coneflower",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 90,
+      "category": "flower"
+    },
+    {
+      "id": "quince-1",
+      "name": "Quince",
+      "spacing": 180,
+      "rowSpacing": 180,
+      "daysToMaturity": 1460,
+      "category": "fruit"
+    },
+    {
+      "id": "radicchio-1",
+      "name": "Radicchio",
+      "spacing": 8,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "vegetable"
+    },
+    {
+      "id": "radicchio-rouge-de-verona",
+      "name": "Radicchio",
+      "spacing": 8,
+      "rowSpacing": 12,
+      "daysToMaturity": 50,
+      "category": "vegetable"
+    },
+    {
+      "id": "raspberry-1",
+      "name": "Raspberry",
+      "spacing": 24,
+      "rowSpacing": 72,
+      "daysToMaturity": 365,
+      "category": "fruit",
+      "migardener": {
+        "plantingStyle": "trellis_linear",
+        "linearFeetPerPlant": 2
+      }
+    },
+    {
+      "id": "rice-1",
+      "name": "Rice",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 120,
+      "category": "vegetable"
+    },
+    {
+      "id": "rosemary-1",
+      "name": "Rosemary",
+      "spacing": 12,
+      "rowSpacing": 24,
+      "daysToMaturity": 90,
+      "category": "herb"
+    },
+    {
+      "id": "sage-1",
+      "name": "Sage",
+      "spacing": 12,
+      "rowSpacing": 24,
+      "daysToMaturity": 75,
+      "category": "herb"
+    },
+    {
+      "id": "serviceberry-1",
+      "name": "Serviceberry",
+      "spacing": 72,
+      "rowSpacing": 96,
+      "daysToMaturity": 1095,
+      "category": "fruit"
+    },
+    {
+      "id": "shallot-1",
+      "name": "Shallot",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 90,
+      "category": "vegetable"
+    },
+    {
+      "id": "shasta-daisy-1",
+      "name": "Shasta Daisy",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 120,
+      "category": "flower"
+    },
+    {
+      "id": "shungiku-1",
+      "name": "Shungiku",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 40,
+      "category": "vegetable"
+    },
+    {
+      "id": "sorrel-1",
+      "name": "Sorrel",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 60,
+      "category": "vegetable"
+    },
+    {
+      "id": "squash-1",
+      "name": "Squash",
+      "spacing": 16,
+      "rowSpacing": 56,
+      "daysToMaturity": 66,
+      "category": "vegetable"
+    },
+    {
+      "id": "sunflower-1",
+      "name": "Sunflower",
+      "spacing": 24,
+      "rowSpacing": 30,
+      "daysToMaturity": 80,
+      "category": "flower"
+    },
+    {
+      "id": "sunflower-teddy-bear",
+      "name": "Sunflower",
+      "spacing": 12,
+      "rowSpacing": 24,
+      "daysToMaturity": 57,
+      "category": "flower"
+    },
+    {
+      "id": "tarragon-1",
+      "name": "Tarragon",
+      "spacing": 18,
+      "rowSpacing": 24,
+      "daysToMaturity": 60,
+      "category": "herb"
+    },
+    {
+      "id": "thyme-1",
+      "name": "Thyme",
+      "spacing": 6,
+      "rowSpacing": 12,
+      "daysToMaturity": 90,
+      "category": "herb"
+    },
+    {
+      "id": "walnut-1",
+      "name": "Walnut",
+      "spacing": 480,
+      "rowSpacing": 480,
+      "daysToMaturity": 2555,
+      "category": "nut"
+    },
+    {
+      "id": "watermelon-1",
+      "name": "Watermelon",
+      "spacing": 17,
+      "rowSpacing": 72,
+      "daysToMaturity": 85,
+      "category": "vegetable"
+    },
+    {
+      "id": "zinnia-1",
+      "name": "Zinnia",
+      "spacing": 12,
+      "rowSpacing": 18,
+      "daysToMaturity": 60,
+      "category": "flower"
+    }
+  ],
+  "spaceCalculator": {
+    "gridSize": 12,
+    "cases": [
+      {
+        "plantId": "artichoke-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "arugula",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "arugula-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "arugula-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.125
+      },
+      {
+        "plantId": "arugula-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "arugula-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.027777777777777776
+      },
+      {
+        "plantId": "asian-greens",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "asian-greens-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "asparagus-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "asparagus-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 7.5
+      },
+      {
+        "plantId": "asparagus-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 2.25
+      },
+      {
+        "plantId": "asparagus-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.6666666666666666
+      },
+      {
+        "plantId": "basil-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "basil-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.8333333333333334
+      },
+      {
+        "plantId": "basil-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.4444444444444444
+      },
+      {
+        "plantId": "basil-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.6666666666666666
+      },
+      {
+        "plantId": "bean",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "bean-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "bean-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5833333333333334
+      },
+      {
+        "plantId": "bean-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "bean-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.6875
+      },
+      {
+        "plantId": "bean-bush-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "bean-pole",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.125
+      },
+      {
+        "plantId": "bean-pole-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.125
+      },
+      {
+        "plantId": "bee-balm-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "beet",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "beet-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "beet-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "beet-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "beet-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "blackberry-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "blackberry-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 24
+      },
+      {
+        "plantId": "blackberry-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 9
+      },
+      {
+        "plantId": "blackberry-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 24
+      },
+      {
+        "plantId": "bok-choy",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "bok-choy-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "bok-choy-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "bok-choy-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "bok-choy-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.3333333333333333
+      },
+      {
+        "plantId": "broccoli",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "broccoli-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "broccoli-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "broccoli-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1.5625
+      },
+      {
+        "plantId": "broccoli-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "brussels-sprouts",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "brussels-sprouts-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "brussels-sprouts-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3.75
+      },
+      {
+        "plantId": "brussels-sprouts-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 2.25
+      },
+      {
+        "plantId": "brussels-sprouts-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "bush-bean",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "bush-bean-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "cabbage",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cabbage-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cabbage-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "cabbage-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1.5625
+      },
+      {
+        "plantId": "cabbage-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "cantaloupe",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "cantaloupe-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "carrot",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "carrot-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "carrot-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.16666666666666666
+      },
+      {
+        "plantId": "carrot-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "carrot-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.08333333333333333
+      },
+      {
+        "plantId": "cauliflower",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cauliflower-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cauliflower-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "cauliflower-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1.5625
+      },
+      {
+        "plantId": "cauliflower-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "celery",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "celery-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "celery-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.6666666666666666
+      },
+      {
+        "plantId": "celery-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.4444444444444444
+      },
+      {
+        "plantId": "celery-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "chard",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "chard-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "chard-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.75
+      },
+      {
+        "plantId": "chard-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.4444444444444444
+      },
+      {
+        "plantId": "chard-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.5625
+      },
+      {
+        "plantId": "chive",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "chive-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "cilantro",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cilantro-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cilantro-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "cilantro-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "cilantro-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.05555555555555555
+      },
+      {
+        "plantId": "collard",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "collard-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "collards",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "collards-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "corn",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "corn-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "corn-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "corn-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1.5625
+      },
+      {
+        "plantId": "corn-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "cucumber",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "cucumber-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "cucumber-bush-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-vining-ground-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-vining-trellised-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-wisconsin-smr-pickling",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-wisconsin-smr-pickling",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "cucumber-wisconsin-smr-pickling",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "cucumber-wisconsin-smr-pickling",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "dill-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "dill-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.8333333333333334
+      },
+      {
+        "plantId": "dill-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.6944444444444444
+      },
+      {
+        "plantId": "dill-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "eggplant",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "eggplant-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "eggplant-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3.75
+      },
+      {
+        "plantId": "eggplant-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 2.25
+      },
+      {
+        "plantId": "eggplant-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.875
+      },
+      {
+        "plantId": "fig-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "fig-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 225
+      },
+      {
+        "plantId": "fig-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 225
+      },
+      {
+        "plantId": "fig-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 35.75
+      },
+      {
+        "plantId": "garlic",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "garlic-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "garlic-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "garlic-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "garlic-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.03125
+      },
+      {
+        "plantId": "ginger-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "goji-berry-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "grape-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "grape-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 64
+      },
+      {
+        "plantId": "grape-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 64
+      },
+      {
+        "plantId": "grape-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 30
+      },
+      {
+        "plantId": "kale",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "kale-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "kale-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "kale-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "kale-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.4444444444444444
+      },
+      {
+        "plantId": "kohlrabi",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "kohlrabi-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "kohlrabi-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "kohlrabi-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "kohlrabi-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.03125
+      },
+      {
+        "plantId": "leek",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "leek-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "leek-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "leek-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "leek-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.03125
+      },
+      {
+        "plantId": "lettuce",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "lettuce-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "lettuce-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "lettuce-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.4444444444444444
+      },
+      {
+        "plantId": "lettuce-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.027777777777777776
+      },
+      {
+        "plantId": "lettuce-crisphead",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "lettuce-crisphead-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "lettuce-head",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "lettuce-head-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "lettuce-leaf",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "lettuce-leaf-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "lettuce-romaine",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "lettuce-romaine-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "marigold",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "marigold-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "marigold-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.8333333333333334
+      },
+      {
+        "plantId": "marigold-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.4444444444444444
+      },
+      {
+        "plantId": "marigold-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.052083333333333336
+      },
+      {
+        "plantId": "melon",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "melon-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "melon-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 9.625
+      },
+      {
+        "plantId": "melon-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 2.25
+      },
+      {
+        "plantId": "melon-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.6015625
+      },
+      {
+        "plantId": "mustard-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "mustard-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "mustard-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "mustard-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "mustard-greens",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "mustard-greens-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "nasturtium",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "nasturtium-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "nasturtium-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "nasturtium-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.6944444444444444
+      },
+      {
+        "plantId": "nasturtium-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "okra",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "okra-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "okra-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "okra-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "okra-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.25
+      },
+      {
+        "plantId": "onion",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "onion-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "onion-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.3333333333333333
+      },
+      {
+        "plantId": "onion-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "onion-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "parsley",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "parsley-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "parsley-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.6666666666666666
+      },
+      {
+        "plantId": "parsley-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "parsley-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.2222222222222222
+      },
+      {
+        "plantId": "parsnip-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "pea",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.125
+      },
+      {
+        "plantId": "pea-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.125
+      },
+      {
+        "plantId": "pea-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "pea-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "pea-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.625
+      },
+      {
+        "plantId": "peanut-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "pepper",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "pepper-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "pepper-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "pepper-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "pepper-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 2.625
+      },
+      {
+        "plantId": "pole-beans-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "pole-beans-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "pole-beans-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "pole-beans-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "potato-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "potato-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 2.5
+      },
+      {
+        "plantId": "potato-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.6944444444444444
+      },
+      {
+        "plantId": "potato-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 1.25
+      },
+      {
+        "plantId": "pumpkin",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "pumpkin-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "pumpkin-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 12
+      },
+      {
+        "plantId": "pumpkin-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 4
+      },
+      {
+        "plantId": "pumpkin-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.75
+      },
+      {
+        "plantId": "radish",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "radish-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.0625
+      },
+      {
+        "plantId": "radish-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.08333333333333333
+      },
+      {
+        "plantId": "radish-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.027777777777777776
+      },
+      {
+        "plantId": "radish-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.027777777777777776
+      },
+      {
+        "plantId": "raspberry-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "raspberry-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 12
+      },
+      {
+        "plantId": "raspberry-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 4
+      },
+      {
+        "plantId": "raspberry-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 12
+      },
+      {
+        "plantId": "scallion",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "scallion-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "shallot",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "shallot-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "shallot-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "shallot-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "shallot-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.03125
+      },
+      {
+        "plantId": "shallot-from-seed",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "shallot-from-sets",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "spinach",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "spinach-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "spinach-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.3333333333333333
+      },
+      {
+        "plantId": "spinach-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "spinach-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "squash",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "squash-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "squash-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 6.222222222222222
+      },
+      {
+        "plantId": "squash-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 4
+      },
+      {
+        "plantId": "squash-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.3888888888888889
+      },
+      {
+        "plantId": "sunflower-single-headed-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "swiss-chard-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "thyme",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "thyme-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "thyme-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.5
+      },
+      {
+        "plantId": "thyme-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "thyme-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.03125
+      },
+      {
+        "plantId": "tomato",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "tomato-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "tomato-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 6
+      },
+      {
+        "plantId": "tomato-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 2.25
+      },
+      {
+        "plantId": "tomato-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 3
+      },
+      {
+        "plantId": "turnip",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "turnip-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "turnip-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 0.3333333333333333
+      },
+      {
+        "plantId": "turnip-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 0.1111111111111111
+      },
+      {
+        "plantId": "turnip-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.16666666666666666
+      },
+      {
+        "plantId": "watermelon",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "watermelon-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 2
+      },
+      {
+        "plantId": "watermelon-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 8.5
+      },
+      {
+        "plantId": "watermelon-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 2.0069444444444446
+      },
+      {
+        "plantId": "watermelon-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 30
+      },
+      {
+        "plantId": "zinnia",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "zinnia-1",
+        "method": "square-foot",
+        "gridSize": 12,
+        "cells": 0.25
+      },
+      {
+        "plantId": "zinnia-1",
+        "method": "row",
+        "gridSize": 12,
+        "cells": 1.5
+      },
+      {
+        "plantId": "zinnia-1",
+        "method": "intensive",
+        "gridSize": 12,
+        "cells": 1
+      },
+      {
+        "plantId": "zinnia-1",
+        "method": "migardener",
+        "gridSize": 12,
+        "cells": 0.09375
+      }
+    ],
+    "plantsReferencedButMissingFromFrontendDb": [
+      "artichoke-1",
+      "arugula",
+      "asian-greens",
+      "asian-greens-1",
+      "bean",
+      "bean-bush-1",
+      "bean-pole",
+      "bean-pole-1",
+      "bee-balm-1",
+      "beet",
+      "bok-choy",
+      "broccoli",
+      "brussels-sprouts",
+      "bush-bean",
+      "bush-bean-1",
+      "cabbage",
+      "cantaloupe",
+      "cantaloupe-1",
+      "carrot",
+      "cauliflower",
+      "celery",
+      "chard",
+      "chive",
+      "chive-1",
+      "cilantro",
+      "collard",
+      "collard-1",
+      "collards",
+      "collards-1",
+      "corn",
+      "cucumber",
+      "cucumber-bush-1",
+      "cucumber-vining-ground-1",
+      "cucumber-vining-trellised-1",
+      "eggplant",
+      "garlic",
+      "ginger-1",
+      "goji-berry-1",
+      "kale",
+      "kohlrabi",
+      "leek",
+      "lettuce",
+      "lettuce-crisphead",
+      "lettuce-crisphead-1",
+      "lettuce-head",
+      "lettuce-head-1",
+      "lettuce-leaf",
+      "lettuce-leaf-1",
+      "lettuce-romaine",
+      "lettuce-romaine-1",
+      "marigold",
+      "melon",
+      "mustard-greens",
+      "mustard-greens-1",
+      "nasturtium",
+      "okra",
+      "onion",
+      "parsley",
+      "parsnip-1",
+      "pea",
+      "peanut-1",
+      "pepper",
+      "pumpkin",
+      "radish",
+      "scallion",
+      "scallion-1",
+      "shallot",
+      "shallot-from-seed",
+      "shallot-from-sets",
+      "spinach",
+      "squash",
+      "sunflower-single-headed-1",
+      "swiss-chard-1",
+      "thyme",
+      "tomato",
+      "turnip",
+      "watermelon",
+      "zinnia"
+    ]
+  }
+}
