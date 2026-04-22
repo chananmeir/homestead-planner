@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../../config';
 import { PlanNutritionData } from '../../types';
-import { useToast } from '../common/Toast';
 import { getPlantById } from '../../utils/plantIdResolver';
 
 // USDA RDA (from NutritionalDashboard)
@@ -18,7 +17,6 @@ interface Props {
 }
 
 export const PlanNutritionCard: React.FC<Props> = ({ planId, planYear }) => {
-  const { showError } = useToast();
   const [data, setData] = useState<PlanNutritionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -43,8 +41,12 @@ export const PlanNutritionCard: React.FC<Props> = ({ planId, planYear }) => {
       const nutritionData = await response.json();
       setData(nutritionData);
     } catch (error) {
-      console.error('Error loading plan nutrition:', error);
-      showError('Failed to load nutrition estimates');
+      // Non-critical: nutrition is a planning estimate. Log to console and
+      // fall through to the inline "Nutrition estimates unavailable" message
+      // rendered when `data` is null. Avoid a global error toast here so that
+      // a slow/failing nutrition fetch doesn't surface as an unrelated error
+      // during other plan operations (e.g., export-to-calendar).
+      console.error('[PlanNutritionCard] Error loading plan nutrition:', error);
     } finally {
       setLoading(false);
     }
