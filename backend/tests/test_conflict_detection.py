@@ -566,7 +566,7 @@ class TestPlantedItemToEvent:
 
         item = PlantedItem(
             user_id=sample_user.id,
-            plant_id='tomato-1',  # DTM=70
+            plant_id='tomato-1',  # DTM=75
             garden_bed_id=sample_bed.id,
             position_x=0,
             position_y=0,
@@ -578,8 +578,8 @@ class TestPlantedItemToEvent:
 
         event = planted_item_to_event(item)
         # in_ground = transplant_date(None) or planted_date(May 1) = May 1
-        # DTM for tomato-1 = 70
-        expected = datetime(2026, 5, 1) + timedelta(days=70)
+        # DTM for tomato-1 = 75
+        expected = datetime(2026, 5, 1) + timedelta(days=75)
         assert event.expected_harvest_date == expected
 
     def test_planted_date_only_uses_dtm_from_planted(self, db_session, sample_user, sample_bed):
@@ -589,7 +589,7 @@ class TestPlantedItemToEvent:
         planted = datetime(2026, 5, 1)
         item = PlantedItem(
             user_id=sample_user.id,
-            plant_id='tomato-1',  # DTM = 70
+            plant_id='tomato-1',  # DTM = 75
             garden_bed_id=sample_bed.id,
             position_x=0,
             position_y=0,
@@ -602,7 +602,7 @@ class TestPlantedItemToEvent:
 
         event = planted_item_to_event(item)
         # in_ground = transplant(None) or planted(May 1) = May 1
-        assert event.expected_harvest_date == planted + timedelta(days=70)
+        assert event.expected_harvest_date == planted + timedelta(days=75)
 
 
 # =====================================================================

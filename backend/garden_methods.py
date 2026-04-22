@@ -179,7 +179,8 @@ SFG_SPACING = {
     4: [
         'lettuce', 'lettuce-leaf', 'lettuce-romaine', 'mustard-greens', 'bok-choy',
         'marigold', 'nasturtium', 'zinnia', 'parsley', 'chard',
-        'beet', 'onion', 'shallot', 'garlic', 'leek', 'kohlrabi', 'thyme'
+        'beet', 'onion', 'shallot', 'shallot-from-seed', 'shallot-from-sets',
+        'garlic', 'leek', 'kohlrabi', 'thyme'
     ],
 
     # 8 per square (4.2" spacing, typically vertical/trellis) - Pole/climbing plants
@@ -190,7 +191,7 @@ SFG_SPACING = {
     # 9 per square (4" spacing) - Small plants
     9: [
         'arugula', 'turnip', 'spinach',
-        'bush-bean', 'asian-greens', 'scallion'
+        'bean', 'bush-bean', 'asian-greens', 'scallion'
     ],
 
     # 16 per square (3" spacing) - Tiny plants

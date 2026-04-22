@@ -59,6 +59,19 @@ def get_sfg_cells_required(plant_id):
             if plant_pattern.startswith(base_plant + '-') or plant_pattern == base_plant:
                 return 1.0 / plants_per_square
 
+    # Third pass: Iteratively strip trailing segments to find a base-plant
+    # exact match. Handles multi-segment IDs like 'shallot-from-seed' →
+    # 'shallot-from' → 'shallot' when the table doesn't have an explicit entry
+    # for the full ID. Safe because the first two passes already handled the
+    # direct and prefix cases; this only runs as a last-resort fallback.
+    segments = base_plant.split('-')
+    while len(segments) > 1:
+        segments.pop()
+        ancestor = '-'.join(segments)
+        for plants_per_square, plant_list in SFG_SPACING.items():
+            if ancestor in plant_list:
+                return 1.0 / plants_per_square
+
     # Default: 1 cell per plant for unknown plants (standard SFG spacing)
     return 1.0
 

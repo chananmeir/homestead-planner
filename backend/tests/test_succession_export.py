@@ -155,7 +155,7 @@ class TestLegacyExportPath:
         assert _get_events(sample_user.id) == []
 
     def test_expected_harvest_date_from_plant_dtm(self, db_session, sample_user, sample_plan):
-        """Harvest date = seed_date + daysToMaturity (tomato-1 → 70 days)."""
+        """Harvest date = seed_date + daysToMaturity (tomato-1 → 75 days)."""
         _make_item(
             db_session, sample_plan,
             plant_id='tomato-1', target_value=5, succession_count=1,
@@ -164,7 +164,7 @@ class TestLegacyExportPath:
 
         export_to_calendar(sample_plan.id, sample_user.id)
         ev = _get_events(sample_user.id)[0]
-        expected = datetime(2026, 7, 10)  # May 1 + 70 days
+        expected = datetime(2026, 7, 15)  # May 1 + 75 days
         assert ev.expected_harvest_date == expected
 
     def test_export_key_format_legacy(self, db_session, sample_user, sample_plan):
@@ -494,7 +494,7 @@ class TestDTMAndHarvestDate:
     """Tests for days-to-maturity resolution and expected_harvest_date."""
 
     def test_dtm_from_plant_database(self, db_session, sample_user, sample_plan):
-        """No seed inventory → uses plant's daysToMaturity (lettuce-1 → 60)."""
+        """No seed inventory → uses plant's daysToMaturity (lettuce-1 → 45)."""
         _make_item(
             db_session, sample_plan,
             plant_id='lettuce-1', target_value=5, succession_count=1,
@@ -503,8 +503,8 @@ class TestDTMAndHarvestDate:
 
         export_to_calendar(sample_plan.id, sample_user.id)
         ev = _get_events(sample_user.id)[0]
-        # April 15 + 60 days = June 14
-        assert ev.expected_harvest_date == datetime(2026, 6, 14)
+        # April 15 + 45 days = May 30
+        assert ev.expected_harvest_date == datetime(2026, 5, 30)
 
     def test_dtm_from_seed_inventory_override(self, db_session, sample_user, sample_plan):
         """Seed inventory has days_to_maturity=45 → overrides plant default (70)."""
