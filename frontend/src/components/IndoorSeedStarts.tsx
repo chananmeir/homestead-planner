@@ -498,27 +498,41 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                       <span className="text-gray-600">Destination:</span>
                       <span className="font-medium text-green-700">{start.destinationBeds.join(', ')}</span>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Destination:</span>
+                      <span className="text-gray-500 italic">not assigned</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
                 <div className="mt-4 flex gap-2">
-                  {start.status !== 'transplanted' && start.status !== 'failed' &&
-                   start.destinationBedDetails && start.destinationBedDetails.length > 0 &&
-                   onNavigateToBed && (
-                    <button
-                      onClick={() => {
-                        const firstBed = start.destinationBedDetails![0];
-                        onNavigateToBed(
-                          firstBed.id,
-                          start.expectedTransplantDate || undefined,
-                          start.id
-                        );
-                      }}
-                      className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
-                    >
-                      Transplant Now
-                    </button>
+                  {start.status !== 'transplanted' && start.status !== 'failed' && onNavigateToBed && (
+                    start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
+                      <button
+                        onClick={() => {
+                          const firstBed = start.destinationBedDetails![0];
+                          onNavigateToBed(
+                            firstBed.id,
+                            start.expectedTransplantDate || undefined,
+                            start.id
+                          );
+                        }}
+                        className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        Transplant Now
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        title="Assign a destination bed first"
+                        className="flex-1 px-3 py-2 bg-gray-200 text-gray-500 text-sm font-medium rounded-lg cursor-not-allowed"
+                      >
+                        Transplant Now
+                      </button>
+                    )
                   )}
                   <button
                     onClick={() => {

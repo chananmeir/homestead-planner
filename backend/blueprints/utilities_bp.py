@@ -1274,7 +1274,11 @@ def create_indoor_start_from_planting_event():
         transplantDate: string (ISO),
         desiredQuantity: number,
         location?: string,
-        notes?: string
+        notes?: string,
+        destinationBedIds?: number[]  // Optional: list of bed IDs to persist as
+                                       // manual destination override. If omitted and
+                                       // the linked PlantingEvent has garden_bed_id,
+                                       // that bed is auto-populated.
     }
     """
     try:
@@ -1292,6 +1296,71 @@ def create_indoor_start_from_planting_event():
                 'error': f"{plant['name']} is typically direct seeded (weeksIndoors = 0). Cannot create indoor start.",
                 'canStartIndoors': False
             }), 400
+
+        # -------------------------------------------------------------------
+        # Resolve destination_bed_ids for manual override persistence.
+        # Rules (Phase B smoke #7 / #8 shared fix):
+        #  1. If the client sent destinationBedIds, validate strictly:
+        #     must be a list of positive integers, and every bed id must
+        #     belong to the current user.
+        #  2. Otherwise, if the linked PlantingEvent has garden_bed_id set,
+        #     auto-populate [event.garden_bed_id] so imports from a
+        #     bed-allocated plan implicitly carry the bed forward.
+        #  3. Otherwise leave destination_bed_ids NULL — the three-tier
+        #     resolver in IndoorSeedStart.get_current_garden_plan_count()
+        #     can still fall through to GardenPlanItem-based inference.
+        # -------------------------------------------------------------------
+        planting_event_id = data.get('plantingEventId')
+        linked_event = None
+        if planting_event_id:
+            linked_event = PlantingEvent.query.filter_by(
+                id=planting_event_id,
+                user_id=current_user.id
+            ).first()
+            if linked_event is None:
+                return jsonify({'error': 'Planting event not found'}), 404
+
+        destination_bed_ids_json = None  # will be written to seed_start.destination_bed_ids
+        explicit_bed_id_list = None      # None = not provided; [] = provided-but-empty
+
+        if 'destinationBedIds' in data and data['destinationBedIds'] is not None:
+            raw = data['destinationBedIds']
+            if not isinstance(raw, list):
+                return jsonify({
+                    'error': 'destinationBedIds must be a list of positive integer bed IDs'
+                }), 400
+            bed_id_list = []
+            for bid in raw:
+                # Reject bool (subclass of int) and any non-int numeric types.
+                if isinstance(bid, bool) or not isinstance(bid, int):
+                    return jsonify({
+                        'error': 'destinationBedIds must contain only positive integer bed IDs'
+                    }), 400
+                if bid <= 0:
+                    return jsonify({
+                        'error': 'destinationBedIds must contain only positive integer bed IDs'
+                    }), 400
+                bed_id_list.append(int(bid))
+            explicit_bed_id_list = bed_id_list
+            if bed_id_list:
+                # Verify every bed belongs to the current user (prevents cross-user leakage)
+                owned_count = GardenBed.query.filter(
+                    GardenBed.id.in_(bed_id_list),
+                    GardenBed.user_id == current_user.id
+                ).count()
+                if owned_count != len(set(bed_id_list)):
+                    return jsonify({
+                        'error': 'One or more destinationBedIds do not belong to the current user'
+                    }), 400
+                destination_bed_ids_json = json.dumps(bed_id_list)
+
+        # Auto-fill from linked event when no explicit non-empty list was given.
+        # (An empty list is treated as "no override", matching PUT endpoint semantics
+        # at utilities_bp.py line ~999 where [] clears destination_bed_ids.)
+        if destination_bed_ids_json is None \
+                and linked_event is not None \
+                and linked_event.garden_bed_id is not None:
+            destination_bed_ids_json = json.dumps([linked_event.garden_bed_id])
 
         # Parse transplant date and calculate indoor start date
         transplant_date = parse_iso_date(data['transplantDate'])
@@ -1331,7 +1400,8 @@ def create_indoor_start_from_planting_event():
             light_hours=data.get('lightHours', 12),
             temperature=data.get('temperature', 70),
             notes=data.get('notes', f'For transplanting on {transplant_date.strftime("%Y-%m-%d")}'),
-            planting_event_id=data.get('plantingEventId'),  # Link to planting event if provided
+            planting_event_id=planting_event_id,  # Link to planting event if provided
+            destination_bed_ids=destination_bed_ids_json,
             status=initial_status
         )
 
@@ -1339,20 +1409,12 @@ def create_indoor_start_from_planting_event():
         db.session.flush()  # Get seed_start.id
 
         # If linking to existing PlantingEvent, update its seed_start_date
-        planting_event_id = data.get('plantingEventId')
-        if planting_event_id:
-            planting_event = PlantingEvent.query.filter_by(
-                id=planting_event_id,
-                user_id=current_user.id
-            ).first()
-            if planting_event:
-                planting_event.seed_start_date = indoor_start_date
-                planting_event.transplant_date = expected_transplant_date
-                # Recalculate harvest date from new transplant date
-                days_to_maturity = plant.get('daysToMaturity', 70)
-                planting_event.expected_harvest_date = expected_transplant_date + timedelta(days=days_to_maturity)
-            else:
-                return jsonify({'error': 'Planting event not found'}), 404
+        if linked_event is not None:
+            linked_event.seed_start_date = indoor_start_date
+            linked_event.transplant_date = expected_transplant_date
+            # Recalculate harvest date from new transplant date
+            days_to_maturity = plant.get('daysToMaturity', 70)
+            linked_event.expected_harvest_date = expected_transplant_date + timedelta(days=days_to_maturity)
 
         db.session.commit()
 

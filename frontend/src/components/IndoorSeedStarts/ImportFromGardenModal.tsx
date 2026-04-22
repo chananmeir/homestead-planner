@@ -123,7 +123,19 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
 
         try {
           const desiredQuantity = quantities[event.plantingEventId] || 3;
-          const payload = {
+
+          // Phase B smoke #7/#8 fix: send the linked event's garden_bed_id as a
+          // manual destination override when known. The backend validates and
+          // persists this as IndoorSeedStart.destination_bed_ids (tier 1 of the
+          // destination resolver). If we omit it, the backend falls back to
+          // auto-filling from PlantingEvent.garden_bed_id server-side, so this
+          // is an explicit-but-optional hint rather than a hard requirement.
+          const destinationBedIds =
+            typeof event.gardenBedId === 'number' && Number.isInteger(event.gardenBedId) && event.gardenBedId > 0
+              ? [event.gardenBedId]
+              : undefined;
+
+          const payload: Record<string, unknown> = {
             plantingEventId: event.plantingEventId,
             plantId: event.plantId,
             variety: event.variety,
@@ -132,6 +144,9 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
             location: 'windowsill',
             notes: `For ${event.gardenBedName || 'garden bed ' + (event.gardenBedId || 'TBD')}. Transplant on ${new Date(event.transplantDate).toLocaleDateString()}.`,
           };
+          if (destinationBedIds) {
+            payload.destinationBedIds = destinationBedIds;
+          }
 
           const response = await apiPost('/api/indoor-seed-starts/from-planting-event', payload);
 
