@@ -632,6 +632,13 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         return false; // Harvested but no date → hide
       }
 
+      // Saving for seed: keep visible on the grid regardless of DTM/harvestDate,
+      // since seed maturity can extend well beyond normal harvest. Hide only once
+      // seeds have been collected (status then advances to 'harvested' via collect-seeds).
+      if (item.status === 'saving-seed') {
+        return !item.seedsCollected;
+      }
+
       // For non-harvested items: check harvestDate or estimate from DTM
       if (item.harvestDate) {
         const harvest = new Date(item.harvestDate);
