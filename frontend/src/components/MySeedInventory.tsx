@@ -36,6 +36,15 @@ interface Seed {
    * NULL = never synced
    */
   lastSyncedAt?: string | null;
+  /**
+   * Seed provenance: true if saved via Collect Seeds flow (homegrown),
+   * false/undefined if purchased or otherwise added.
+   */
+  isHomegrown?: boolean;
+  /**
+   * Reference to the PlantedItem this seed was collected from, if homegrown.
+   */
+  sourcePlantedItemId?: number | null;
 
   // Variety-specific agronomic overrides (nullable - undefined means "use plant_id defaults")
   daysToMaturity?: number;
@@ -920,6 +929,16 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
                         ) : (
                           <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-semibold">
                             Custom
+                          </span>
+                        )}
+                        {/* Homegrown Badge - seed saved via Collect Seeds flow */}
+                        {seed.isHomegrown === true && (
+                          <span
+                            className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-semibold"
+                            aria-label="Homegrown seed"
+                            title="Seed saved from your own harvest"
+                          >
+                            Homegrown
                           </span>
                         )}
                         {expired && (
