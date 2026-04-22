@@ -43,6 +43,12 @@ severity so scope for the next pass can be decided.
 |---|---|---|
 | 4 | Configure Strategy step documented but not in live flow | **Already resolved** by the audit's doc reconciliation in commit `5fedaff`: `USER_JOURNEY.md` Week 4 + `APPLICATION_FEATURES.md` §3 now match the simplified live flow. If the deviation is still showing, the reference doc version used during the smoke pass was pre-audit. |
 
+### Retest findings (1, added 2026-04-22)
+
+| # | Finding | Notes |
+|---|---|---|
+| 12 | Indoor Starts import source ambiguity — the From Garden Plan modal does not identify WHICH plan its rows come from, so activating a different plan (42-seed signature) didn't visibly change the modal's contents. Surfaced on retest after the #7/#8 fix shipped. | Trust/scoping issue. Likely rooted in the `/api/planting-events/needs-indoor-starts` endpoint not filtering by active plan, OR the modal rendering rows from all plans union-style without a plan header/filter. Needs investigation — classify as **workflow trust bug**, higher priority than #11 because it affects data accuracy, not just naming polish. Fix scope likely: (a) backend filter by `?planId=<id>` OR active plan, (b) frontend modal header naming the source plan, (c) either both. Not scheduled yet. |
+
 ---
 
 ## Recommendation

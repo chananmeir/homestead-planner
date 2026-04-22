@@ -56,3 +56,10 @@ Type: persistence/state-saving bug.
 Expected: User should be prompted to name the duplicated plan or see an obvious rename option immediately after duplication.
 Actual: Duplicate appears to be created as original name plus `-copy`, with no obvious rename option in the flow.
 Type: workflow/usability issue.
+
+12. Retest finding - Indoor Starts import source ambiguity
+Area: Indoor Starts -> From Garden Plan
+Expected: When importing from a garden plan, the UI should clearly identify the source plan, and the rows shown should match that selected/active plan.
+Actual: After creating/activating a different plan with a distinctive quantity signature (42 seeds), the import modal did not clearly reflect that plan, and there was no visible indication of which plan the rows were being pulled from.
+Impact: User cannot trust which plan is being imported, making the import flow ambiguous and error-prone.
+Type: UI/trust/scoping issue surfaced on retest after the #7/#8 fix.
