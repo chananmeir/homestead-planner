@@ -1,30 +1,56 @@
 # Database Migrations Guide
 
-This app uses multiple migration systems depending on the type of change:
+This app uses two migration channels, chosen by the **kind of change** you are making:
 
-1. **Flask-Migrate (Alembic)** - For model schema changes (recommended for production)
-2. **Custom Scripts** - For plant data and specialized migrations (see `migrations/custom/`)
-3. **AST Plant Database Updates** - For modifying `plant_database.py` (see `MIGRATION_GUIDE.md`)
+1. **Flask-Migrate (Alembic)** — **REQUIRED for ALL schema changes**. Any `ADD`, `ALTER`, or `DROP` on columns, tables, constraints, or indexes — including renames and type changes — MUST be authored as an Alembic revision under `migrations/versions/` and applied with `flask db upgrade`. This is the only supported path for schema work.
+2. **Custom Data-Only Scripts** (`migrations/custom/data/`) — **Permitted for data-only migrations**: backfills, one-time data transformations, plant/seed data loads, and similar non-structural changes. These scripts MUST NOT alter schema.
 
-## Custom Migration Scripts
+See also:
+- `migrations/custom/README.md` — custom-script documentation
+- `MIGRATION_GUIDE.md` — plant database (`plant_database.py`) update guide (AST-based edits to a Python module, not DB schema)
 
-For plant data additions and specialized schema changes that don't fit the Flask-Migrate workflow, see:
-- `migrations/custom/README.md` - Custom migration documentation
-- `MIGRATION_GUIDE.md` - Plant database update guide
+## Policy: Schema Changes Go Through Flask-Migrate
 
-Custom scripts are organized in:
-- `migrations/custom/schema/` - Database schema changes
-- `migrations/custom/data/` - Plant and seed data additions
+Schema changes (adding a column, changing nullability, adding an index, etc.) MUST use Flask-Migrate:
 
-Run custom scripts from the backend directory:
 ```bash
 cd backend
-python migrations/custom/schema/add_position_fields.py
-python migrations/custom/schema/add_seeds_per_packet.py
+flask db migrate -m "Add <field> to <table>"
+# Review the generated file under migrations/versions/ before applying
+flask db upgrade
+```
+
+This is mandated by `CLAUDE.md` Critical Constraint #1 ("NEVER Modify Database Schema Directly"). Bypassing it breaks deployments, corrupts migration history, and hides changes from code review.
+
+## `migrations/custom/schema/` is DEPRECATED
+
+The `migrations/custom/schema/` directory contains historical scripts (e.g., `add_position_fields.py`, `add_seeds_per_packet.py`) that were applied before the Flask-Migrate policy was enforced. Those files remain on disk for historical traceability of what was applied to existing databases, but:
+
+- **Do NOT add new scripts there.**
+- **Do NOT run those scripts as part of new setup or deployment.** Fresh databases are built entirely from Alembic revisions under `migrations/versions/`.
+- If equivalent schema state is needed on a new database, author an Alembic revision instead.
+
+## Custom Data-Only Scripts (still allowed)
+
+`migrations/custom/data/` remains the home for **data-only** one-offs such as plant/seed data loads and backfills. These do not alter schema.
+
+```bash
+cd backend
 python migrations/custom/data/add_spinach.py
 ```
 
+If a proposed "data" script needs to `ALTER` a table or add a column to make its writes work, it is a schema change in disguise — stop and author an Alembic revision instead.
+
 ### Recent Migrations
+
+**2026-04-21**: Added `cancelled_at` soft-delete field to `planting_event` and `indoor_seed_start`
+- **Migration**: `faa8053ea705_add_cancelled_at_soft_delete_to_.py` (Flask-Migrate)
+- **Purpose**: Soft-delete / "cancel task" support for Needs Attention dashboard signals (indoor-start and direct-seed). When a user cancels a task the timestamp is set; cancelled records are filtered from dashboard, Indoor Seed Starting, planting calendar, and plan counts. NULL = active.
+- **Columns added**:
+  - `planting_event.cancelled_at` (DateTime, nullable, indexed)
+  - `indoor_seed_start.cancelled_at` (DateTime, nullable, indexed)
+- **Index rationale**: `WHERE cancelled_at IS NULL` is on the hot path for almost every read query across the dashboard, calendar, and indoor seed starting views
+- **Undo support**: Timestamp-based soft delete so cancellation can be reversed without recreating FK relationships
 
 **2026-04-16**: Added `DashboardSnooze` table
 - **Migration**: `d37b8238c461_add_dashboardsnooze_table.py` (Flask-Migrate)
