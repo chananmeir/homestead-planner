@@ -301,18 +301,18 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
     }
   };
 
-  const isExpiringSoon = (expirationDate?: string): boolean => {
+  const isExpiringSoon = useCallback((expirationDate?: string): boolean => {
     if (!expirationDate) return false;
     const expDate = new Date(expirationDate);
     const sixMonthsFromNow = new Date(now);
     sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
     return expDate < sixMonthsFromNow;
-  };
+  }, [now]);
 
-  const isExpired = (expirationDate?: string): boolean => {
+  const isExpired = useCallback((expirationDate?: string): boolean => {
     if (!expirationDate) return false;
     return new Date(expirationDate) < now;
-  };
+  }, [now]);
 
   const handleEdit = (seed: Seed) => {
     setSelectedSeed(seed);
@@ -565,7 +565,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
         })),
       },
     ];
-  }, [baseFilteredSeeds, categories, plantNames, seasons, getPlantInfo, activeFilters]);
+  }, [baseFilteredSeeds, categories, plantNames, seasons, getPlantInfo, activeFilters, isExpired, isExpiringSoon]);
 
   const handleFilterChange = (groupId: string, values: string[]) => {
     setActiveFilters(prev => ({
@@ -696,7 +696,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
     });
 
     return result;
-  }, [baseFilteredSeeds, activeFilters, sortBy, sortDirection, getPlantInfo, getPlantName]);
+  }, [baseFilteredSeeds, activeFilters, sortBy, sortDirection, getPlantInfo, getPlantName, isExpired, isExpiringSoon]);
 
   const totalVarieties = seeds.length;
   const lowStock = seeds.filter(s => s.quantity <= 1).length;
