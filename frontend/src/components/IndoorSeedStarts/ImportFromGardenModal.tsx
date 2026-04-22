@@ -43,6 +43,11 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [creating, setCreating] = useState(false);
   const [showAllYears, setShowAllYears] = useState(false);
+  // Phase B smoke #6: overdue confirm step. When the user hits "Create N
+  // Indoor Starts" and one or more selected rows have timingStatus='past',
+  // surface a confirmation that maps to the backend's overdueMode parameter
+  // ('skip' | 'import_anyway' | 'reschedule_today'). Null = no prompt pending.
+  const [pendingOverdueCount, setPendingOverdueCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -106,16 +111,47 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
     }
   };
 
-  const handleCreateSelected = async () => {
+  // Count selected events whose computed indoor start date is already in the
+  // past. We reuse the timingStatus already computed server-side by
+  // /api/planting-events/needs-indoor-starts so no extra round-trip is needed
+  // before showing the overdue prompt (Phase B smoke #6).
+  const countSelectedOverdue = (): number => {
+    let n = 0;
+    selectedEvents.forEach((eventId) => {
+      const event = allEvents.find((e) => e.plantingEventId === eventId);
+      if (event && event.timingStatus === 'past') n += 1;
+    });
+    return n;
+  };
+
+  const handleCreateSelected = () => {
     if (selectedEvents.size === 0) {
       showError('Please select at least one event');
       return;
     }
+    const overdueCount = countSelectedOverdue();
+    if (overdueCount > 0) {
+      // Show the overdue-handling prompt. performCreate is called once the
+      // user picks a mode (skip / import_anyway / reschedule_today).
+      setPendingOverdueCount(overdueCount);
+      return;
+    }
+    // No overdue rows — proceed straight to create. Pass 'skip' explicitly
+    // so backend behavior is unambiguous (matches new default anyway).
+    performCreate('skip');
+  };
 
+  const performCreate = async (
+    overdueMode: 'skip' | 'import_anyway' | 'reschedule_today'
+  ) => {
+    setPendingOverdueCount(null);
     try {
       setCreating(true);
       let successCount = 0;
+      let skippedCount = 0;
+      let rescheduledCount = 0;
       let errorCount = 0;
+      const skippedDetails: string[] = [];
 
       for (const eventId of Array.from(selectedEvents)) {
         const event = events.find(e => e.plantingEventId === eventId);
@@ -143,24 +179,38 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
             desiredQuantity: desiredQuantity,
             location: 'windowsill',
             notes: `For ${event.gardenBedName || 'garden bed ' + (event.gardenBedId || 'TBD')}. Transplant on ${new Date(event.transplantDate).toLocaleDateString()}.`,
+            // Phase B smoke #6: pass the user's chosen overdue handling so
+            // the backend knows whether to skip / import_anyway / reschedule.
+            overdueMode,
           };
           if (destinationBedIds) {
             payload.destinationBedIds = destinationBedIds;
           }
 
           const response = await apiPost('/api/indoor-seed-starts/from-planting-event', payload);
+          const responseData = await response.json();
 
           if (response.ok) {
-            successCount++;
-            // Check for warnings (e.g., past-due start dates)
-            const responseData = await response.json();
-            if (responseData.warning) {
-              console.warn(`${event.plantName}: ${responseData.warning}`);
+            // Backend returns 200 + {skipped: true, skippedReason} when a row
+            // was filtered out under overdueMode='skip' — treat as a distinct
+            // outcome rather than an error.
+            if (responseData.skipped === true) {
+              skippedCount++;
+              if (responseData.skippedReason) {
+                skippedDetails.push(`${event.plantName}: ${responseData.skippedReason}`);
+              }
+            } else {
+              successCount++;
+              if (responseData.calculation && responseData.calculation.rescheduled) {
+                rescheduledCount++;
+              }
+              if (responseData.warning) {
+                console.warn(`${event.plantName}: ${responseData.warning}`);
+              }
             }
           } else {
             errorCount++;
-            const errorData = await response.json();
-            console.error(`Failed to create indoor start for ${event.plantName}:`, errorData.error || errorData);
+            console.error(`Failed to create indoor start for ${event.plantName}:`, responseData.error || responseData);
           }
         } catch (error) {
           errorCount++;
@@ -170,7 +220,20 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
 
       // Show results
       if (successCount > 0) {
-        showSuccess(`Created ${successCount} indoor seed start${successCount > 1 ? 's' : ''} with quantities you specified`);
+        const rescheduleSuffix =
+          rescheduledCount > 0
+            ? ` (${rescheduledCount} rescheduled to today)`
+            : '';
+        showSuccess(
+          `Created ${successCount} indoor seed start${successCount > 1 ? 's' : ''}${rescheduleSuffix}`
+        );
+      }
+      if (skippedCount > 0) {
+        // Surface skipped rows so user knows nothing was silently discarded.
+        const detail = skippedDetails.slice(0, 3).join(' | ');
+        showError(
+          `Skipped ${skippedCount} overdue start${skippedCount > 1 ? 's' : ''}${detail ? ' — ' + detail : ''}`
+        );
       }
       if (errorCount > 0) {
         showError(`Failed to create ${errorCount} indoor start${errorCount > 1 ? 's' : ''}`);
@@ -219,6 +282,77 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
       return <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">{daysUntilStart} days</span>;
     }
   };
+
+  // Phase B smoke #6: overdue confirmation step. Rendered as a standalone
+  // modal view when pendingOverdueCount is set. Three choices map 1:1 to the
+  // backend overdueMode enum; Cancel returns to the list without creating.
+  if (pendingOverdueCount !== null) {
+    return (
+      <Modal isOpen={isOpen} onClose={onClose} title="Some starts are overdue" size="medium">
+        <div className="space-y-4">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p className="text-sm text-yellow-900">
+              <strong>{pendingOverdueCount}</strong> of the{' '}
+              <strong>{selectedEvents.size}</strong> selected start
+              {selectedEvents.size === 1 ? '' : 's'} would begin in the past
+              based on the transplant date in your garden plan. How do you want
+              to handle them?
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => performCreate('skip')}
+              className="w-full text-left px-4 py-3 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              <div className="font-medium text-gray-900">Skip overdue starts</div>
+              <div className="text-xs text-gray-600 mt-1">
+                Only create the {selectedEvents.size - pendingOverdueCount} start
+                {selectedEvents.size - pendingOverdueCount === 1 ? '' : 's'} that are still on time.
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => performCreate('reschedule_today')}
+              className="w-full text-left px-4 py-3 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              <div className="font-medium text-gray-900">Reschedule overdue to today</div>
+              <div className="text-xs text-gray-600 mt-1">
+                Clamp start dates to today and slide the germination and
+                transplant dates forward. Your underlying garden plan is not
+                modified.
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => performCreate('import_anyway')}
+              className="w-full text-left px-4 py-3 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              <div className="font-medium text-gray-900">Import with backdated dates</div>
+              <div className="text-xs text-gray-600 mt-1">
+                Create the rows exactly as planned, with start dates in the
+                past. You will be starting late.
+              </div>
+            </button>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              type="button"
+              onClick={() => setPendingOverdueCount(null)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              disabled={creating}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Import from Garden Plan" size="large">

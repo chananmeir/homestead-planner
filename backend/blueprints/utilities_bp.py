@@ -1275,11 +1275,33 @@ def create_indoor_start_from_planting_event():
         desiredQuantity: number,
         location?: string,
         notes?: string,
-        destinationBedIds?: number[]  // Optional: list of bed IDs to persist as
+        destinationBedIds?: number[],  // Optional: list of bed IDs to persist as
                                        // manual destination override. If omitted and
                                        // the linked PlantingEvent has garden_bed_id,
                                        // that bed is auto-populated.
+        dryRun?: boolean,              // If true, compute and return the preview
+                                       // (isPastDue, dates, chosen mode outcome)
+                                       // WITHOUT persisting the IndoorSeedStart.
+        overdueMode?: string           // One of:
+                                       //   'skip' (default when omitted): if the
+                                       //     computed indoor_start_date is before
+                                       //     today, skip (no row created) and
+                                       //     return 200 with {skipped: true, ...}.
+                                       //   'import_anyway': create the row as
+                                       //     computed, even if start date is in
+                                       //     the past.
+                                       //   'reschedule_today': if past-due, clamp
+                                       //     start_date to today and slide the
+                                       //     germination/transplant dates forward.
+                                       //     Non-overdue rows use their computed
+                                       //     dates unchanged.
+                                       // Any other value returns 400.
     }
+
+    Phase B smoke #6 (approved Option 2 + Option 4):
+      - Default (no overdueMode) = skip overdue rows so nothing is silently backdated.
+      - Frontend may POST with dryRun=true first to preview, then POST again with
+        the user's chosen overdueMode.
     """
     try:
         data = request.json
@@ -1362,17 +1384,62 @@ def create_indoor_start_from_planting_event():
                 and linked_event.garden_bed_id is not None:
             destination_bed_ids_json = json.dumps([linked_event.garden_bed_id])
 
+        # -------------------------------------------------------------------
+        # Phase B smoke #6: overdue mode + dry-run handling.
+        # Validate overdueMode BEFORE doing any writes (sibling validation
+        # to destinationBedIds above). Default is 'skip' when omitted so
+        # backend never silently backdates rows.
+        # -------------------------------------------------------------------
+        VALID_OVERDUE_MODES = {'skip', 'import_anyway', 'reschedule_today'}
+        overdue_mode = data.get('overdueMode', 'skip')
+        if overdue_mode not in VALID_OVERDUE_MODES:
+            return jsonify({
+                'error': (
+                    "Invalid overdueMode. Expected one of: "
+                    "'skip', 'import_anyway', 'reschedule_today'."
+                )
+            }), 400
+        dry_run = bool(data.get('dryRun', False))
+
         # Parse transplant date and calculate indoor start date
         transplant_date = parse_iso_date(data['transplantDate'])
-        indoor_start_date = transplant_date - timedelta(weeks=weeks_indoors)
+        computed_start_date = transplant_date - timedelta(weeks=weeks_indoors)
 
-        # Note if start date is in the past (but still allow creation)
-        is_past_due = indoor_start_date.date() < get_utc_now().date()
+        today_dt = get_utc_now()
+        is_past_due = computed_start_date.date() < today_dt.date()
+
+        # Resolve start date based on overdue mode.
+        # rescheduled=True means we clamped a past-due row forward to today.
+        rescheduled = False
+        skipped_reason = None
+        if is_past_due and overdue_mode == 'skip':
+            skipped_reason = (
+                f'Start date {computed_start_date.date().isoformat()} is '
+                f'{(today_dt.date() - computed_start_date.date()).days} days in the past '
+                f'— skipped (overdueMode=skip).'
+            )
+            indoor_start_date = computed_start_date  # preserve for preview payload
+        elif is_past_due and overdue_mode == 'reschedule_today':
+            # Clamp to today (preserve time-of-day so downstream math stays
+            # consistent with a normal get_utc_now() start).
+            indoor_start_date = datetime.combine(
+                today_dt.date(),
+                computed_start_date.time()
+            )
+            rescheduled = True
+        else:
+            # Not past-due, OR import_anyway: use the computed start date as-is.
+            indoor_start_date = computed_start_date
+
         warning_message = None
-        if is_past_due:
-            warning_message = f'Note: Calculated indoor start date ({indoor_start_date.date()}) is in the past. You may be starting late.'
+        if is_past_due and overdue_mode == 'import_anyway':
+            warning_message = (
+                f'Note: Indoor start date ({indoor_start_date.date()}) is in the past. '
+                f'You may be starting late.'
+            )
 
-        # Calculate expected dates
+        # Calculate expected dates. When rescheduled, germination/transplant
+        # slide forward too so the downstream dates stay coherent.
         germination_days = _get_predicted_germination_days(
             current_user.id, data['plantId'], data.get('location')
         )
@@ -1383,6 +1450,46 @@ def create_indoor_start_from_planting_event():
         desired_plants = data.get('desiredQuantity', 1)
         expected_rate = data.get('expectedGerminationRate', 85.0)
         seeds_to_start = calculate_seed_quantity(desired_plants, expected_rate)
+
+        # Shared calculation payload — surfaced in both dry-run and real responses
+        # so the modal can show a consistent preview-vs-write comparison.
+        calculation_payload = {
+            'transplantDate': transplant_date.isoformat(),
+            'weeksIndoors': weeks_indoors,
+            'computedStartDate': computed_start_date.isoformat(),
+            'indoorStartDate': indoor_start_date.isoformat(),
+            'expectedGerminationDate': expected_germination_date.isoformat(),
+            'expectedTransplantDate': expected_transplant_date.isoformat(),
+            'isPastDue': is_past_due,
+            'overdueMode': overdue_mode,
+            'rescheduled': rescheduled,
+        }
+
+        # -------------------------------------------------------------------
+        # Dry-run: return preview WITHOUT persisting anything. Includes whether
+        # the row would be skipped under the current overdueMode so the UI can
+        # show the correct count before asking the user to confirm.
+        # -------------------------------------------------------------------
+        if dry_run:
+            preview = {
+                'dryRun': True,
+                'wouldSkip': skipped_reason is not None,
+                'skippedReason': skipped_reason,
+                'calculation': calculation_payload,
+            }
+            return jsonify(preview), 200
+
+        # -------------------------------------------------------------------
+        # Non-dry-run skip path: past-due + overdueMode='skip' → do not create.
+        # Response is a 200 so the frontend can tally skipped vs created in a
+        # single pass without error-handling gymnastics.
+        # -------------------------------------------------------------------
+        if skipped_reason is not None:
+            return jsonify({
+                'skipped': True,
+                'skippedReason': skipped_reason,
+                'calculation': calculation_payload,
+            }), 200
 
         # Always start as 'planned' — user explicitly updates status when they seed
         initial_status = 'planned'
@@ -1420,14 +1527,7 @@ def create_indoor_start_from_planting_event():
 
         response_data = {
             'indoorSeedStart': seed_start.to_dict(),
-            'calculation': {
-                'transplantDate': transplant_date.isoformat(),
-                'weeksIndoors': weeks_indoors,
-                'indoorStartDate': indoor_start_date.isoformat(),
-                'expectedGerminationDate': expected_germination_date.isoformat(),
-                'expectedTransplantDate': expected_transplant_date.isoformat(),
-                'isPastDue': is_past_due
-            }
+            'calculation': calculation_payload,
         }
 
         if warning_message:

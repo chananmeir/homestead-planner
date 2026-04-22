@@ -1,5 +1,13 @@
 """
-Regression tests for Phase B smoke findings #7 and #8 (shared root cause):
+Regression tests for Phase B smoke findings #7 and #8 (shared root cause).
+
+Note (Phase B smoke #6): these tests use `overdueMode='import_anyway'` because
+the shared fixture transplant_date (2026-05-15) minus weeks_indoors=6 yields
+2026-04-03 — past the current simulated date (2026-04-22). With the new
+default overdueMode='skip' policy (#6), omitting the mode would correctly
+skip the row and return 200 with no indoorSeedStart payload. These tests
+care about destination_bed_ids persistence, not overdue handling, so they
+explicitly opt in to import_anyway to exercise the create path.
 
 When importing an indoor seed start from an existing GardenPlanItem/PlantingEvent,
 destination_bed_ids was never persisted on the IndoorSeedStart row. That left the
@@ -84,6 +92,7 @@ class TestFromPlantingEventDestinationBedIds:
             'desiredQuantity': 4,
             # Override the linked event's bed with BOTH beds
             'destinationBedIds': [bed_a.id, bed_a2.id],
+            'overdueMode': 'import_anyway',  # see module docstring
         })
         assert resp.status_code == 201, resp.get_json()
         payload = resp.get_json()
@@ -112,6 +121,7 @@ class TestFromPlantingEventDestinationBedIds:
             'transplantDate': '2026-05-15T00:00:00Z',
             'desiredQuantity': 4,
             # destinationBedIds deliberately omitted
+            'overdueMode': 'import_anyway',  # see module docstring
         })
         assert resp.status_code == 201, resp.get_json()
         payload = resp.get_json()
@@ -140,6 +150,7 @@ class TestFromPlantingEventDestinationBedIds:
             'plantId': PLANT_ID,
             'transplantDate': '2026-05-15T00:00:00Z',
             'desiredQuantity': 4,
+            'overdueMode': 'import_anyway',  # see module docstring
         })
         assert resp.status_code == 201, resp.get_json()
         payload = resp.get_json()
@@ -160,6 +171,7 @@ class TestFromPlantingEventDestinationBedIds:
             'transplantDate': '2026-05-15T00:00:00Z',
             'desiredQuantity': 4,
             'destinationBedIds': [bed_a.id, bed_b_other_user.id],
+            'overdueMode': 'import_anyway',  # see module docstring
         })
         assert resp.status_code == 400, resp.get_json()
         body = resp.get_json()
@@ -232,6 +244,7 @@ class TestFromPlantingEventDestinationBedIds:
             'transplantDate': '2026-05-15T00:00:00Z',
             'desiredQuantity': 4,
             'destinationBedIds': [],
+            'overdueMode': 'import_anyway',  # see module docstring
         })
         # Empty list is well-formed (not a validation error). No manual override
         # set, but auto-fill from linked event.garden_bed_id still applies.
