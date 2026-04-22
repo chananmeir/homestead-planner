@@ -1384,9 +1384,18 @@ const GardenPlanner: React.FC = () => {
         const err = await response.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to create plan');
       }
+      const newPlan: GardenPlan = await response.json();
       await loadPlans();
       setShowCreatePlanModal(false);
       setNewPlanName('');
+
+      // Enter the wizard directly on the newly-created (empty) plan
+      resetWizard();
+      setPlanName(newPlan.name);
+      setEditingPlanId(newPlan.id);
+      setEditingPlanName(newPlan.name);
+      setStep(1);
+      setView('create');
     } catch (err: any) {
       setError(err.message || 'Failed to create plan');
       setShowCreatePlanModal(false);
