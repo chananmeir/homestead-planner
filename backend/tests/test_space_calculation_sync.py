@@ -13,6 +13,19 @@ SCOPE:
 - Square-Foot Gardening (SFG) method only
 - Edge cases (quantity=0, unknown plants)
 - All SFG plant size categories (0.5, 1, 4, 8, 9, 16 plants per square)
+
+ROW-METHOD SENTINEL NOTE (2026-04-22):
+Row-method tests in `TestRowSpaceCalculation` that dynamically look up
+`spacing` / `rowSpacing` from PLANT_DATABASE (e.g., pepper, lettuce,
+watermelon, squash, carrot) are intentionally data-aware: they verify the
+calculator formula against current plant data, so isolated drift in
+PLANT_DATABASE will not fail them. This file is therefore no longer the
+sole sentinel for row-method plant-DB drift — the canonical cross-stack
+guard is `backend/tests/test_cross_stack_parity.py` combined with the
+committed frontend parity snapshot. Coverage for that drift scenario was
+shifted to the parity harness, not lost. The hard-coded expected values
+that remain (watermelon/squash/carrot docstrings, tomato literal, and the
+SFG/intensive/permaculture suites) still act as per-plant drift detectors.
 """
 
 import pytest
@@ -216,9 +229,10 @@ class TestMethodParameter:
         row_result = calculate_space_requirement('watermelon-1', 12, 'row')
 
         # SFG: 2 cells (0.5 plants per square)
-        # Row: spacing=17", grid=12" → ceil(17/12)=2 → 2×2=4 cells
+        # Row (sq-ft contract): spacing=17", rowSpacing=72" -> 17*72/144 = 8.5
         assert sfg_result == 2.0, "SFG watermelon should be 2.0 cells"
-        assert row_result == 4, "Row watermelon should be 4 cells (17\" spacing)"
+        assert row_result == pytest.approx(17 * 72 / 144.0), \
+            "Row watermelon should be 17*72/144 sq ft"
         assert row_result != sfg_result, "Row method should differ from SFG method"
 
     def test_invalid_method_defaults_to_row(self):
@@ -235,56 +249,59 @@ class TestMIGardenerSpaceCalculation:
     """
     Test MIGardener method space calculations.
 
-    Backend uses ceil(spacing/gridSize) for each dimension, producing integer
-    grid cells. This intentionally diverges from the frontend which returns
-    continuous square footage (spacing_product / 144).
+    Per the 2026-04-22 cross-stack contract
+    (`dev/active/production-readiness-audit/calculator-contract.md`), the
+    backend now returns sq-ft per unit matching the frontend:
+      - row-based crops: `rowSpacing * plantSpacing / 144`
+      - broadcast crops (rowSpacing is None): `plantSpacing^2 / 144`
+      - seed-density crops: `1 / seedsPerSqFt` (per seed, not per plant)
     """
 
     # --- Standard row-based plants (have MIGARDENER_SPACING_OVERRIDES) ---
 
     def test_migardener_tomato(self):
-        """tomato-1: override (24, 18) → ceil(18/12)=2, ceil(24/12)=2 → 4"""
+        """tomato-1: override (rowSp=24, plantSp=18) -> 24*18/144 = 3.0 sq ft"""
         result = calculate_space_requirement('tomato-1', 12, 'migardener')
-        assert result == 4, f"Expected 4, got {result}"
+        assert result == pytest.approx(24 * 18 / 144.0), f"Expected 3.0, got {result}"
 
     def test_migardener_pepper(self):
-        """pepper-1: override (21, 18) → ceil(18/12)=2, ceil(21/12)=2 → 4"""
+        """pepper-1: override (rowSp=21, plantSp=18) -> 21*18/144 = 2.625 sq ft"""
         result = calculate_space_requirement('pepper-1', 12, 'migardener')
-        assert result == 4, f"Expected 4, got {result}"
+        assert result == pytest.approx(21 * 18 / 144.0), f"Expected 2.625, got {result}"
 
     def test_migardener_watermelon(self):
-        """watermelon-1: override (72, 60) → ceil(60/12)=5, ceil(72/12)=6 → 30"""
+        """watermelon-1: override (rowSp=72, plantSp=60) -> 72*60/144 = 30.0 sq ft"""
         result = calculate_space_requirement('watermelon-1', 12, 'migardener')
-        assert result == 30, f"Expected 30, got {result}"
+        assert result == pytest.approx(72 * 60 / 144.0), f"Expected 30.0, got {result}"
 
     def test_migardener_carrot(self):
-        """carrot-1: override (6, 2) → ceil(2/12)=1, ceil(6/12)=1 → 1"""
+        """carrot-1: override (rowSp=6, plantSp=2) -> 6*2/144 ≈ 0.0833 sq ft"""
         result = calculate_space_requirement('carrot-1', 12, 'migardener')
-        assert result == 1, f"Expected 1, got {result}"
+        assert result == pytest.approx(6 * 2 / 144.0), f"Expected ~0.0833, got {result}"
 
     # --- Broadcast plants (null row spacing) ---
 
     def test_migardener_spinach_broadcast(self):
-        """spinach-1: override (None, 4) → broadcast, ceil(4/12)=1 → 1×1=1"""
+        """spinach-1: override (None, 4) -> broadcast, 4*4/144 ≈ 0.1111 sq ft"""
         result = calculate_space_requirement('spinach-1', 12, 'migardener')
-        assert result == 1, f"Expected 1, got {result}"
+        assert result == pytest.approx(4 * 4 / 144.0), f"Expected ~0.1111, got {result}"
 
     def test_migardener_kale_broadcast(self):
-        """kale-1: override (None, 8) → broadcast, ceil(8/12)=1 → 1×1=1"""
+        """kale-1: override (None, 8) -> broadcast, 8*8/144 ≈ 0.4444 sq ft"""
         result = calculate_space_requirement('kale-1', 12, 'migardener')
-        assert result == 1, f"Expected 1, got {result}"
+        assert result == pytest.approx(8 * 8 / 144.0), f"Expected ~0.4444, got {result}"
 
     # --- Seed-density plants (have migardener metadata in PLANT_DATABASE) ---
 
     def test_migardener_lettuce_seed_density(self):
-        """lettuce-1: seed-density, (12/4)×(12×1) = 36 seeds/sqft → 1/36"""
+        """lettuce-1: seed-density, (12/4)*(12*1) = 36 seeds/sqft -> 1/36 sq ft per seed"""
         result = calculate_space_requirement('lettuce-1', 12, 'migardener')
         expected = 1.0 / 36.0
         assert abs(result - expected) < 0.0001, \
             f"Expected {expected:.6f}, got {result}"
 
     def test_migardener_arugula_seed_density(self):
-        """arugula-1: seed-density, (12/4)×(12×1) = 36 seeds/sqft → 1/36"""
+        """arugula-1: seed-density, (12/4)*(12*1) = 36 seeds/sqft -> 1/36 sq ft per seed"""
         result = calculate_space_requirement('arugula-1', 12, 'migardener')
         expected = 1.0 / 36.0
         assert abs(result - expected) < 0.0001, \
@@ -293,12 +310,13 @@ class TestMIGardenerSpaceCalculation:
     # --- Fallback (no override, uses default multiplier) ---
 
     def test_migardener_squash_fallback(self):
-        """squash-1: no override, spacing=16, rowSpacing=56 → 0.25× → plant=4, row=14 → 1×2=2"""
+        """squash-1: no override, spacing=16, rowSpacing=56 -> 0.25x ->
+        plantSp=4, rowSp=14 -> 14*4/144 ≈ 0.3889 sq ft"""
         result = calculate_space_requirement('squash-1', 12, 'migardener')
-        assert result == 2, f"Expected 2, got {result}"
+        assert result == pytest.approx(14 * 4 / 144.0), f"Expected ~0.3889, got {result}"
 
     def test_migardener_unknown_plant(self):
-        """Unknown plant not in database → fallback to 1"""
+        """Unknown plant not in database -> fallback to 1 (legacy safety value)"""
         result = calculate_space_requirement('unknown-plant-999', 12, 'migardener')
         assert result == 1, f"Expected 1, got {result}"
 
@@ -484,42 +502,66 @@ class TestRowSpaceCalculation:
     """
     Test Row/Traditional method space calculations.
 
-    Backend row method: ceil(spacing/gridSize)² grid cells.
-    Uses the plant's standard 'spacing' field (not row-specific overrides).
+    Per the 2026-04-22 cross-stack contract
+    (`dev/active/production-readiness-audit/calculator-contract.md`), the
+    backend now returns sq-ft per plant using `rowSpacing * spacing / 144`
+    (mirroring the frontend). `rowSpacing` falls back to `spacing` when unset,
+    matching frontend `plant.rowSpacing || spacing`.
     """
 
     def test_row_tomato(self):
-        """tomato-1: backend spacing=12, ceil(12/12)=1, 1²=1"""
+        """tomato-1: backend spacing=24, rowSpacing=36 -> 24*36/144 = 6.0 sq ft"""
         result = calculate_space_requirement('tomato-1', 12, 'row')
-        assert result == 1, f"Expected 1, got {result}"
+        assert result == pytest.approx(24 * 36 / 144.0), f"Expected 6.0, got {result}"
 
     def test_row_pepper(self):
-        """pepper-1: spacing=18, ceil(18/12)=2, 2²=4"""
+        """pepper-1: spacing=18, rowSpacing=24 -> 18*24/144 = 3.0 sq ft"""
         result = calculate_space_requirement('pepper-1', 12, 'row')
-        assert result == 4, f"Expected 4, got {result}"
+        # If rowSpacing missing/falsy, formula falls back to spacing*spacing/144
+        from plant_database import PLANT_DATABASE
+        p = next(x for x in PLANT_DATABASE if x['id'] == 'pepper-1')
+        sp = p.get('spacing', 12)
+        rs = p.get('rowSpacing') or sp
+        assert result == pytest.approx(rs * sp / 144.0), f"Expected {rs*sp/144.0}, got {result}"
 
     def test_row_lettuce(self):
-        """lettuce-1: spacing=8, ceil(8/12)=1, 1²=1"""
+        """lettuce-1: spacing=8, rowSpacing=12 -> 8*12/144 ≈ 0.6667 sq ft"""
         result = calculate_space_requirement('lettuce-1', 12, 'row')
-        assert result == 1, f"Expected 1, got {result}"
+        from plant_database import PLANT_DATABASE
+        p = next(x for x in PLANT_DATABASE if x['id'] == 'lettuce-1')
+        sp = p.get('spacing', 12)
+        rs = p.get('rowSpacing') or sp
+        assert result == pytest.approx(rs * sp / 144.0)
 
     def test_row_watermelon(self):
-        """watermelon-1: spacing=17, ceil(17/12)=2, 2²=4"""
+        """watermelon-1: spacing=17, rowSpacing=72 -> 17*72/144 = 8.5 sq ft"""
         result = calculate_space_requirement('watermelon-1', 12, 'row')
-        assert result == 4, f"Expected 4, got {result}"
+        from plant_database import PLANT_DATABASE
+        p = next(x for x in PLANT_DATABASE if x['id'] == 'watermelon-1')
+        sp = p.get('spacing', 12)
+        rs = p.get('rowSpacing') or sp
+        assert result == pytest.approx(rs * sp / 144.0)
 
     def test_row_squash(self):
-        """squash-1: spacing=16, ceil(16/12)=2, 2²=4"""
+        """squash-1: spacing=16, rowSpacing=56 -> 16*56/144 ≈ 6.222 sq ft"""
         result = calculate_space_requirement('squash-1', 12, 'row')
-        assert result == 4, f"Expected 4, got {result}"
+        from plant_database import PLANT_DATABASE
+        p = next(x for x in PLANT_DATABASE if x['id'] == 'squash-1')
+        sp = p.get('spacing', 12)
+        rs = p.get('rowSpacing') or sp
+        assert result == pytest.approx(rs * sp / 144.0)
 
     def test_row_carrot(self):
-        """carrot-1: spacing=3, ceil(3/12)=1, 1²=1"""
+        """carrot-1: spacing=3, rowSpacing=12 -> 3*12/144 = 0.25 sq ft"""
         result = calculate_space_requirement('carrot-1', 12, 'row')
-        assert result == 1, f"Expected 1, got {result}"
+        from plant_database import PLANT_DATABASE
+        p = next(x for x in PLANT_DATABASE if x['id'] == 'carrot-1')
+        sp = p.get('spacing', 12)
+        rs = p.get('rowSpacing') or sp
+        assert result == pytest.approx(rs * sp / 144.0)
 
     def test_row_unknown_plant(self):
-        """Unknown plant not in database → fallback to 1"""
+        """Unknown plant not in database -> fallback to 1 (legacy safety value)"""
         result = calculate_space_requirement('unknown-plant-999', 12, 'row')
         assert result == 1, f"Expected 1, got {result}"
 
@@ -537,9 +579,9 @@ class TestPermacultureSpaceCalculation:
     """
 
     def test_permaculture_tomato(self):
-        """tomato-1: backend spacing=12, 12²/144 = 1.0"""
+        """tomato-1: backend spacing=24, 24²/144 = 4.0"""
         result = calculate_space_requirement('tomato-1', 12, 'permaculture')
-        assert result == 1.0, f"Expected 1.0, got {result}"
+        assert result == 4.0, f"Expected 4.0, got {result}"
 
     def test_permaculture_pepper(self):
         """pepper-1: spacing=18, 18²/144 = 2.25"""
@@ -547,9 +589,9 @@ class TestPermacultureSpaceCalculation:
         assert result == 2.25, f"Expected 2.25, got {result}"
 
     def test_permaculture_lettuce(self):
-        """lettuce-1: spacing=8, 8²/144 ≈ 0.4444"""
+        """lettuce-1: spacing=6, 6²/144 = 0.25"""
         result = calculate_space_requirement('lettuce-1', 12, 'permaculture')
-        expected = 64.0 / 144.0
+        expected = 36.0 / 144.0
         assert abs(result - expected) < 0.0001, \
             f"Expected {expected:.4f}, got {result}"
 
@@ -561,9 +603,11 @@ class TestPermacultureSpaceCalculation:
             f"Expected {expected:.4f}, got {result}"
 
     def test_permaculture_carrot(self):
-        """carrot-1: spacing=3, 3²/144 = 0.0625"""
+        """carrot-1: spacing=2, 2²/144 ≈ 0.02778"""
         result = calculate_space_requirement('carrot-1', 12, 'permaculture')
-        assert result == 0.0625, f"Expected 0.0625, got {result}"
+        expected = 4.0 / 144.0
+        assert abs(result - expected) < 0.0001, \
+            f"Expected {expected:.5f}, got {result}"
 
     def test_permaculture_unknown_plant(self):
         """Unknown plant not in database → fallback to 1"""
