@@ -62,12 +62,19 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
       loadEvents();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, activePlan?.id]);
 
   const loadEvents = async () => {
     try {
       setLoading(true);
-      const response = await apiGet('/api/planting-events/needs-indoor-starts');
+      // AUDIT-011 Option A: when an active plan is selected, scope the fetch
+      // to that plan (backend also includes rows with null/unresolvable
+      // export_key as "Unknown plan"). Omit the param to preserve the
+      // cross-plan backward-compat path when no plan is active.
+      const url = activePlan?.id
+        ? `/api/planting-events/needs-indoor-starts?planId=${activePlan.id}`
+        : '/api/planting-events/needs-indoor-starts';
+      const response = await apiGet(url);
       if (response.ok) {
         const data = await response.json();
         const loadedEvents = data.events || [];
@@ -82,6 +89,11 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
           defaultQuantities[event.plantingEventId] = quantity;
         });
         setQuantities(defaultQuantities);
+      } else if (response.status === 404) {
+        // Belt-and-suspenders: stale/other-user planId should already be
+        // filtered by the active-plan context, but surface explicitly if the
+        // backend rejects the scope.
+        showError('Plan not found');
       } else {
         showError('Failed to load planting events');
       }
@@ -367,10 +379,9 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
       <div className="space-y-4">
         {/* Header */}
         <div className="space-y-3">
-          {/* Phase B #12: source-plan identity. The endpoint returns events
-              from all of the user's plans, so surface the active plan up front
-              plus a disclaimer that the list is cross-plan. Per-row badges
-              below mark rows sourced from other plans. */}
+          {/* AUDIT-011 Option A: when an active plan is set, the backend
+              scopes rows to that plan (plus unattributable events). When no
+              plan is active, fall back to the cross-plan view. */}
           <div>
             {activePlan ? (
               <p className="text-sm text-gray-900">
@@ -383,7 +394,9 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
               </p>
             )}
             <p className="text-xs text-gray-500 mt-1">
-              Rows are scoped to your planning events across all plans. Per-row badges mark events sourced from other plans.
+              {activePlan
+                ? 'Rows are scoped to this plan. Unattributed events are also shown.'
+                : 'No active plan selected — showing events across all your plans.'}
             </p>
           </div>
 

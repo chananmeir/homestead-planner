@@ -2428,9 +2428,31 @@ def get_planting_events_needing_indoor_starts():
 
     Query params:
     - include_past: true/false (default: false) - include events with past transplant dates
+    - planId: optional int - when present, scope response to rows attributable
+      to that plan PLUS rows with null/unresolvable export_key (rendered as
+      "Unknown plan"). Rows attributable to other plans are dropped. Omitting
+      the param preserves cross-plan behavior (backward compat).
     """
     try:
         include_past = request.args.get('include_past', 'false').lower() == 'true'
+
+        # AUDIT-011: optional planId filter. Validate before any data work so a
+        # malformed or cross-user value short-circuits with a clear error.
+        plan_id_raw = request.args.get('planId')
+        plan_id_filter = None
+        if plan_id_raw is not None and plan_id_raw != '':
+            try:
+                parsed_plan_id = int(plan_id_raw)
+            except (ValueError, TypeError):
+                return jsonify({'error': 'planId must be a positive integer'}), 400
+            if parsed_plan_id <= 0:
+                return jsonify({'error': 'planId must be a positive integer'}), 400
+            owned = GardenPlan.query.filter_by(
+                id=parsed_plan_id, user_id=current_user.id
+            ).first()
+            if owned is None:
+                return jsonify({'error': 'Plan not found'}), 404
+            plan_id_filter = parsed_plan_id
 
         # Query planting events with transplant dates (exclude cancelled)
         query = PlantingEvent.query.filter_by(user_id=current_user.id).filter(
@@ -2477,6 +2499,26 @@ def get_planting_events_needing_indoor_starts():
                 .all()
             )
             plan_item_to_plan = {row[0]: (row[1], row[2]) for row in plan_rows}
+
+        # AUDIT-011 Option A (null-handling option ii): when a planId filter is
+        # set, drop events attributable to a DIFFERENT known plan. Keep events
+        # that match the requested plan AND events whose plan_id can't be
+        # resolved (null/missing export_key, or an export_key that doesn't
+        # resolve to a plan owned by this user). Unresolvable rows render as
+        # "Unknown plan" in the modal — preserves manually-placed and legacy
+        # events under scoped mode.
+        if plan_id_filter is not None:
+            scoped_events = []
+            for event in events:
+                parsed_item_id = event_to_plan_item.get(event.id)
+                plan_info = (
+                    plan_item_to_plan.get(parsed_item_id)
+                    if parsed_item_id is not None else None
+                )
+                event_plan_id = plan_info[0] if plan_info else None
+                if event_plan_id is None or event_plan_id == plan_id_filter:
+                    scoped_events.append(event)
+            events = scoped_events
 
         # Group events by (plant_id, variety, transplant_date, plan_id) and sum quantities.
         # plan_id is included in the key so two plans with the same crop+variety+

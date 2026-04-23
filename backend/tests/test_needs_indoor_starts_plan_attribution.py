@@ -259,3 +259,151 @@ def test_malicious_export_key_does_not_leak_cross_user_plan(
     # Attribution refuses to resolve — surfaces as unknown plan, not as B's plan
     assert rows[0]['planId'] is None
     assert rows[0]['planName'] is None
+
+
+# ===========================================================================
+# AUDIT-011 Option A: ?planId=<int> scopes response to active plan.
+#
+# Policy (user-greenlit, option ii on null export_key):
+#   - Return rows attributable to the requested plan
+#   - Plus rows whose export_key is null or doesn't resolve (labeled
+#     "Unknown plan" by the frontend)
+#   - Drop rows attributable to OTHER known plans
+#   - Omitted/empty planId preserves cross-plan backward-compat behavior
+# ===========================================================================
+
+
+def _get_rows_for_plan(client, plan_id):
+    resp = client.get(
+        '/api/planting-events/needs-indoor-starts?planId={}'.format(plan_id)
+    )
+    assert resp.status_code == 200, resp.get_json()
+    return resp.get_json()['events']
+
+
+def test_plan_id_filter_returns_only_matching_plan_rows(auth_client_a, user_a):
+    """?planId=<A.id> returns only A's rows, no B rows (different crops so
+    they wouldn't group together anyway — isolates attribution logic)."""
+    plan_a = _make_plan(user_a, 'Plan Alpha')
+    plan_b = _make_plan(user_a, 'Plan Beta')
+    item_a = _make_plan_item(plan_a, plant_id='tomato-1')
+    item_b = _make_plan_item(plan_b, plant_id='pepper-1')
+
+    _make_event(user_a, plan_item=item_a, plant_id='tomato-1')
+    _make_event(user_a, plan_item=item_b, plant_id='pepper-1')
+
+    rows = _get_rows_for_plan(auth_client_a, plan_a.id)
+
+    assert len(rows) == 1
+    assert rows[0]['plantId'] == 'tomato-1'
+    assert rows[0]['planId'] == plan_a.id
+    assert rows[0]['planName'] == 'Plan Alpha'
+
+
+def test_plan_id_filter_includes_null_export_key_rows(auth_client_a, user_a):
+    """?planId=<A.id> includes A's rows AND null-export_key rows. B rows
+    excluded. The null-export_key row must surface with planId=None so the
+    frontend can render 'Unknown plan'."""
+    plan_a = _make_plan(user_a, 'Plan Alpha')
+    plan_b = _make_plan(user_a, 'Plan Beta')
+    item_a = _make_plan_item(plan_a, plant_id='tomato-1')
+    item_b = _make_plan_item(plan_b, plant_id='pepper-1')
+
+    _make_event(
+        user_a, plan_item=item_a, plant_id='tomato-1',
+        transplant_date=datetime(2027, 5, 15),
+    )
+    _make_event(
+        user_a, plan_item=item_b, plant_id='pepper-1',
+        transplant_date=datetime(2027, 5, 20),
+    )
+    # Null export_key — should remain visible under scoped mode
+    _make_event(
+        user_a, plan_item=None, plant_id='eggplant-1',
+        transplant_date=datetime(2027, 6, 1),
+    )
+
+    rows = _get_rows_for_plan(auth_client_a, plan_a.id)
+
+    plant_ids = sorted(r['plantId'] for r in rows)
+    assert plant_ids == ['eggplant-1', 'tomato-1'], (
+        "Expected only plan-A row + null-export_key row; got {}".format(plant_ids)
+    )
+    by_plant = {r['plantId']: r for r in rows}
+    assert by_plant['tomato-1']['planId'] == plan_a.id
+    assert by_plant['eggplant-1']['planId'] is None
+    assert by_plant['eggplant-1']['planName'] is None
+
+
+def test_plan_id_filter_excludes_other_plans_even_when_group_key_would_merge(
+    auth_client_a, user_a
+):
+    """Two plans sharing the same (plant_id, variety, transplant_date) would
+    have collapsed under the old group key. With the plan_id-aware key they
+    stay separate, and the planId filter must drop the non-matching plan's
+    row entirely (not merge, not attribute to the requested plan)."""
+    plan_a = _make_plan(user_a, 'Plan Alpha')
+    plan_b = _make_plan(user_a, 'Plan Beta')
+    item_a = _make_plan_item(plan_a)
+    item_b = _make_plan_item(plan_b)
+
+    shared_date = datetime(2027, 5, 15)
+    ev_a = _make_event(user_a, plan_item=item_a, transplant_date=shared_date)
+    _make_event(user_a, plan_item=item_b, transplant_date=shared_date)
+
+    rows = _get_rows_for_plan(auth_client_a, plan_a.id)
+
+    assert len(rows) == 1
+    assert rows[0]['planId'] == plan_a.id
+    assert rows[0]['planName'] == 'Plan Alpha'
+    assert rows[0]['plantingEventIds'] == [ev_a.id]
+
+
+def test_plan_id_filter_rejects_other_users_plan(
+    auth_client_a, user_a, user_b
+):
+    """?planId=<user_b.plan.id> must NOT leak. Return 404, no events body."""
+    plan_b = _make_plan(user_b, "Bob's Plan")
+    # Give user A an event so a permissive backend would produce non-empty rows
+    plan_a = _make_plan(user_a, "Alice's Plan")
+    item_a = _make_plan_item(plan_a)
+    _make_event(user_a, plan_item=item_a)
+
+    resp = auth_client_a.get(
+        '/api/planting-events/needs-indoor-starts?planId={}'.format(plan_b.id)
+    )
+    assert resp.status_code == 404, resp.get_json()
+    body = resp.get_json()
+    assert 'error' in body
+    # Must not contain row data
+    assert 'events' not in body
+
+
+@pytest.mark.parametrize('bad_value', ['abc', '-1', '0', '1.5', ' '])
+def test_plan_id_filter_rejects_malformed_value(auth_client_a, bad_value):
+    """Non-integer, zero, or negative values reject with 400."""
+    resp = auth_client_a.get(
+        '/api/planting-events/needs-indoor-starts?planId={}'.format(bad_value)
+    )
+    assert resp.status_code == 400, (bad_value, resp.get_json())
+    assert 'error' in resp.get_json()
+
+
+def test_omitted_plan_id_preserves_cross_plan_behavior(auth_client_a, user_a):
+    """No planId param at all → response returns rows from ALL of user A's
+    plans (existing cross-plan baseline / backward-compat)."""
+    plan_a = _make_plan(user_a, 'Plan Alpha')
+    plan_b = _make_plan(user_a, 'Plan Beta')
+    item_a = _make_plan_item(plan_a, plant_id='tomato-1')
+    item_b = _make_plan_item(plan_b, plant_id='pepper-1')
+
+    _make_event(user_a, plan_item=item_a, plant_id='tomato-1')
+    _make_event(user_a, plan_item=item_b, plant_id='pepper-1')
+
+    rows = _get_rows(auth_client_a)  # no planId
+
+    plant_ids = sorted(r['plantId'] for r in rows)
+    assert plant_ids == ['pepper-1', 'tomato-1']
+    by_plant = {r['plantId']: r for r in rows}
+    assert by_plant['tomato-1']['planId'] == plan_a.id
+    assert by_plant['pepper-1']['planId'] == plan_b.id
