@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { apiGet, apiPost } from '../../utils/api';
+import { useProperty } from '../../hooks/useProperty';
 
 interface PlacedStructure {
   id: number;
@@ -56,6 +57,8 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
   onClose,
   onEventAdded
 }) => {
+  const property = useProperty();
+
   // Basic fields
   const [mapleTrees, setMapleTrees] = useState<PlacedStructure[]>([]);
   const [selectedTreeId, setSelectedTreeId] = useState<number | ''>('');
@@ -92,17 +95,25 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
     no_tappable_trees?: boolean;
   } | null>(null);
 
-  // Fetch maple trees and season data on mount
+  // Fetch maple trees and season data on mount.
+  // Re-run when `property` resolves so the season banner picks up the
+  // property-ZIP fallback once useProperty finishes loading.
   useEffect(() => {
     if (isOpen) {
       fetchMapleTrees();
       fetchSeasonConditions();
     }
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, property]);
 
   const fetchSeasonConditions = async () => {
     try {
-      const zipCode = localStorage.getItem('weatherZipCode') || '53209';
+      // Precedence: pinned weatherZipCode > primary property ZIP > empty (skip fetch)
+      const zipCode = localStorage.getItem('weatherZipCode') || property?.zipCode || '';
+      if (!zipCode) {
+        // No location — skip the banner fetch silently (this is the non-critical path).
+        return;
+      }
       const response = await apiGet(`/api/maple-tapping/season-estimate?zipcode=${encodeURIComponent(zipCode)}`);
       if (response.ok) {
         const data = await response.json();

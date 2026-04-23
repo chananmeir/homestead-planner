@@ -5,6 +5,7 @@ import { SoilConfig, SoilTempResponse } from './types';
 import { PlantingCalendar, GardenBed } from '../../../types';
 import SoilConfigForm from './SoilConfigForm';
 import ReadinessIndicator from './ReadinessIndicator';
+import { useProperty } from '../../../hooks/useProperty';
 
 interface SoilTemperatureCardProps {
   plantingEvents: PlantingCalendar[];
@@ -14,6 +15,8 @@ interface SoilTemperatureCardProps {
 }
 
 const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvents, onDataLoaded, gardenBeds = [], calendarBedId }) => {
+  const property = useProperty();
+
   // Expanded/collapsed state (persisted in localStorage)
   const [expanded, setExpanded] = useState(() => {
     const saved = localStorage.getItem('soilTemperatureCard.expanded');
@@ -60,13 +63,19 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
   useEffect(() => {
     const fetchSoilTemperature = async () => {
       try {
+        // Precedence: pinned weatherZipCode > primary property ZIP > empty (skip fetch)
+        const zipCode = localStorage.getItem('weatherZipCode') || property?.zipCode || '';
+        if (!zipCode) {
+          // No location available yet (loading property) or user has no property
+          // and no pinned ZIP — skip fetch rather than 500 the backend.
+          setLoading(false);
+          return;
+        }
+
         setLoading(true);
         setError(null);
 
         const params = new URLSearchParams();
-
-        // Use the weather zip code so soil temp matches user's actual location
-        const zipCode = localStorage.getItem('weatherZipCode') || '53209';
         params.set('zipcode', zipCode);
 
         if (config.gardenBedId != null) {
@@ -100,7 +109,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
     };
 
     fetchSoilTemperature();
-  }, [config]);
+  }, [config, onDataLoaded, property]);
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden">

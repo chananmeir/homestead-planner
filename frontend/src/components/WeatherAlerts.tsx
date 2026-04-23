@@ -3,15 +3,26 @@ import { WeatherAlert, WeatherData } from '../types';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../contexts/AuthContext';
+import { useProperty } from '../hooks/useProperty';
 
 const WeatherAlerts: React.FC = () => {
   const { user } = useAuth();
+  const property = useProperty();
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [forecast, setForecast] = useState<WeatherData[]>([]);
   const [zipCode, setZipCode] = useState(() => {
-    // Load from localStorage or default to '53209'
-    return localStorage.getItem('weatherZipCode') || '53209';
+    // Precedence: pinned weatherZipCode > primary property ZIP > empty (no forecast)
+    // Property ZIP is applied lazily in an effect below since useProperty is async.
+    return localStorage.getItem('weatherZipCode') || '';
   });
+
+  // If no pinned ZIP exists but the user has a primary property with a ZIP,
+  // fall back to it once useProperty resolves.
+  useEffect(() => {
+    if (!localStorage.getItem('weatherZipCode') && property?.zipCode && !zipCode) {
+      setZipCode(property.zipCode);
+    }
+  }, [property, zipCode]);
   const [city, setCity] = useState('Your Location');
   const [showSettings, setShowSettings] = useState(false);
   const [currentWeather, setCurrentWeather] = useState<any>(null);
