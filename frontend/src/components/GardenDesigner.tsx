@@ -135,8 +135,10 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     plantName: string;
     variety?: string;
     bedName: string;
+    status?: string;
   } | null>(null);
   const [markingTransplanted, setMarkingTransplanted] = useState(false);
+  const [showPreReadyConfirm, setShowPreReadyConfirm] = useState(false);
 
   // Planting event mode state (direct seed from calendar)
   const [plantingMode, setPlantingMode] = useState<{
@@ -465,6 +467,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             plantName: plant?.name || data.plantId,
             variety: data.variety || undefined,
             bedName,
+            status: data.status,
           });
           setViewMode('detail');
         }
@@ -478,7 +481,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transplantSeedStartId, plants.length]);
 
-  const handleMarkTransplanted = async () => {
+  const executeMarkTransplanted = async () => {
     if (!transplantMode) return;
     setMarkingTransplanted(true);
     try {
@@ -497,6 +500,15 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
       showError('Network error marking transplanted');
     } finally {
       setMarkingTransplanted(false);
+    }
+  };
+
+  const handleMarkTransplanted = () => {
+    if (!transplantMode) return;
+    if (transplantMode.status === 'hardening') {
+      executeMarkTransplanted();
+    } else {
+      setShowPreReadyConfirm(true);
     }
   };
 
@@ -2650,7 +2662,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
               <div className="flex items-center gap-2">
                 <span className="text-lg">&#127793;</span>
                 <span className="font-medium text-green-800 text-sm">
-                  Transplanting {transplantMode.plantName}
+                  {transplantMode.status === 'hardening' ? 'Transplanting' : 'Planning placement for'} {transplantMode.plantName}
                   {transplantMode.variety ? ` (${transplantMode.variety})` : ''}
                   {' \u2192 '}{transplantMode.bedName}
                 </span>
@@ -2661,7 +2673,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                   disabled={markingTransplanted}
                   className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                 >
-                  {markingTransplanted ? 'Saving...' : 'Mark Transplanted'}
+                  {markingTransplanted ? 'Saving...' : (transplantMode.status === 'hardening' ? 'Mark Transplanted' : 'Save placement')}
                 </button>
                 <button
                   onClick={handleCancelTransplant}
@@ -3791,6 +3803,18 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         message={`Remove ${deleteFutureEventConfirm?.plantName || 'this plant'} from the bed? This action cannot be undone.`}
         confirmText="Delete"
         variant="danger"
+      />
+
+      {/* Pre-ready Transplant Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showPreReadyConfirm}
+        onClose={() => setShowPreReadyConfirm(false)}
+        onConfirm={executeMarkTransplanted}
+        title="Mark as transplanted?"
+        message={`This start isn't ready for transplant yet (status: ${transplantMode?.status || 'unknown'}). Continue and mark it transplanted?`}
+        confirmText="Mark Transplanted"
+        variant="primary"
+        loading={markingTransplanted}
       />
 
       {/* Bed Form Modal */}
