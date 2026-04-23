@@ -1573,19 +1573,20 @@ const PropertyDesigner: React.FC = () => {
               <p className="mt-4 text-gray-600">Loading property designer...</p>
             </div>
           ) : properties.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <div className="text-6xl mb-4">🗺️</div>
+            <div className="text-center py-4 text-gray-500">
+              <div className="text-4xl mb-2">🗺️</div>
               <p className="text-lg">No properties created yet.</p>
-              <p className="text-sm mt-2">Create your first property to start designing your homestead layout!</p>
               <button
                 onClick={() => {
                   setModalMode('add');
                   setIsModalOpen(true);
                 }}
-                className="mt-6 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors"
+                data-testid="btn-create-property-empty"
+                className="mt-4 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors"
               >
                 Create Property
               </button>
+              <p className="text-sm mt-3">Create your first property to start designing your homestead layout!</p>
             </div>
           ) : selectedProperty ? (
             <div className="flex-1 flex flex-col min-h-0">
