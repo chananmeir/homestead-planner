@@ -1428,64 +1428,11 @@ const PropertyDesigner: React.FC = () => {
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-col h-full overflow-hidden px-4">
-      <div className="bg-white rounded-lg shadow-md p-6 flex-shrink-0 mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800">Property Designer</h2>
-            <span className="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-semibold mt-2">
-              ⭐ NEW FEATURE
-            </span>
-          </div>
-        </div>
-        <p className="text-gray-600 mb-6">
-          Master homestead layout designer! Place coops, greenhouses, orchards, sheds, and all structures on your entire property.
-        </p>
-
-        {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
-            <div className="text-3xl font-bold text-green-700 mb-2">{properties.length}</div>
-            <div className="text-sm text-green-600 font-medium">Properties</div>
-          </div>
-
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border border-blue-200">
-            <div className="text-3xl font-bold text-blue-700 mb-2">
-              {properties.reduce((sum, prop) => sum + (prop.placedStructures?.length || 0), 0)}
-            </div>
-            <div className="text-sm text-blue-600 font-medium">Structures</div>
-          </div>
-
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-6 border border-purple-200">
-            <div className="text-3xl font-bold text-purple-700 mb-2">{structures.length}</div>
-            <div className="text-sm text-purple-600 font-medium">Available Types</div>
-          </div>
-
-          <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-6 border border-amber-200">
-            <div className="text-3xl font-bold text-amber-700 mb-2">
-              {properties.reduce((sum, prop) => sum + (prop.width * prop.length), 0).toLocaleString()}
-            </div>
-            <div className="text-sm text-amber-600 font-medium">Total Sq Ft</div>
-          </div>
-        </div>
-
-        {/* Property Selector */}
-        {properties.length > 0 && (
-          <div className="mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Select Property:
-              </label>
-              <button
-                onClick={() => {
-                  setModalMode('add');
-                  setIsModalOpen(true);
-                }}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
-              data-testid="btn-create-property"
-              >
-                + Create New Property
-              </button>
-            </div>
+      {properties.length > 0 ? (
+        /* Compact header: property workspace is active; canvas gets the majority of vertical space (AUDIT-012). */
+        <div className="bg-white rounded-lg shadow-md p-3 flex-shrink-0 mb-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <h2 className="text-lg font-bold text-gray-800 whitespace-nowrap">Property Designer</h2>
             <select
               data-testid="property-selector"
               value={selectedProperty?.id || ''}
@@ -1493,7 +1440,7 @@ const PropertyDesigner: React.FC = () => {
                 const prop = properties.find(p => p.id === parseInt(e.target.value));
                 setSelectedProperty(prop || null);
               }}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
             >
               {properties.map(prop => (
                 <option key={prop.id} value={prop.id}>
@@ -1501,13 +1448,73 @@ const PropertyDesigner: React.FC = () => {
                 </option>
               ))}
             </select>
+            <div className="flex items-center gap-3 text-xs text-gray-600 ml-auto">
+              <span><span className="font-semibold text-green-700">{properties.length}</span> properties</span>
+              <span className="text-gray-300">|</span>
+              <span><span className="font-semibold text-blue-700">{properties.reduce((sum, prop) => sum + (prop.placedStructures?.length || 0), 0)}</span> structures</span>
+              <span className="text-gray-300">|</span>
+              <span><span className="font-semibold text-purple-700">{structures.length}</span> types</span>
+              <span className="text-gray-300">|</span>
+              <span><span className="font-semibold text-amber-700">{properties.reduce((sum, prop) => sum + (prop.width * prop.length), 0).toLocaleString()}</span> sq ft</span>
+            </div>
+            <button
+              onClick={() => {
+                setModalMode('add');
+                setIsModalOpen(true);
+              }}
+              className="bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-sm whitespace-nowrap"
+              data-testid="btn-create-property"
+            >
+              + New Property
+            </button>
           </div>
-        )}
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg shadow-md p-6 flex-shrink-0 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800">Property Designer</h2>
+              <span className="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-semibold mt-2">
+                ⭐ NEW FEATURE
+              </span>
+            </div>
+          </div>
+          <p className="text-gray-600 mb-6">
+            Master homestead layout designer! Place coops, greenhouses, orchards, sheds, and all structures on your entire property.
+          </p>
 
-        <p className="text-sm text-gray-500">
-          Full drag-and-drop functionality coming soon. Currently displaying existing property layouts from backend.
-        </p>
-      </div>
+          {/* Statistics */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
+              <div className="text-3xl font-bold text-green-700 mb-2">{properties.length}</div>
+              <div className="text-sm text-green-600 font-medium">Properties</div>
+            </div>
+
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border border-blue-200">
+              <div className="text-3xl font-bold text-blue-700 mb-2">
+                {properties.reduce((sum, prop) => sum + (prop.placedStructures?.length || 0), 0)}
+              </div>
+              <div className="text-sm text-blue-600 font-medium">Structures</div>
+            </div>
+
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-6 border border-purple-200">
+              <div className="text-3xl font-bold text-purple-700 mb-2">{structures.length}</div>
+              <div className="text-sm text-purple-600 font-medium">Available Types</div>
+            </div>
+
+            <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-6 border border-amber-200">
+              <div className="text-3xl font-bold text-amber-700 mb-2">
+                {properties.reduce((sum, prop) => sum + (prop.width * prop.length), 0).toLocaleString()}
+              </div>
+              <div className="text-sm text-amber-600 font-medium">Total Sq Ft</div>
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-500">
+            Full drag-and-drop functionality coming soon. Currently displaying existing property layouts from backend.
+          </p>
+        </div>
+      )}
 
       {/* Main Layout: Structures Sidebar (Left) + Designer Canvas (Right) */}
       <div className="flex flex-col md:flex-row gap-6 flex-1 min-h-0">
