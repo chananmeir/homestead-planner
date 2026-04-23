@@ -76,13 +76,13 @@ const WeatherSummaryTile: React.FC<WeatherSummaryTileProps> = ({ onOpenWeather }
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-gray-900">Weather</h3>
-            <p className="text-sm text-gray-500 mt-1">Set your zip code in Weather settings to see the forecast here.</p>
+            <p className="text-sm text-gray-500 mt-1">Open Weather to view the forecast. Set a zip code there to pin this tile to your location.</p>
           </div>
           <button
             onClick={onOpenWeather}
             className="text-sm text-green-700 hover:text-green-800 font-medium whitespace-nowrap"
           >
-            Set up →
+            Open →
           </button>
         </div>
       </div>

@@ -19,20 +19,20 @@ describe('WeatherSummaryTile', () => {
     localStorage.clear();
   });
 
-  test('renders "Set up →" prompt when no zip code is configured', () => {
+  test('renders "Open →" prompt when no zip code is configured', () => {
     const fetchMock = installFetchMock();
     render(<WeatherSummaryTile onOpenWeather={jest.fn()} />);
-    expect(screen.getByText(/Set your zip code/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Set up/i })).toBeInTheDocument();
+    expect(screen.getByText(/Open Weather to view the forecast/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Open/i })).toBeInTheDocument();
     // No fetch should fire without a zip code
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test('clicking "Set up →" calls onOpenWeather', async () => {
+  test('clicking "Open →" calls onOpenWeather', async () => {
     installFetchMock();
     const onOpenWeather = jest.fn();
     render(<WeatherSummaryTile onOpenWeather={onOpenWeather} />);
-    await userEvent.click(screen.getByRole('button', { name: /Set up/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Open/i }));
     expect(onOpenWeather).toHaveBeenCalledTimes(1);
   });
 
