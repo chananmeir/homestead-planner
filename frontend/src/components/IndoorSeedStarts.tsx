@@ -508,8 +508,9 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
 
                 {/* Actions */}
                 <div className="mt-4 flex gap-2">
-                  {start.status !== 'transplanted' && start.status !== 'failed' && onNavigateToBed && (
-                    start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
+                  {start.status !== 'transplanted' && start.status !== 'failed' && onNavigateToBed && (() => {
+                    const transplantActionLabel = start.status === 'hardening' ? 'Transplant Now' : 'Plan Placement';
+                    return start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
                       <button
                         onClick={() => {
                           const firstBed = start.destinationBedDetails![0];
@@ -521,7 +522,7 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                         }}
                         className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
                       >
-                        Transplant Now
+                        {transplantActionLabel}
                       </button>
                     ) : (
                       <button
@@ -530,10 +531,10 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                         title="Assign a destination bed first"
                         className="flex-1 px-3 py-2 bg-gray-200 text-gray-500 text-sm font-medium rounded-lg cursor-not-allowed"
                       >
-                        Transplant Now
+                        {transplantActionLabel}
                       </button>
-                    )
-                  )}
+                    );
+                  })()}
                   <button
                     onClick={() => {
                       setSelectedSeedStart(start);
