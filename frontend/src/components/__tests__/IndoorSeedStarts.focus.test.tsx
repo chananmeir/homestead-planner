@@ -16,6 +16,24 @@ jest.mock('../../contexts/SimulationContext', () => ({
   useToday: () => '2026-04-14',
 }));
 
+// ImportFromGardenModal (mounted by IndoorSeedStarts) calls useActivePlan().
+// Tests don't wrap in ActivePlanProvider, so stub the hook to return a null
+// plan — matches the modal's "(no active plan)" branch.
+jest.mock('../../contexts/ActivePlanContext', () => ({
+  useActivePlan: () => ({
+    activePlan: null,
+    activePlanId: null,
+    loading: false,
+    setActivePlan: () => {},
+    setActivePlanById: async () => {},
+    clearActivePlan: () => {},
+    refreshActivePlan: async () => {},
+    ensureActivePlan: async () => null,
+    planRefreshKey: 0,
+    bumpPlanRefresh: () => {},
+  }),
+}));
+
 import { installFetchMock, clearFetchMock } from '../Dashboard/testUtils';
 import { ToastProvider } from '../common/Toast';
 import IndoorSeedStarts from '../IndoorSeedStarts';

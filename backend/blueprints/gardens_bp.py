@@ -44,6 +44,28 @@ def _sync_indoor_start_on_completion(event):
 from utils.helpers import parse_iso_date
 
 
+def _parse_plan_item_id_from_export_key(export_key):
+    """Parse GardenPlanItem.id out of a PlantingEvent.export_key string.
+
+    Export keys are built in ``services/garden_planner_service.py`` with the
+    shape ``"{user_id}_{item.id}_..."`` across every export path (legacy,
+    bed-allocated, trellis). The second underscore-delimited component is
+    always the plan-item id.
+
+    Returns the integer plan-item id, or ``None`` if the key is missing or
+    malformed (e.g., events created outside ``export_to_calendar()``).
+    """
+    if not export_key:
+        return None
+    parts = export_key.split('_')
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[1])
+    except (ValueError, TypeError):
+        return None
+
+
 def _find_existing_indoor_seed_start(user_id, planting_event, window_days=14):
     """Find an existing IndoorSeedStart that matches this placement.
 
@@ -2410,9 +2432,10 @@ def get_planting_events_needing_indoor_starts():
     try:
         include_past = request.args.get('include_past', 'false').lower() == 'true'
 
-        # Query planting events with transplant dates
+        # Query planting events with transplant dates (exclude cancelled)
         query = PlantingEvent.query.filter_by(user_id=current_user.id).filter(
-            PlantingEvent.transplant_date.isnot(None)
+            PlantingEvent.transplant_date.isnot(None),
+            PlantingEvent.cancelled_at.is_(None)
         )
 
         # Filter by future dates unless include_past is true
@@ -2421,7 +2444,44 @@ def get_planting_events_needing_indoor_starts():
 
         events = query.order_by(PlantingEvent.transplant_date).all()
 
-        # Group events by (plant_id, variety, transplant_date) and sum quantities
+        # Build plan-attribution map: plan_item_id -> (plan_id, plan_name).
+        #
+        # PlantingEvent has no direct FK to GardenPlan. Attribution is derived
+        # from PlantingEvent.export_key, which encodes GardenPlanItem.id as the
+        # second underscore-delimited component. Format (see
+        # services/garden_planner_service.py lines 770, 867, 928):
+        #     "{user_id}_{item.id}_..."
+        # A batch lookup keeps the endpoint efficient without requiring a new
+        # index on GardenPlanItem.export_key (flagged as a future follow-up).
+        plan_item_ids = set()
+        event_to_plan_item = {}
+        for event in events:
+            parsed_item_id = _parse_plan_item_id_from_export_key(event.export_key)
+            event_to_plan_item[event.id] = parsed_item_id
+            if parsed_item_id is not None:
+                plan_item_ids.add(parsed_item_id)
+
+        plan_item_to_plan = {}
+        if plan_item_ids:
+            plan_rows = (
+                db.session.query(
+                    GardenPlanItem.id,
+                    GardenPlan.id,
+                    GardenPlan.name,
+                )
+                .join(GardenPlan, GardenPlanItem.garden_plan_id == GardenPlan.id)
+                .filter(
+                    GardenPlanItem.id.in_(plan_item_ids),
+                    GardenPlan.user_id == current_user.id,
+                )
+                .all()
+            )
+            plan_item_to_plan = {row[0]: (row[1], row[2]) for row in plan_rows}
+
+        # Group events by (plant_id, variety, transplant_date, plan_id) and sum quantities.
+        # plan_id is included in the key so two plans with the same crop+variety+
+        # date do NOT silently merge into one row (previous behavior mixed their
+        # plantingEventIds and hid the cross-plan span from the user).
         grouped = {}
         for event in events:
             # Get plant data
@@ -2435,9 +2495,14 @@ def get_planting_events_needing_indoor_starts():
             if weeks_indoors == 0:
                 continue
 
-            # Group by plant, variety, and transplant date
+            parsed_item_id = event_to_plan_item.get(event.id)
+            plan_info = plan_item_to_plan.get(parsed_item_id) if parsed_item_id is not None else None
+            event_plan_id = plan_info[0] if plan_info else None
+            event_plan_name = plan_info[1] if plan_info else None
+
+            # Group by plant, variety, transplant date, and plan id
             transplant_date_str = event.transplant_date.date().isoformat()
-            group_key = (event.plant_id, event.variety or '', transplant_date_str)
+            group_key = (event.plant_id, event.variety or '', transplant_date_str, event_plan_id)
 
             if group_key not in grouped:
                 grouped[group_key] = {
@@ -2448,7 +2513,9 @@ def get_planting_events_needing_indoor_starts():
                     'transplantDate': event.transplant_date,
                     'gardenBedId': event.garden_bed_id,
                     'totalQuantity': 0,
-                    'notes': event.notes
+                    'notes': event.notes,
+                    'planId': event_plan_id,
+                    'planName': event_plan_name,
                 }
 
             grouped[group_key]['plantingEventIds'].append(event.id)
@@ -2461,7 +2528,8 @@ def get_planting_events_needing_indoor_starts():
             # Check if any event in this group already has an indoor start
             has_indoor_start = IndoorSeedStart.query.filter(
                 IndoorSeedStart.user_id == current_user.id,
-                IndoorSeedStart.planting_event_id.in_(group_data['plantingEventIds'])
+                IndoorSeedStart.planting_event_id.in_(group_data['plantingEventIds']),
+                IndoorSeedStart.cancelled_at.is_(None)
             ).first()
 
             if not has_indoor_start:
@@ -2514,7 +2582,9 @@ def get_planting_events_needing_indoor_starts():
                 'timingStatus': timing_status,
                 'canStartIndoors': True,
                 'notes': group_data['notes'],
-                'spaceRequired': group_data['totalQuantity']  # Sum of all plants in group
+                'spaceRequired': group_data['totalQuantity'],  # Sum of all plants in group
+                'planId': group_data['planId'],
+                'planName': group_data['planName'],
             })
 
         return jsonify({

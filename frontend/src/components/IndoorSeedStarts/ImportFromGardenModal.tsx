@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiGet, apiPost } from '../../utils/api';
 import { Modal } from '../common/Modal';
+import { useActivePlan } from '../../contexts/ActivePlanContext';
 
 interface PlantingEventNeedingStart {
   plantingEventId: number;
@@ -20,6 +21,12 @@ interface PlantingEventNeedingStart {
   canStartIndoors: boolean;
   notes?: string;
   spaceRequired?: number;  // Number of plants planned in garden
+  // Phase B #12: source-plan identity for per-row attribution. Backend
+  // populates via export_key -> GardenPlanItem -> GardenPlan lookup. Both
+  // fields are null when the event has no export_key (legacy or manually
+  // created events) — frontend renders these as "Unknown plan".
+  planId?: number | null;
+  planName?: string | null;
 }
 
 interface ImportFromGardenModalProps {
@@ -37,6 +44,7 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
   showSuccess,
   showError,
 }) => {
+  const { activePlan } = useActivePlan();
   const [allEvents, setAllEvents] = useState<PlantingEventNeedingStart[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<Set<number>>(new Set());
@@ -359,6 +367,26 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
       <div className="space-y-4">
         {/* Header */}
         <div className="space-y-3">
+          {/* Phase B #12: source-plan identity. The endpoint returns events
+              from all of the user's plans, so surface the active plan up front
+              plus a disclaimer that the list is cross-plan. Per-row badges
+              below mark rows sourced from other plans. */}
+          <div>
+            {activePlan ? (
+              <p className="text-sm text-gray-900">
+                <span className="font-medium">Importing from:</span>{' '}
+                <span className="font-semibold">{activePlan.name}</span>
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500">
+                <span className="font-medium">Importing from:</span> (no active plan)
+              </p>
+            )}
+            <p className="text-xs text-gray-500 mt-1">
+              Rows are scoped to your planning events across all plans. Per-row badges mark events sourced from other plans.
+            </p>
+          </div>
+
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-600">
               Select planting events to create indoor seed starts for:
@@ -485,7 +513,23 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
                       {event.variety || '-'}
                     </td>
                     <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {event.gardenBedName || '-'}
+                      <div className="flex items-center gap-2">
+                        <span>{event.gardenBedName || '-'}</span>
+                        {/* Phase B #12: per-row plan attribution. Show badge
+                            only when row's plan differs from active plan (or
+                            cannot be attributed). Same-plan rows are implicit
+                            from the modal header. */}
+                        {event.planId != null && activePlan && event.planId !== activePlan.id && (
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-medium rounded">
+                            from "{event.planName || 'Unnamed plan'}"
+                          </span>
+                        )}
+                        {event.planId == null && (
+                          <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs font-medium rounded">
+                            Unknown plan
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatDate(event.transplantDate)}
