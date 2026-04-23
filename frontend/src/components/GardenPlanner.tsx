@@ -48,6 +48,8 @@ const GardenPlanner: React.FC = () => {
   const [showRotationModal, setShowRotationModal] = useState(false);
   const [showCreatePlanModal, setShowCreatePlanModal] = useState(false);
   const [newPlanName, setNewPlanName] = useState('');
+  // When set, the name modal is in "duplicate" mode and will clone this plan on confirm
+  const [duplicateSourcePlan, setDuplicateSourcePlan] = useState<GardenPlan | null>(null);
   const [selectedRotationWarnings, setSelectedRotationWarnings] = useState<RotationWarningType[]>([]);
 
   // Manual quantity input state
@@ -1463,14 +1465,31 @@ const GardenPlanner: React.FC = () => {
   };
 
   /**
-   * Duplicate an existing plan as a new plan
+   * Duplicate an existing plan as a new plan. Opens the name modal pre-filled
+   * with "(Copy)" so the user can rename before the clone is created.
    */
-  const handleDuplicatePlan = async (plan: GardenPlan) => {
+  const handleDuplicatePlan = (plan: GardenPlan) => {
+    setDuplicateSourcePlan(plan);
+    setNewPlanName(`${plan.name} (Copy)`);
+    setShowCreatePlanModal(true);
+  };
+
+  /**
+   * Confirm duplication: creates the clone using the edited name from the modal
+   * and enters the wizard with the new plan loaded.
+   */
+  const handleConfirmDuplicatePlan = async () => {
+    const name = newPlanName.trim();
+    if (!name || !duplicateSourcePlan) return;
+    const sourcePlan = duplicateSourcePlan;
+    setShowCreatePlanModal(false);
+    setDuplicateSourcePlan(null);
+    setNewPlanName('');
     setLoading(true);
     setError(null);
     try {
       // Fetch full plan details
-      const response = await fetch(`${API_BASE_URL}/api/garden-plans/${plan.id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/garden-plans/${sourcePlan.id}`, {
         credentials: 'include'
       });
 
@@ -1496,8 +1515,8 @@ const GardenPlanner: React.FC = () => {
       setBedAssignments(reconstructed.bedAssignments);
       setTrellisAssignments(reconstructed.trellisAssignments);
 
-      // Pre-fill name with "(Copy)" suffix - DON'T set editingPlanId (creates new plan)
-      setPlanName(`${fullPlan.name} (Copy)`);
+      // Use user-provided name - DON'T set editingPlanId (creates new plan on save)
+      setPlanName(name);
 
       // Switch to wizard
       setView('create');
@@ -1877,7 +1896,12 @@ const GardenPlanner: React.FC = () => {
         )}
 
         {showCreatePlanModal && (
-          <Modal isOpen={showCreatePlanModal} title="Create New Plan" onClose={() => setShowCreatePlanModal(false)} size="small">
+          <Modal
+            isOpen={showCreatePlanModal}
+            title={duplicateSourcePlan ? 'Duplicate Plan' : 'Create New Plan'}
+            onClose={() => { setShowCreatePlanModal(false); setDuplicateSourcePlan(null); }}
+            size="small"
+          >
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Plan Name</label>
@@ -1887,27 +1911,33 @@ const GardenPlanner: React.FC = () => {
                   onChange={(e) => setNewPlanName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && newPlanName.trim()) {
-                      handleCreatePlan();
+                      if (duplicateSourcePlan) handleConfirmDuplicatePlan();
+                      else handleCreatePlan();
                     }
                   }}
                   className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   placeholder="e.g., 2024 Garden Plan"
                   autoFocus
                 />
+                {duplicateSourcePlan && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Cloning "{duplicateSourcePlan.name}". You can rename now or keep the default.
+                  </p>
+                )}
               </div>
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={() => setShowCreatePlanModal(false)}
+                  onClick={() => { setShowCreatePlanModal(false); setDuplicateSourcePlan(null); }}
                   className="px-4 py-2 border rounded hover:bg-gray-100"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleCreatePlan}
+                  onClick={duplicateSourcePlan ? handleConfirmDuplicatePlan : handleCreatePlan}
                   disabled={!newPlanName.trim()}
                   className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Create
+                  {duplicateSourcePlan ? 'Duplicate' : 'Create'}
                 </button>
               </div>
             </div>
