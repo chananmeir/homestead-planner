@@ -1221,19 +1221,45 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
       showSuccess(saveForSeed ? 'Marked for seed saving' : 'Seed saving removed');
       // Update the selected cell snapshot so the panel reflects the change immediately
       setSelectedPlantedCell(prev => prev ? { ...prev, item: { ...prev.item, ...updated } } : null);
-      loadData();
+      const freshBeds = await loadData();
+      if (activeBed) {
+        const updatedBed = freshBeds.find(b => b.id === activeBed.id);
+        if (updatedBed) {
+          setActiveBed(updatedBed);
+          setVisibleBeds(prev => prev.map(b => b.id === updatedBed.id ? updatedBed : b));
+          // Re-derive selectedPlantedCell from canonical bed data so reopen reads fresh state
+          const freshItem = updatedBed.plantedItems?.find(p => p.id === item.id);
+          if (freshItem) {
+            setSelectedPlantedCell(prev => prev ? { ...prev, item: freshItem, bed: updatedBed } : null);
+          }
+        }
+      }
     } catch {
       showError('Failed to update seed saving');
     }
   };
 
-  const handleSeedDateSuccess = () => {
-    loadData();
+  const handleSeedDateSuccess = async () => {
+    const freshBeds = await loadData();
+    if (activeBed) {
+      const updatedBed = freshBeds.find(b => b.id === activeBed.id);
+      if (updatedBed) {
+        setActiveBed(updatedBed);
+        setVisibleBeds(prev => prev.map(b => b.id === updatedBed.id ? updatedBed : b));
+      }
+    }
   };
 
-  const handleCollectSeedsSuccess = () => {
+  const handleCollectSeedsSuccess = async () => {
     showSuccess('Seeds collected! Check your Seed Inventory.');
-    loadData();
+    const freshBeds = await loadData();
+    if (activeBed) {
+      const updatedBed = freshBeds.find(b => b.id === activeBed.id);
+      if (updatedBed) {
+        setActiveBed(updatedBed);
+        setVisibleBeds(prev => prev.map(b => b.id === updatedBed.id ? updatedBed : b));
+      }
+    }
   };
 
   const handleMovePlant = async () => {
