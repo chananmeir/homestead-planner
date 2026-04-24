@@ -132,12 +132,14 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   // Transplant mode state
   const [transplantMode, setTransplantMode] = useState<{
     seedStartId: number;
+    plantId?: string;
     plantName: string;
     variety?: string;
+    bedId?: number;
     bedName: string;
     status?: string;
   } | null>(null);
-  const [markingTransplanted, setMarkingTransplanted] = useState(false);
+  const [transplantPickerActive, setTransplantPickerActive] = useState(false);
   const [showPreReadyConfirm, setShowPreReadyConfirm] = useState(false);
 
   // Planting event mode state (direct seed from calendar)
@@ -459,13 +461,15 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         if (response.ok) {
           const data = await response.json();
           const plant = plants.find(p => p.id === data.plantId);
-          const bedName = data.destinationBedDetails?.length > 0
-            ? data.destinationBedDetails[0].name
-            : activeBed?.name || 'selected bed';
+          const destBed = data.destinationBedDetails?.length > 0 ? data.destinationBedDetails[0] : null;
+          const bedName = destBed?.name || activeBed?.name || 'selected bed';
+          const bedId = destBed?.id;
           setTransplantMode({
             seedStartId: transplantSeedStartId,
+            plantId: data.plantId,
             plantName: plant?.name || data.plantId,
             variety: data.variety || undefined,
+            bedId,
             bedName,
             status: data.status,
           });
@@ -481,32 +485,31 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transplantSeedStartId, plants.length]);
 
-  const executeMarkTransplanted = async () => {
+  // AUDIT-013 Option α: enter cell-picker mode and auto-navigate to destination bed.
+  // Replaces the former direct status-only PUT (Path A). Actual linkage happens
+  // when the user clicks a cell and confirms PlantConfigModal, which POSTs with
+  // sourceIndoorSeedStartId -- backend advances the IndoorSeedStart atomically.
+  const enterTransplantPickerMode = () => {
     if (!transplantMode) return;
-    setMarkingTransplanted(true);
-    try {
-      const response = await apiPut(
-        `/api/indoor-seed-starts/${transplantMode.seedStartId}`,
-        { status: 'transplanted' }
-      );
-      if (response.ok) {
-        showSuccess(`Marked ${transplantMode.plantName}${transplantMode.variety ? ` (${transplantMode.variety})` : ''} as transplanted!`);
-        setTransplantMode(null);
-        if (onTransplantComplete) onTransplantComplete();
-      } else {
-        showError('Failed to mark as transplanted');
+    setShowPreReadyConfirm(false);
+    setTransplantPickerActive(true);
+    // Auto-navigate to destination bed so only that bed is visible in the grid.
+    if (transplantMode.bedId != null) {
+      const destBed = beds.find(b => b.id === transplantMode.bedId);
+      if (destBed) {
+        setActiveBed(destBed);
+        setVisibleBeds([destBed]);
+        setBedFilter(destBed.id);
+        setCheckedBeds(new Set([destBed.id]));
+        localStorage.setItem('checkedBedIds', JSON.stringify([destBed.id]));
       }
-    } catch {
-      showError('Network error marking transplanted');
-    } finally {
-      setMarkingTransplanted(false);
     }
   };
 
   const handleMarkTransplanted = () => {
     if (!transplantMode) return;
     if (transplantMode.status === 'hardening') {
-      executeMarkTransplanted();
+      enterTransplantPickerMode();
     } else {
       setShowPreReadyConfirm(true);
     }
@@ -514,6 +517,8 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
   const handleCancelTransplant = () => {
     setTransplantMode(null);
+    setTransplantPickerActive(false);
+    setShowPreReadyConfirm(false);
     if (onTransplantComplete) onTransplantComplete();
   };
 
@@ -1450,6 +1455,13 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     const { cropName, position, bedId } = pendingPlant;
     const targetBed = beds.find(b => b.id === bedId);
 
+    // AUDIT-013 Option α: when placing from the transplant cell-picker, carry the
+    // seed-start id through to the backend so it can atomically advance status.
+    const sourceIndoorSeedStartId = transplantPickerActive && transplantMode
+      ? transplantMode.seedStartId
+      : undefined;
+    let placementSucceeded = false;
+
     if (!targetBed) {
       showError('Unable to place plant - bed not found');
       return;
@@ -1608,6 +1620,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             notes: config.notes || undefined,
             positions,
             sourcePlanItemId: sourcePlanItemId || undefined,
+            sourceIndoorSeedStartId,
           }),
         });
 
@@ -1628,12 +1641,18 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             batchMsg += ` -- ${data.indoorSeedStartsCreated} indoor seed start event${data.indoorSeedStartsCreated > 1 ? 's' : ''} created`;
           }
           showSuccess(batchMsg);
+          placementSucceeded = true;
         } else {
           const errorData = await response.json();
           showError(formatConflictError(errorData));
         }
         setShowConfigModal(false);
         setPendingPlant(null);
+        if (placementSucceeded && sourceIndoorSeedStartId != null) {
+          setTransplantMode(null);
+          setTransplantPickerActive(false);
+          if (onTransplantComplete) onTransplantComplete();
+        }
         return;
       }
 
@@ -1650,6 +1669,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           plantedDate: dateFilter.date,
           plantingMethod: config.plantingMethod,
           sourcePlanItemId: sourcePlanItemId || undefined,
+          sourceIndoorSeedStartId,
         };
 
         const response = await apiPost('/api/planted-items', payload);
@@ -1674,6 +1694,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             successMsg += ' -- Indoor seed start event created';
           }
           showSuccess(successMsg);
+          placementSucceeded = true;
         } else {
           const errorText = await response.text();
           console.error('Failed to create planted item:', response.status, errorText);
@@ -1759,6 +1780,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             notes: config.notes || undefined,
             positions: positions,
             sourcePlanItemId: sourcePlanItemId || undefined,
+            sourceIndoorSeedStartId,
           }),
         });
 
@@ -1784,6 +1806,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             multiMsg += ` -- ${data.indoorSeedStartsCreated} indoor seed start event${data.indoorSeedStartsCreated > 1 ? 's' : ''} created`;
           }
           showSuccess(multiMsg);
+          placementSucceeded = true;
         } else {
           const errorData = await response.json();
           showError(formatConflictError(errorData));
@@ -1795,6 +1818,12 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     } finally {
       setShowConfigModal(false);
       setPendingPlant(null);
+      // AUDIT-013 Option α: clear transplant picker mode on successful linkage.
+      if (placementSucceeded && sourceIndoorSeedStartId != null) {
+        setTransplantMode(null);
+        setTransplantPickerActive(false);
+        if (onTransplantComplete) onTransplantComplete();
+      }
     }
   };
 
@@ -2074,6 +2103,36 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     setActivePlant(null);
   };
 
+  // Transplant picker: click on a grid cell opens PlantConfigModal pre-populated.
+  // Only fires while transplant cell-picker mode is active and on the destination bed.
+  const handleTransplantPickerCellClick = (e: React.MouseEvent<SVGSVGElement>, bed: GardenBed, cellSize: number, gridWidth: number, gridHeight: number) => {
+    if (!transplantPickerActive || !transplantMode) return;
+    // Ignore clicks outside the destination bed (defence in depth; we auto-navigate on entry).
+    if (transplantMode.bedId != null && bed.id !== transplantMode.bedId) {
+      showError(`Click a cell in ${transplantMode.bedName}.`);
+      return;
+    }
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const gridX = Math.floor((e.clientX - rect.left) / cellSize);
+    const gridY = Math.floor((e.clientY - rect.top) / cellSize);
+    if (gridX < 0 || gridY < 0 || gridX >= gridWidth || gridY >= gridHeight) return;
+
+    const plant = plants.find(p => p.id === transplantMode.plantId);
+    if (!plant) {
+      showError('Plant not found for this indoor seed start.');
+      return;
+    }
+    const cropName = extractCropName(plant.name);
+    setPendingPlant({
+      cropName,
+      position: { x: gridX, y: gridY },
+      bedId: bed.id,
+      initialVariety: transplantMode.variety,
+    });
+    setShowConfigModal(true);
+  };
+
   const renderGrid = (bed: GardenBed) => {
     const cellSize = 40 * zoomLevel; // pixels per grid square (adjusted by zoom)
     // Calculate grid dimensions from bed size and gridSize (inches per cell)
@@ -2083,7 +2142,13 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
     return (
       <DroppableGrid gridId={`garden-grid-${bed.id}`}>
-        <svg id={`garden-grid-svg-${bed.id}`} width={gridWidth * cellSize} height={gridHeight * cellSize} className="cursor-crosshair">
+        <svg
+          id={`garden-grid-svg-${bed.id}`}
+          width={gridWidth * cellSize}
+          height={gridHeight * cellSize}
+          className="cursor-crosshair"
+          onClick={transplantPickerActive ? (e) => handleTransplantPickerCellClick(e, bed, cellSize, gridWidth, gridHeight) : undefined}
+        >
           {/* Grid lines */}
           <defs>
             <pattern id="grid" width={cellSize} height={cellSize} patternUnits="userSpaceOnUse">
@@ -2662,19 +2727,22 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
               <div className="flex items-center gap-2">
                 <span className="text-lg">&#127793;</span>
                 <span className="font-medium text-green-800 text-sm">
+                  {transplantPickerActive ? `Click a cell in ${transplantMode.bedName} to place ${transplantMode.plantName}${transplantMode.variety ? ` (${transplantMode.variety})` : ''}` : (<>
                   {transplantMode.status === 'hardening' ? 'Transplanting' : 'Planning placement for'} {transplantMode.plantName}
                   {transplantMode.variety ? ` (${transplantMode.variety})` : ''}
                   {' \u2192 '}{transplantMode.bedName}
+                  </>)}
                 </span>
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={handleMarkTransplanted}
-                  disabled={markingTransplanted}
-                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {markingTransplanted ? 'Saving...' : (transplantMode.status === 'hardening' ? 'Mark Transplanted' : 'Save placement')}
-                </button>
+                {!transplantPickerActive && (
+                  <button
+                    onClick={handleMarkTransplanted}
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    Pick cell in {transplantMode.bedName}
+                  </button>
+                )}
                 <button
                   onClick={handleCancelTransplant}
                   className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg transition-colors"
@@ -3809,12 +3877,11 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
       <ConfirmDialog
         isOpen={showPreReadyConfirm}
         onClose={() => setShowPreReadyConfirm(false)}
-        onConfirm={executeMarkTransplanted}
-        title="Mark as transplanted?"
-        message={`This start isn't ready for transplant yet (status: ${transplantMode?.status || 'unknown'}). Continue and mark it transplanted?`}
-        confirmText="Mark Transplanted"
+        onConfirm={enterTransplantPickerMode}
+        title="Place before ready?"
+        message={`This start is at status='${transplantMode?.status || 'unknown'}' and isn't ready for transplant. Placing it now will also mark it transplanted. Continue?`}
+        confirmText="Continue"
         variant="primary"
-        loading={markingTransplanted}
       />
 
       {/* Bed Form Modal */}

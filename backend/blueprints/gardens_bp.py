@@ -447,6 +447,36 @@ def add_planted_item():
             if not plan or plan.user_id != current_user.id:
                 return jsonify({'error': 'Unauthorized: plan item belongs to another user'}), 400
 
+        # Validate sourceIndoorSeedStartId (AUDIT-013 Option α: explicit linkage
+        # from the banner "Pick cell" flow). When provided, linkage skips the
+        # heuristic +/- 14d transplant-date match and targets this exact record.
+        source_indoor_seed_start_id = data.get('sourceIndoorSeedStartId')
+        explicit_seed_start = None
+        if source_indoor_seed_start_id is not None:
+            # Reject non-int types (bool is rejected too even though isinstance(True, int))
+            # and any non-positive values.
+            if (
+                isinstance(source_indoor_seed_start_id, bool)
+                or not isinstance(source_indoor_seed_start_id, int)
+                or source_indoor_seed_start_id <= 0
+            ):
+                return jsonify({'error': 'sourceIndoorSeedStartId must be a positive integer'}), 400
+            explicit_seed_start = IndoorSeedStart.query.get(source_indoor_seed_start_id)
+            if not explicit_seed_start or explicit_seed_start.user_id != current_user.id:
+                # Treat cross-user as "not found" — no information leak.
+                return jsonify({'error': 'Indoor seed start not found'}), 404
+            if explicit_seed_start.status in ('transplanted', 'failed'):
+                return jsonify({
+                    'error': (
+                        f"Indoor seed start is already in status "
+                        f"'{explicit_seed_start.status}' and cannot be relinked."
+                    )
+                }), 400
+            if explicit_seed_start.cancelled_at is not None:
+                return jsonify({
+                    'error': 'Indoor seed start has been cancelled and cannot be relinked.'
+                }), 400
+
         # Compute expected harvest date for both PlantedItem and PlantingEvent
         expected_harvest = planted_date
         if plant and plant.get('daysToMaturity') is not None:
@@ -514,11 +544,18 @@ def add_planted_item():
         db.session.flush()  # Get planting_event.id for linking
 
         # Auto-create indoor seed start for transplant-method plants.
-        # If an existing IndoorSeedStart already covers this plant + variety +
-        # transplant date window, link and advance it rather than duplicating.
+        # Priority order:
+        #   1. Explicit sourceIndoorSeedStartId (AUDIT-013 Option α): link to
+        #      the exact record the caller specified, bypassing heuristics.
+        #   2. Heuristic match by plant+variety+transplant-date window.
+        #   3. Auto-create a new IndoorSeedStart.
         indoor_seed_start = None
         indoor_seed_start_linked = False
-        if planting_method == 'transplant':
+        if explicit_seed_start is not None:
+            _link_existing_indoor_seed_start(explicit_seed_start, planting_event)
+            indoor_seed_start = explicit_seed_start
+            indoor_seed_start_linked = True
+        elif planting_method == 'transplant':
             existing_seed_start = _find_existing_indoor_seed_start(
                 current_user.id, planting_event
             )
