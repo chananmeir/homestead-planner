@@ -498,6 +498,16 @@ def add_planted_item():
         )
         db.session.add(item)
 
+        # Compute completion based on whether the planted_date has arrived.
+        # Past or today → event already happened → completed=True.
+        # Future → event is scheduled → completed=False, quantity_completed=0.
+        # Without this, future-dated drops are incorrectly reported as done in
+        # the calendar/dashboard despite the user setting status='planned'.
+        today_now = get_now()
+        today_date_only = today_now.date() if hasattr(today_now, 'date') else today_now
+        planted_date_only = planted_date.date() if hasattr(planted_date, 'date') else planted_date
+        is_completed = planted_date_only <= today_date_only
+
         # Set date fields based on planting method
         planting_event = PlantingEvent(
             user_id=current_user.id,
@@ -510,8 +520,8 @@ def add_planted_item():
             position_x=position.get('x', 0),
             position_y=position.get('y', 0),
             notes=data.get('notes', ''),
-            completed=True,
-            quantity_completed=data.get('quantity', 1)
+            completed=is_completed,
+            quantity_completed=data.get('quantity', 1) if is_completed else 0
         )
 
         # Server-side conflict enforcement for auto-created planting event
@@ -688,6 +698,13 @@ def batch_add_planted_items():
         if plant and plant.get('daysToMaturity') is not None:
             expected_harvest = planted_date + timedelta(days=plant['daysToMaturity'])
 
+        # Compute "today" once per request so per-position completion checks
+        # are consistent across all positions in the batch.
+        batch_today_now = get_now()
+        batch_today_date_only = (
+            batch_today_now.date() if hasattr(batch_today_now, 'date') else batch_today_now
+        )
+
         # Create all items in transaction
         created_items = []
         created_events = []  # Track PlantingEvents for indoor seed start auto-creation
@@ -741,6 +758,14 @@ def batch_add_planted_items():
             # would make orphaned PlantingEvents appear to have matching
             # PlantedItems, causing false 409 conflicts (asparagus bug).
 
+            # Compute completion per-position so a batch with mixed
+            # past/future dates handles each correctly. Past or today →
+            # completed; future → scheduled (completed=False).
+            pos_planted_date_only = (
+                pos_planted_date.date() if hasattr(pos_planted_date, 'date') else pos_planted_date
+            )
+            pos_is_completed = pos_planted_date_only <= batch_today_date_only
+
             # Create corresponding PlantingEvent
             planting_event = PlantingEvent(
                 user_id=current_user.id,
@@ -780,8 +805,8 @@ def batch_add_planted_items():
                 plants_kept_per_spot=seed_density_data.get('plantsKeptPerSpot'),
                 # MIGardener physical row number
                 row_number=data.get('rowNumber'),
-                completed=True,
-                quantity_completed=pos.get('quantity', 1)
+                completed=pos_is_completed,
+                quantity_completed=pos.get('quantity', 1) if pos_is_completed else 0
             )
 
             # Server-side conflict enforcement for batch operation

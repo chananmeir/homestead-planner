@@ -7,8 +7,11 @@ Phase 2 tests assert corrected behavior after normalization.
 Uses full_app/auth_client fixtures from conftest.py for HTTP-level tests.
 """
 
+from datetime import date, timedelta
+
 import pytest
-from models import db, PlantingEvent, PlantedItem, GardenBed
+from models import db, PlantingEvent, PlantedItem, GardenBed, IndoorSeedStart
+from simulation_clock import set_simulated_date
 
 
 # =====================================================================
@@ -368,3 +371,262 @@ class TestCrossModelIndependence:
             # PlantingEvent should NOT be completed
             ev = PlantingEvent.query.get(event.id)
             assert ev.completed is False
+
+
+# =====================================================================
+# Class 6: TestFutureDatedPlacementCompletion (6 tests)
+#
+# Regression tests for the future-transplant bug:
+# When a user drags a plant onto the Garden Designer with a future view date,
+# the auto-created PlantingEvent must be born `completed=False` so the
+# calendar/dashboard correctly report it as scheduled rather than done.
+#
+# Investigation:
+# dev/active/production-readiness-audit/future-transplant-planning-vs-completion-investigation.md
+# Decision (Layer 1 only):
+# dev/active/production-readiness-audit/future-transplant-bug-decision.md
+# =====================================================================
+
+
+@pytest.fixture
+def frozen_today_for_placement():
+    """Pin the simulation clock to a known date for placement-completion tests.
+
+    Chosen mid-season so 30-day past/future offsets are still valid plausible
+    planting dates and stay clear of frost-window edge cases that other code
+    paths may consult.
+    """
+    today = date(2026, 6, 1)
+    set_simulated_date(today)
+    yield today
+    set_simulated_date(None)
+
+
+def _bed_for(full_db, user, name='Future-Placement Bed'):
+    bed = GardenBed(user_id=user.id, name=name, width=4.0, length=8.0)
+    full_db.session.add(bed)
+    full_db.session.commit()
+    return bed
+
+
+class TestFutureDatedPlacementCompletion:
+    """Single-drop and batch-drop completion based on planted_date vs today."""
+
+    # carrot-1 has weeksIndoors=0 -> direct-sow default, no IndoorSeedStart
+    # auto-creation noise. Use this for the pure completion-flag tests.
+    DIRECT_PLANT_ID = 'carrot-1'
+
+    # tomato-1 has weeksIndoors=6 -> transplant default, IndoorSeedStart auto-
+    # creates. Use this only where the test specifically cares about the
+    # interaction with the indoor-start path.
+    TRANSPLANT_PLANT_ID = 'tomato-1'
+
+    def test_single_drop_past_date_creates_completed_event(
+        self, full_app, full_db, user_a, auth_client_a, frozen_today_for_placement
+    ):
+        """Past plantedDate (30d ago) -> PlantingEvent.completed=True."""
+        with full_app.app_context():
+            bed = _bed_for(full_db, user_a)
+            past = (frozen_today_for_placement - timedelta(days=30)).isoformat()
+            resp = auth_client_a.post('/api/planted-items', json={
+                'plantId': self.DIRECT_PLANT_ID,
+                'gardenBedId': bed.id,
+                'plantedDate': past,
+                'position': {'x': 0, 'y': 0},
+                'quantity': 5,
+                'status': 'planned',
+                'plantingMethod': 'direct',
+            })
+            assert resp.status_code == 201, resp.get_json()
+            events = PlantingEvent.query.filter_by(
+                user_id=user_a.id, garden_bed_id=bed.id
+            ).all()
+            assert len(events) == 1
+            ev = events[0]
+            assert ev.completed is True, (
+                'Past-dated drop must be born completed=True (preserves prior behavior)'
+            )
+            assert ev.quantity_completed == 5
+
+    def test_single_drop_today_creates_completed_event(
+        self, full_app, full_db, user_a, auth_client_a, frozen_today_for_placement
+    ):
+        """Today's plantedDate -> PlantingEvent.completed=True."""
+        with full_app.app_context():
+            bed = _bed_for(full_db, user_a)
+            today_iso = frozen_today_for_placement.isoformat()
+            resp = auth_client_a.post('/api/planted-items', json={
+                'plantId': self.DIRECT_PLANT_ID,
+                'gardenBedId': bed.id,
+                'plantedDate': today_iso,
+                'position': {'x': 0, 'y': 0},
+                'quantity': 3,
+                'status': 'planned',
+                'plantingMethod': 'direct',
+            })
+            assert resp.status_code == 201, resp.get_json()
+            events = PlantingEvent.query.filter_by(
+                user_id=user_a.id, garden_bed_id=bed.id
+            ).all()
+            assert len(events) == 1
+            ev = events[0]
+            assert ev.completed is True, (
+                "Today's date is the boundary case and must count as completed"
+            )
+            assert ev.quantity_completed == 3
+
+    def test_single_drop_future_date_creates_scheduled_event(
+        self, full_app, full_db, user_a, auth_client_a, frozen_today_for_placement
+    ):
+        """Future plantedDate (30d ahead) -> PlantingEvent.completed=False, qty_completed=0.
+
+        This is the bug fix: previously the event was hardcoded completed=True
+        regardless of date, so future drops appeared as already done in the
+        calendar/dashboard.
+        """
+        with full_app.app_context():
+            bed = _bed_for(full_db, user_a)
+            future = (frozen_today_for_placement + timedelta(days=30)).isoformat()
+            resp = auth_client_a.post('/api/planted-items', json={
+                'plantId': self.DIRECT_PLANT_ID,
+                'gardenBedId': bed.id,
+                'plantedDate': future,
+                'position': {'x': 0, 'y': 0},
+                'quantity': 4,
+                'status': 'planned',
+                'plantingMethod': 'direct',
+            })
+            assert resp.status_code == 201, resp.get_json()
+            events = PlantingEvent.query.filter_by(
+                user_id=user_a.id, garden_bed_id=bed.id
+            ).all()
+            assert len(events) == 1
+            ev = events[0]
+            assert ev.completed is False, (
+                'Future-dated drop must NOT be born completed (calendar/dashboard '
+                'should show it as scheduled work)'
+            )
+            assert ev.quantity_completed == 0
+            assert ev.is_complete is False
+
+    def test_batch_drop_all_future_creates_scheduled_events(
+        self, full_app, full_db, user_a, auth_client_a, frozen_today_for_placement
+    ):
+        """Batch with all-future positions -> every event completed=False."""
+        with full_app.app_context():
+            bed = _bed_for(full_db, user_a)
+            future = (frozen_today_for_placement + timedelta(days=30)).isoformat()
+            resp = auth_client_a.post('/api/planted-items/batch', json={
+                'plantId': self.DIRECT_PLANT_ID,
+                'gardenBedId': bed.id,
+                'plantedDate': future,
+                'plantingMethod': 'direct',
+                'status': 'planned',
+                'positions': [
+                    {'x': 0, 'y': 0, 'quantity': 1},
+                    {'x': 1, 'y': 0, 'quantity': 1},
+                    {'x': 2, 'y': 0, 'quantity': 1},
+                ],
+            })
+            assert resp.status_code == 201, resp.get_json()
+            events = PlantingEvent.query.filter_by(
+                user_id=user_a.id, garden_bed_id=bed.id
+            ).all()
+            assert len(events) == 3
+            for ev in events:
+                assert ev.completed is False, (
+                    f'Future batch event at ({ev.position_x},{ev.position_y}) '
+                    'should not be completed'
+                )
+                assert ev.quantity_completed == 0
+
+    def test_batch_drop_mixed_past_and_future_per_position_dates(
+        self, full_app, full_db, user_a, auth_client_a, frozen_today_for_placement
+    ):
+        """Batch with per-position plantedDate values (some past, some future).
+
+        The batch endpoint accepts an optional `plantedDate` on each position
+        (gardens_bp.py:715-717) for date-staggered planting. Each event must
+        be evaluated against its own date, not the request-level fallback.
+        """
+        with full_app.app_context():
+            bed = _bed_for(full_db, user_a)
+            today = frozen_today_for_placement
+            past = (today - timedelta(days=14)).isoformat()
+            future = (today + timedelta(days=14)).isoformat()
+            resp = auth_client_a.post('/api/planted-items/batch', json={
+                'plantId': self.DIRECT_PLANT_ID,
+                'gardenBedId': bed.id,
+                # Request-level plantedDate is set to today so the fallback
+                # is itself "completed" — the only way the future position
+                # can be incomplete is if the per-position date is honored.
+                'plantedDate': today.isoformat(),
+                'plantingMethod': 'direct',
+                'status': 'planned',
+                'positions': [
+                    {'x': 0, 'y': 0, 'quantity': 1, 'plantedDate': past},
+                    {'x': 1, 'y': 0, 'quantity': 1, 'plantedDate': future},
+                ],
+            })
+            assert resp.status_code == 201, resp.get_json()
+            events = PlantingEvent.query.filter_by(
+                user_id=user_a.id, garden_bed_id=bed.id
+            ).order_by(PlantingEvent.position_x).all()
+            assert len(events) == 2
+
+            past_event, future_event = events
+            assert past_event.position_x == 0
+            assert past_event.completed is True, (
+                'Per-position past date should produce a completed event'
+            )
+            assert past_event.quantity_completed == 1
+
+            assert future_event.position_x == 1
+            assert future_event.completed is False, (
+                'Per-position future date should produce a scheduled event'
+            )
+            assert future_event.quantity_completed == 0
+
+    def test_future_transplant_preserves_indoor_seed_start_creation(
+        self, full_app, full_db, user_a, auth_client_a, frozen_today_for_placement
+    ):
+        """Future-dated transplant drop: PlantingEvent is scheduled (not completed),
+        but IndoorSeedStart is still auto-created.
+
+        Layer 2 (skip indoor-start for nursery transplants) is explicitly out of
+        scope for this fix. This test pins existing behavior so the Layer 1
+        completion change does not accidentally regress the indoor-start path.
+        """
+        with full_app.app_context():
+            bed = _bed_for(full_db, user_a)
+            # 60 days into the future, well past the 6-week indoor lead time
+            # for tomato-1 -> back-calc lands roughly 18 days in the future
+            # (no past-clamp).
+            future = (frozen_today_for_placement + timedelta(days=60)).isoformat()
+            resp = auth_client_a.post('/api/planted-items', json={
+                'plantId': self.TRANSPLANT_PLANT_ID,
+                'gardenBedId': bed.id,
+                'plantedDate': future,
+                'position': {'x': 0, 'y': 0},
+                'quantity': 2,
+                'status': 'planned',
+                'plantingMethod': 'transplant',
+            })
+            assert resp.status_code == 201, resp.get_json()
+
+            # PlantingEvent: scheduled (Layer 1 fix)
+            events = PlantingEvent.query.filter_by(
+                user_id=user_a.id, garden_bed_id=bed.id
+            ).all()
+            assert len(events) == 1
+            ev = events[0]
+            assert ev.completed is False
+            assert ev.quantity_completed == 0
+
+            # IndoorSeedStart: still auto-created (Layer 2 out of scope)
+            seed_starts = IndoorSeedStart.query.filter_by(user_id=user_a.id).all()
+            assert len(seed_starts) == 1, (
+                'Layer 1 fix must not regress IndoorSeedStart auto-creation '
+                'for future transplants. Layer 2 (opt-out) is a separate concern.'
+            )
+            assert seed_starts[0].planting_event_id == ev.id
