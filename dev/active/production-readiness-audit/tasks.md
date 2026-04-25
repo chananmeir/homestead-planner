@@ -1,7 +1,7 @@
 # Production Readiness Audit - Task Checklist
 
 **Created**: 2026-04-22
-**Last Updated**: 2026-04-23
+**Last Updated**: 2026-04-25
 
 ## Purpose
 
@@ -42,6 +42,7 @@ When an item is marked verified, capture evidence where practical:
 - **2026-04-23 - New Property Designer workspace-layout issue logged**. Separate from empty-state CTA visibility: once a property exists, too much vertical space is consumed by summary/header content, leaving the actual design canvas cramped. Tracked in `developer-issue-log.md` as `AUDIT-012` and in `property-designer-workspace-finding.md`.
 - **2026-04-23 - AUDIT-012 verified closed**. Property Designer populated-state header was compressed so the canvas now dominates the viewport. User re-test reported the workspace looks materially better while keeping the `AUDIT-001` empty-state path intact.
 - **2026-04-23 - AUDIT-011 verified closed after active-plan scoping fix**. Indoor Starts import modal now scopes rows to the active plan when `planId` is present, re-fetches when the active plan changes, and still surfaces unattributed rows as `Unknown plan`. User re-test reported the modal now appears to show the correct active-plan rows.
+- **2026-04-25 - Calendar / Indoor Starts consistency (A1) shipped**. P1 finding resolved as `AUDIT-016`. Calendar surfaces (`DayDetailModal.tsx`, `EventMarker.tsx`, `GroupedEventsModal.tsx`, `ListView/index.tsx`) now distinguish `Tracked` (solid green pill) vs `Plan only` (amber outline pill / dashed marker border) for indoor-start events; DayDetailModal exposes an inline `Start tracking` action on plan-only rows. Indoor Starts page (`IndoorSeedStarts.tsx`) surfaces a collapsible banner above the card grid listing planned seedings from the active plan that are not yet tracked, with per-row `Start tracking` / `Dismiss` (client-only). Both action paths POST to the existing `/api/indoor-seed-starts/from-planting-event` with `overdueMode='reschedule_today'`. **Zero backend changes**, no schema, no paired-file sync touched. Authoritative `Plan only` predicate is `indoorSeedStartStatus == null && seedStartDate != null` (not falsy). 16 frontend tests added (`code-review` LGTM); R1 SearchBar/sort scope creep flagged in review and reverted before ship. **A2 (auto-create `IndoorSeedStart` on Export to Calendar) explicitly deferred** — see `calendar-indoor-start-consistency-decision.md`. Full context: `calendar-indoor-start-consistency-{finding,triage,decision,plan,a1-approval,slice-a-report,slice-b-report,slice-c-report,slice-d-code-review,code-review-response}.md`.
 
 ## Phase A / Phase B Status
 

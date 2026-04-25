@@ -1,0 +1,79 @@
+/**
+ * Slice C tests for EventMarker — calendar/indoor-starts consistency.
+ *
+ * Asserts the dashed outline visual treatment for "plan-only" seed-start
+ * markers (PlantingEvent has a seedStartDate but no linked IndoorSeedStart,
+ * so indoorSeedStartStatus == null). Tracked seed starts (status set) must
+ * NOT receive the dashed outline.
+ *
+ * Plan/Slice A reference:
+ *   dev/active/production-readiness-audit/calendar-indoor-start-consistency-slice-a-report.md
+ */
+import React from 'react';
+import { render } from '@testing-library/react';
+
+import EventMarker from '../EventMarker';
+import type { DateMarker } from '../utils';
+import type { PlantingCalendar } from '../../../../types';
+
+// Build a minimal seed-start single-marker for the EventMarker component.
+// EventMarker receives a `marker: DateMarkerOrGroup` prop; for a plain
+// (non-grouped) marker it expects shape { date, type, event }.
+function makeSeedStartMarker(
+  overrides: Partial<PlantingCalendar> = {}
+): DateMarker {
+  const event: PlantingCalendar = {
+    id: 1001,
+    plantId: 'tomato-1',
+    variety: 'Brandywine',
+    seedStartDate: new Date('2026-03-15'),
+    transplantDate: new Date('2026-05-10'),
+    expectedHarvestDate: new Date('2026-07-25'),
+    completed: false,
+    eventType: 'planting',
+    ...overrides,
+  } as PlantingCalendar;
+
+  return {
+    date: new Date('2026-03-15'),
+    type: 'seed-start',
+    event,
+  };
+}
+
+describe('EventMarker — Plan only vs Tracked visual treatment', () => {
+  test('plan-only seed-start (indoorSeedStartStatus == null) renders dashed amber outline', () => {
+    const marker = makeSeedStartMarker({ indoorSeedStartStatus: undefined });
+    const { container } = render(<EventMarker marker={marker} />);
+
+    // The outer marker chip is the only element rendered at the root.
+    const chip = container.firstChild as HTMLElement;
+    expect(chip).toBeTruthy();
+    expect(chip.className).toMatch(/border-dashed/);
+    expect(chip.className).toMatch(/border-amber-300/);
+    // Tooltip should call out the plan-only state.
+    expect(chip.getAttribute('title')).toMatch(/\[Plan only\]/);
+  });
+
+  test('tracked seed-start (indoorSeedStartStatus="planned") does NOT render dashed outline', () => {
+    const marker = makeSeedStartMarker({ indoorSeedStartStatus: 'planned' });
+    const { container } = render(<EventMarker marker={marker} />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip).toBeTruthy();
+    // Dashed outline is reserved for plan-only — must not appear when tracked.
+    expect(chip.className).not.toMatch(/border-dashed/);
+    // And tooltip must NOT carry the plan-only flag.
+    expect(chip.getAttribute('title') || '').not.toMatch(/Plan only/);
+  });
+
+  test('tracked seed-start with status="growing" also does NOT render dashed outline', () => {
+    // Any non-null status counts as tracked. Verify a downstream lifecycle
+    // value (e.g., 'growing') is treated identically to 'planned'.
+    const marker = makeSeedStartMarker({ indoorSeedStartStatus: 'growing' });
+    const { container } = render(<EventMarker marker={marker} />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).not.toMatch(/border-dashed/);
+  });
+});

@@ -142,6 +142,14 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
     ? marker.events.every(e => isPhaseComplete(e))
     : isPhaseComplete(marker.event);
 
+  // Plan-only detection (seed-start markers only): event has a seedStartDate but
+  // no linked IndoorSeedStart yet (indoorSeedStartStatus == null).
+  const isPlanOnlySeedStart = (() => {
+    if (marker.type !== 'seed-start') return false;
+    const eventsList = isGrouped ? marker.events : [marker.event];
+    return eventsList.every(e => e.indoorSeedStartStatus == null && e.seedStartDate != null);
+  })();
+
   // Get color based on plant category
   const colorClass = getCategoryColor(plant.category);
   const icon = getEventIcon(marker.type);
@@ -157,6 +165,7 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
   const tooltipText = [
     isCompleted ? '[Done]' : null,
     hasWeatherWarning ? (coldStatus === 'too_cold' ? '[TOO COLD]' : coldStatus === 'too_hot' ? '[TOO HOT]' : '[MARGINAL SOIL TEMP]') : null,
+    isPlanOnlySeedStart ? '[Plan only]' : null,
     label,
     plant.name,
     variety ? `(${variety})` : null,
@@ -169,6 +178,7 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
         ${isCompleted ? 'bg-gray-400' : colorClass} text-white text-xs px-2 py-1 rounded
         flex items-center gap-1 cursor-pointer
         hover:opacity-80 transition-opacity
+        ${isPlanOnlySeedStart && !isCompleted && !hasWeatherWarning ? 'border border-dashed border-amber-300' : ''}
         ${hasWeatherWarning ? 'ring-2 ring-offset-1 ' + (coldStatus === 'too_cold' ? 'ring-red-500' : coldStatus === 'too_hot' ? 'ring-orange-500' : 'ring-yellow-400') : ''}
       `}
       title={tooltipText}

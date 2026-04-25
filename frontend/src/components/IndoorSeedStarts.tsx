@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
+import { apiGet, apiPost, apiDelete } from '../utils/api';
 import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
 import { useToast } from './common/Toast';
 import { Modal } from './common/Modal';
 import { ConfirmDialog } from './common/ConfirmDialog';
 import { ImportFromGardenModal } from './IndoorSeedStarts/ImportFromGardenModal';
-import { EditSeedStartModal, IndoorSeedStart as SharedIndoorSeedStart } from './IndoorSeedStarts/EditSeedStartModal';
+import { EditSeedStartModal } from './IndoorSeedStarts/EditSeedStartModal';
 import { FailedSeedStartDialog } from './IndoorSeedStarts/FailedSeedStartDialog';
 import PlantIcon from './common/PlantIcon';
 import { parseLocalDate } from '../utils/dateUtils';
@@ -74,6 +74,31 @@ interface IndoorSeedStartsProps {
   onFocusConsumed?: () => void;
 }
 
+// Slice B: shape returned by GET /api/planting-events/needs-indoor-starts.
+// Mirrors backend response (camelCase) — see ImportFromGardenModal for the
+// authoritative interface; we keep a local copy here to avoid coupling the
+// page to that modal's internal types.
+interface PlanOnlySeeding {
+  plantingEventId: number;
+  plantId: string;
+  plantName: string;
+  plantIcon: string;
+  variety?: string;
+  gardenBedId?: number;
+  gardenBedName?: string;
+  transplantDate: string;
+  weeksIndoors: number;
+  germinationDays: number;
+  suggestedIndoorStartDate: string;
+  expectedGerminationDate: string;
+  daysUntilStart: number;
+  timingStatus: 'good' | 'urgent' | 'past';
+  canStartIndoors: boolean;
+  spaceRequired?: number;
+  planId?: number | null;
+  planName?: string | null;
+}
+
 const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, focusIndoorStartId, onFocusConsumed }) => {
   const now = useNow();
   const [seedStarts, setSeedStarts] = useState<IndoorSeedStart[]>([]);
@@ -87,6 +112,11 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showImportModal, setShowImportModal] = useState(false);
   const [failedCascadeSeedStart, setFailedCascadeSeedStart] = useState<IndoorSeedStart | null>(null);
+  // Slice B: plan-only seedings banner state.
+  const [needsIndoorStarts, setNeedsIndoorStarts] = useState<PlanOnlySeeding[]>([]);
+  const [bannerExpanded, setBannerExpanded] = useState<boolean>(false);
+  const [dismissedIds, setDismissedIds] = useState<Set<number>>(new Set());
+  const [bannerActionInFlight, setBannerActionInFlight] = useState<Set<number>>(new Set());
   const { showSuccess, showError } = useToast();
 
   // Two-phase focus resolution: first renders resolve against whatever seedStarts
@@ -141,6 +171,15 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
       if (inventoryResponse.ok) {
         const inventoryData = await inventoryResponse.json();
         setSeedInventory(inventoryData);
+      }
+
+      // Slice B: load plan-only seedings for the banner. Endpoint already
+      // pre-filters to events with weeksIndoors > 0 + transplant_date set +
+      // no linked IndoorSeedStart, so every row qualifies as "plan only".
+      const needsResponse = await apiGet('/api/planting-events/needs-indoor-starts');
+      if (needsResponse.ok) {
+        const needsData = await needsResponse.json();
+        setNeedsIndoorStarts(needsData.events || []);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -221,6 +260,96 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
     } finally {
       setDeleteConfirm(false);
       setSelectedSeedStart(null);
+    }
+  };
+
+  // Slice B: rows visible in the plan-only banner (raw needs minus dismissed).
+  // The banner suppresses itself when this is empty.
+  const visibleBannerRows = React.useMemo(
+    () => needsIndoorStarts.filter(e => !dismissedIds.has(e.plantingEventId)),
+    [needsIndoorStarts, dismissedIds]
+  );
+
+  const handleDismissBannerRow = (plantingEventId: number) => {
+    setDismissedIds(prev => {
+      const next = new Set(prev);
+      next.add(plantingEventId);
+      return next;
+    });
+  };
+
+  const handleStartTrackingBannerRow = async (event: PlanOnlySeeding) => {
+    if (bannerActionInFlight.has(event.plantingEventId)) return;
+    setBannerActionInFlight(prev => {
+      const next = new Set(prev);
+      next.add(event.plantingEventId);
+      return next;
+    });
+    try {
+      const payload = {
+        plantingEventId: event.plantingEventId,
+        plantId: event.plantId,
+        variety: event.variety,
+        transplantDate: event.transplantDate,
+        desiredQuantity: event.spaceRequired || 1,
+        overdueMode: 'reschedule_today' as const,
+      };
+      const response = await apiPost(
+        '/api/indoor-seed-starts/from-planting-event',
+        payload
+      );
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        // Defensive: under reschedule_today the skip path should not fire,
+        // but handle it gracefully if the backend ever returns one.
+        if (data && data.skipped === true) {
+          showError(data.skippedReason || 'Could not start tracking');
+          return;
+        }
+        // Endpoint returns { indoorSeedStart, calculation } on 201. Append
+        // the new card so the user sees it immediately without a refetch.
+        const created: IndoorSeedStart | undefined = data && data.indoorSeedStart;
+        if (created) {
+          setSeedStarts(prev => [...prev, created]);
+        }
+        // Remove the row from the banner via the dismissed-set so visibleRows
+        // updates immediately even if a refetch hasn't fired.
+        handleDismissBannerRow(event.plantingEventId);
+        // If the active filter would hide the new card, tell the user where
+        // it landed (the endpoint always creates with status='planned').
+        if (filterStatus !== 'all' && filterStatus !== 'planned') {
+          showSuccess('Now tracking — visible under Planned');
+        } else {
+          showSuccess('Now tracking');
+        }
+      } else {
+        const message =
+          (data && (data.error || data.message)) || 'Could not start tracking';
+        showError(message);
+      }
+    } catch (error) {
+      console.error('Error starting tracking from banner:', error);
+      showError('Network error — could not start tracking');
+    } finally {
+      setBannerActionInFlight(prev => {
+        const next = new Set(prev);
+        next.delete(event.plantingEventId);
+        return next;
+      });
+    }
+  };
+
+  // Slice B: format the suggested indoor start date for banner display.
+  // suggestedIndoorStartDate is what the endpoint *would* write (computed
+  // server-side as transplantDate − weeksIndoors), so showing it here
+  // matches what the user will see on the new card. Falls back gracefully.
+  const formatSuggestedStartDate = (event: PlanOnlySeeding): string => {
+    const raw = event.suggestedIndoorStartDate;
+    if (!raw) return '-';
+    try {
+      return new Date(raw).toLocaleDateString();
+    } catch {
+      return raw;
     }
   };
 
@@ -318,6 +447,109 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
           ))}
         </div>
       </div>
+
+      {/* Slice B: Plan-only seedings banner. Renders above the card grid /
+          empty state when there are PlantingEvents with weeksIndoors > 0 +
+          transplant_date set + no linked IndoorSeedStart. Hidden when zero. */}
+      {visibleBannerRows.length > 0 && (
+        <div
+          data-testid="plan-only-seedings-banner"
+          className="bg-amber-50 border border-amber-200 rounded-lg shadow-sm mb-6"
+        >
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2">
+              <svg
+                className="w-5 h-5 text-amber-600 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+              <p className="text-sm text-amber-900">
+                <strong>{visibleBannerRows.length}</strong> planned seeding
+                {visibleBannerRows.length === 1 ? '' : 's'} from your garden plan
+                {visibleBannerRows.length === 1 ? ' is' : ' are'} not yet tracked
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBannerExpanded(prev => !prev)}
+              className="text-sm font-medium text-amber-700 hover:text-amber-900"
+              aria-expanded={bannerExpanded}
+            >
+              {bannerExpanded ? 'Hide ▴' : 'Show all ▾'}
+            </button>
+          </div>
+
+          {bannerExpanded && (
+            <ul className="border-t border-amber-200 divide-y divide-amber-100">
+              {visibleBannerRows.map(event => {
+                const inFlight = bannerActionInFlight.has(event.plantingEventId);
+                return (
+                  <li
+                    key={event.plantingEventId}
+                    data-testid={`plan-only-row-${event.plantingEventId}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <PlantIcon
+                        plantId={event.plantId}
+                        plantIcon={event.plantIcon || getPlantIcon(event.plantId)}
+                        size={36}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-gray-900 truncate">
+                          {event.plantName || getPlantName(event.plantId)}
+                          {event.variety ? (
+                            <span className="text-gray-600 font-normal">
+                              {' '}— {event.variety}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-gray-600 mt-0.5">
+                          Start indoors:{' '}
+                          <span className="font-medium">
+                            {formatSuggestedStartDate(event)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleStartTrackingBannerRow(event)}
+                        disabled={inFlight}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                          inFlight
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-amber-600 hover:bg-amber-700 text-white'
+                        }`}
+                      >
+                        {inFlight ? 'Starting…' : 'Start tracking'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDismissBannerRow(event.plantingEventId)}
+                        disabled={inFlight}
+                        className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Seed Starts List */}
       {filteredStarts.length === 0 ? (
@@ -722,7 +954,7 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
         startDate: today
       }));
     }
-  }, [isOpen]);
+  }, [isOpen, today]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

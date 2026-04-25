@@ -326,6 +326,7 @@ Status progression: **planned → seeded → germinating → growing → hardeni
 ### Actions
 - **Add new seed start** with full configuration
 - **Import from garden plan** — bulk-create starts from plan items that need indoor starting
+- **Plan-only seedings banner** — collapsible banner above the card grid lists scheduled indoor starts from the active plan that are not yet tracked, with per-row `Start tracking` and `Dismiss` actions
 - **Mark germinated** with count and date
 - **Mark ready to transplant** (status → hardening, countdown shown)
 - **Move to Garden** → jumps to Designer with context

@@ -1,7 +1,7 @@
 # Production Readiness Audit - Developer Issue Log
 
 **Created**: 2026-04-23
-**Last Updated**: 2026-04-23
+**Last Updated**: 2026-04-25 (added AUDIT-016 calendar / indoor-starts consistency A1)
 
 ## Purpose
 
@@ -375,6 +375,31 @@ Copy this block for each new issue:
   - [x] A confirm dialog appears before the transplant-status write for pre-ready states.
   - [x] `hardening` keeps the direct transplant wording/path.
 - Notes: User re-test on 2026-04-23 confirmed the confirm dialog appears as expected. This closes the smaller banner/write-path safety issue only. The broader specific-placement workflow question remains open as `AUDIT-013`.
+
+## AUDIT-016
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: `calendar-indoor-start-consistency-finding.md`
+- Area: Planting Calendar / Indoor Seed Starts cross-page consistency
+- Summary: PlantingEvents with a `seedStartDate` were rendered identically on the calendar regardless of whether they had a linked `IndoorSeedStart`, and the Indoor Starts page never surfaced "scheduled but not yet tracked" seedings, leaving users no obvious reconciliation path between the schedule layer and the tracking layer.
+- Expected: Calendar surfaces should visually distinguish tracked indoor starts from plan-only ones, and the Indoor Starts page should surface plan-only seedings with a one-click way to begin tracking them.
+- Actual: Both layers existed in isolation. `export_to_calendar` creates `PlantingEvent` rows but no `IndoorSeedStart` rows; nothing in the UI told users this asymmetry existed or how to bridge it.
+- Impact: Users could believe an exported plan was "set up" for indoor starts without ever creating the tracking records; conversely, the Indoor Starts page felt empty even though plenty of plan items implied indoor work.
+- Repro steps:
+  1. Export a plan whose items have transplant-method seedings (e.g., tomatoes, peppers).
+  2. Open the calendar around the relevant `seedStartDate` — observe markers/rows look identical to tracked ones.
+  3. Open the Indoor Starts page — observe no surface listing the just-exported planned seedings.
+- Evidence: `calendar-indoor-start-consistency-finding.md`, `calendar-indoor-start-consistency-triage.md`, `calendar-indoor-start-consistency-decision.md`, `calendar-indoor-start-consistency-plan.md`, `calendar-indoor-start-consistency-a1-approval.md`, `calendar-indoor-start-consistency-slice-a-report.md`, `calendar-indoor-start-consistency-slice-b-report.md`, `calendar-indoor-start-consistency-slice-c-report.md`, `calendar-indoor-start-consistency-slice-d-code-review.md`, `calendar-indoor-start-consistency-code-review-response.md`
+- Suspected files / systems: `frontend/src/components/PlantingCalendar/CalendarGrid/DayDetailModal.tsx`, `frontend/src/components/PlantingCalendar/CalendarGrid/EventMarker.tsx`, `frontend/src/components/PlantingCalendar/CalendarGrid/GroupedEventsModal.tsx`, `frontend/src/components/PlantingCalendar/ListView/index.tsx`, `frontend/src/components/IndoorSeedStarts.tsx`
+- Acceptance criteria:
+  - [x] Calendar surfaces show a `Tracked` / `Plan only` distinction on indoor-start rows where `seedStartDate` is set.
+  - [x] DayDetailModal exposes a one-click `Start tracking` action on plan-only rows.
+  - [x] Indoor Starts page surfaces a banner listing plan-only seedings from the active plan, with per-row `Start tracking` / `Dismiss`.
+  - [x] All write paths use the existing `/api/indoor-seed-starts/from-planting-event` endpoint with `overdueMode='reschedule_today'`.
+  - [x] No backend changes, no schema changes, no paired-file sync triggered.
+  - [x] `Plan only` predicate uses `== null` (not falsy) on `indoorSeedStartStatus`.
+- Notes: A1 of two product options. **A2 (auto-create `IndoorSeedStart` on Export to Calendar) was explicitly deferred** — see `calendar-indoor-start-consistency-decision.md` for reasoning; do not propose A2 again without revisiting that decision. 16 frontend tests added across DayDetailModal, EventMarker, GroupedEventsModal, ListView, and the IndoorSeedStarts banner. `code-review` returned LGTM; an R1 SearchBar/sort scope creep was flagged and reverted in the parent session before ship. Banner data source: existing `GET /api/planting-events/needs-indoor-starts` endpoint. Source bed name omitted from banner per locked default. Banner dismissal is client-only (no backend write).
 
 ## Closed / Non-Developer Action Items
 

@@ -279,7 +279,22 @@ const GroupedEventsModal: React.FC<GroupedEventsModalProps> = ({
                     )}
 
                     {/* Status badges */}
-                    <div className="flex gap-2 mt-2">
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      {/* Indoor seed start tracking pill (seed-start markers only) */}
+                      {marker.type === 'seed-start' && event.seedStartDate && (
+                        event.indoorSeedStartStatus != null ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700">
+                            Tracked
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border border-amber-400 text-amber-700 bg-amber-50"
+                            title="Scheduled in your plan but not yet on the Indoor Starts page. Click Start tracking to add it."
+                          >
+                            Plan only
+                          </span>
+                        )
+                      )}
                       {/* Completion Status Badge - Enhanced */}
                       {event.quantity && event.quantityCompleted !== null && event.quantityCompleted !== undefined ? (
                         isEventComplete(event) ? (

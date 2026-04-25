@@ -413,9 +413,25 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                                   className="w-5 h-5"
                                 />
                                 <div>
-                                  <h5 className="font-semibold text-gray-800">
-                                    {plant.name}
-                                  </h5>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h5 className="font-semibold text-gray-800">
+                                      {plant.name}
+                                    </h5>
+                                    {event.seedStartDate && (
+                                      event.indoorSeedStartStatus != null ? (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-green-100 text-green-700">
+                                          Tracked
+                                        </span>
+                                      ) : (
+                                        <span
+                                          className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border border-amber-400 text-amber-700 bg-amber-50"
+                                          title="Scheduled in your plan but not yet on the Indoor Starts page. Click Start tracking to add it."
+                                        >
+                                          Plan only
+                                        </span>
+                                      )
+                                    )}
+                                  </div>
                                   <div className="text-sm text-gray-600 space-y-1 mt-1">
                                     {(() => {
                                       let seedStart = event.seedStartDate;

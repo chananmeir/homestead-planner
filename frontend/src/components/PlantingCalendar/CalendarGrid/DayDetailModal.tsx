@@ -4,7 +4,8 @@ import { format } from 'date-fns';
 import { PlantingCalendar } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import PlantIcon from '../../common/PlantIcon';
-import { apiPatch, apiDelete } from '../../../utils/api';
+import { apiPatch, apiDelete, apiPost } from '../../../utils/api';
+import { useToast } from '../../common/Toast';
 
 interface DayDetailModalProps {
   isOpen: boolean;
@@ -38,6 +39,8 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkSwitching, setBulkSwitching] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [trackingId, setTrackingId] = useState<number | null>(null);
+  const { showSuccess, showError } = useToast();
 
   // Reset selection when modal closes or a different day is opened
   useEffect(() => {
@@ -110,6 +113,38 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
       console.error('Bulk switch to direct seed failed:', err);
     } finally {
       setBulkSwitching(false);
+    }
+  };
+
+  const handleStartTracking = async (event: PlantingCalendar) => {
+    setTrackingId(event.id);
+    try {
+      const response = await apiPost('/api/indoor-seed-starts/from-planting-event', {
+        plantingEventId: event.id,
+        plantId: event.plantId,
+        variety: event.variety,
+        transplantDate: event.transplantDate,
+        desiredQuantity: event.quantity,
+        overdueMode: 'reschedule_today',
+      });
+      if (response.ok) {
+        showSuccess('Now tracking this seeding on the Indoor Starts page.');
+        if (onEventUpdated) onEventUpdated();
+      } else {
+        let message = 'Could not start tracking this seeding.';
+        try {
+          const body = await response.json();
+          if (body && typeof body.error === 'string') message = body.error;
+        } catch {
+          // ignore JSON parse errors; fall back to default message
+        }
+        showError(message);
+      }
+    } catch (err) {
+      console.error('Failed to start tracking indoor seed start:', err);
+      showError('Network error while starting tracking.');
+    } finally {
+      setTrackingId(null);
     }
   };
 
@@ -186,6 +221,12 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                         ? !!event.harvestCompleted
                         : (event.completed || event.isComplete);
                       const isSelectable = isSeedStartPhase && !isCompleted;
+                      const isPlanOnly =
+                        isSeedStartPhase &&
+                        event.indoorSeedStartStatus == null &&
+                        event.seedStartDate != null;
+                      const isTracked =
+                        isSeedStartPhase && event.indoorSeedStartStatus != null;
 
                       return (
                         <div
@@ -212,12 +253,35 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                                 {plant?.name || event.plantId}
                                 {event.variety && <span className="text-gray-500 font-normal ml-1">({event.variety})</span>}
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
                                 {event.quantity != null && <span>{event.quantity} plants</span>}
                                 {bedName && <span className="text-green-600">{bedName}</span>}
+                                {isTracked && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-green-100 text-green-700">
+                                    Tracked
+                                  </span>
+                                )}
+                                {isPlanOnly && (
+                                  <span
+                                    className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border border-amber-400 text-amber-700 bg-amber-50"
+                                    title="Scheduled in your plan but not yet on the Indoor Starts page. Click Start tracking to add it."
+                                  >
+                                    Plan only
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
+                          {isPlanOnly && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleStartTracking(event); }}
+                              disabled={trackingId === event.id}
+                              className="text-xs px-2 py-1 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded transition-colors flex-shrink-0"
+                              title="Start tracking this seeding on the Indoor Starts page"
+                            >
+                              {trackingId === event.id ? 'Starting...' : 'Start tracking'}
+                            </button>
+                          )}
                           {isCompleted && (
                             <span className="text-green-600 text-sm font-medium">{'\u2713'}</span>
                           )}
