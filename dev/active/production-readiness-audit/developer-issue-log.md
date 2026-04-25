@@ -376,6 +376,32 @@ Copy this block for each new issue:
   - [x] `hardening` keeps the direct transplant wording/path.
 - Notes: User re-test on 2026-04-23 confirmed the confirm dialog appears as expected. This closes the smaller banner/write-path safety issue only. The broader specific-placement workflow question remains open as `AUDIT-013`.
 
+## AUDIT-015
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: `dashboard-stale-needs-attention-finding.md`
+- Area: Dashboard / Needs Attention Today
+- Summary: Stale reminders from Feb 1 / Feb 2 were still surfacing in `Needs Attention Today` on Apr 24 as if they were normal current-day actions.
+- Expected: `Needs Attention Today` should primarily surface items meaningfully actionable today; overdue items should age out of the primary feed or move to a lower-priority state, without silently rewriting history on integrity-sensitive records (harvests, seed-saving, inventory).
+- Actual: Every signal builder let items fall through as long as the domain completion predicate was false. No server-side age-out filter existed, so indoor-start / transplant / direct-sow / germination-check reminders from months ago persisted indefinitely.
+- Impact: Dashboard felt noisy and unrealistic; truly current work was harder to see; users felt they had to click through every old task just to make the dashboard usable.
+- Repro steps:
+  1. Load a plan whose indoor-start dates are 30+ days in the past.
+  2. Open the dashboard on a current date.
+  3. Observe stale reminders still present in `Needs Attention Today`.
+- Evidence: `dashboard-stale-needs-attention-finding.md`, `dashboard-stale-needs-attention-plan.md`, `dashboard-stale-needs-attention-decision.md`, `dashboard-stale-needs-attention-backend-report.md`, `dashboard-stale-needs-attention-frontend-report.md`, `dashboard-stale-needs-attention-test-report.md`, `dashboard-stale-needs-attention-code-review.md`
+- Suspected files / systems: `backend/services/dashboard_service.py`, `frontend/src/components/Dashboard/NeedsAttentionPanel.tsx`, `frontend/src/components/Dashboard/types.ts`
+- Acceptance criteria:
+  - [x] Stale indoor-start / transplant / direct-sow reminders age out of the primary feed after a type-specific threshold.
+  - [x] Aged-out items surface in a collapsible `Missed (N)` bucket rather than disappearing entirely.
+  - [x] Harvest rows never hide — demote visually via `isStale` flag but stay visible and clickable.
+  - [x] Germination checks drop silently (no Missed bucket).
+  - [x] Zero state mutation on `PlantingEvent.completed` / `quantity_completed` / `PlantedItem.status` / `IndoorSeedStart.status`.
+  - [x] Snooze/dismiss filter runs across both buckets so dismissals persist across aging.
+  - [x] `signalKey` prefix format preserved so `getCancellableAction()` routing and `NeedsAttentionTarget` deep-link invariants still hold.
+- Notes: Display-layer-only filter. Five module-level constants in `dashboard_service.py` (`STALE_INDOOR_START_DAYS=14`, `STALE_TRANSPLANT_DAYS=10`, `STALE_DIRECT_SEED_DAYS=14`, `STALE_GERMINATION_CHECK_DAYS=14`, `HARVEST_DEMOTION_DAYS=14`). Response shape gains top-level `missed: { indoorStartsDue, transplantsDue, directSeedDue }` alongside `signals.*`; `harvestReady` rows gain `isStale: boolean`. Frontend renders a collapsible `Missed (N)` section (default collapsed) with no `Skip 3d` chip. 29 new backend tests + 12 new frontend tests + 1 new E2E spec. `code-review` returned LGTM on 2026-04-24 with no blocking issues. No schema change, no migration, no paired-file sync needed.
+
 ## AUDIT-016
 
 - Status: `Verified closed`

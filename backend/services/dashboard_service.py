@@ -37,6 +37,15 @@ FROST_RISK_WINDOW_HOURS = 24
 RAIN_ALERT_INCHES = 0.5  # At least this much precipitation => alert
 RAIN_WINDOW_HOURS = 48
 
+# Staleness thresholds (days). Reminders whose trigger date is older than
+# (target_date - threshold) are aged out of the primary "Needs Attention" feed.
+# See dev/active/production-readiness-audit/dashboard-stale-needs-attention-plan.md.
+STALE_INDOOR_START_DAYS = 14      # seed_start_date age threshold
+STALE_TRANSPLANT_DAYS = 10        # transplant_date age threshold
+STALE_DIRECT_SEED_DAYS = 14       # direct_seed_date age threshold
+STALE_GERMINATION_CHECK_DAYS = 14 # expected_germination_date age threshold (silent drop)
+HARVEST_DEMOTION_DAYS = 14        # daysPastExpected threshold for isStale flag (never drops)
+
 
 # ---------------------------------------------------------------------------
 # Date helpers
@@ -115,6 +124,7 @@ def _build_harvest_ready(user_id, target_date):
             PlantingEvent.event_type == 'planting',
             PlantingEvent.expected_harvest_date.isnot(None),
             PlantingEvent.expected_harvest_date <= end_of_day,
+            PlantingEvent.cancelled_at.is_(None),
         )
         .order_by(PlantingEvent.expected_harvest_date.asc())
         .limit(SIGNAL_CAP * 3)  # over-fetch; filter is_complete in Python
@@ -136,6 +146,7 @@ def _build_harvest_ready(user_id, target_date):
         if harvest_date is None:
             continue
         days_past = (target_date - harvest_date).days
+        days_past_clamped = max(0, days_past)
         results.append({
             'signalKey': f'harvest-{e.id}',
             'plantingEventId': e.id,
@@ -144,7 +155,10 @@ def _build_harvest_ready(user_id, target_date):
             'bedId': e.garden_bed_id,
             'bedName': bed_lookup.get(e.garden_bed_id),
             'quantity': e.quantity,
-            'daysPastExpected': max(0, days_past),
+            'daysPastExpected': days_past_clamped,
+            # Harvest rows NEVER drop (integrity-sensitive — would fabricate yield).
+            # Frontend uses isStale to demote tone after HARVEST_DEMOTION_DAYS.
+            'isStale': days_past_clamped > HARVEST_DEMOTION_DAYS,
         })
         if len(results) >= SIGNAL_CAP:
             break
@@ -160,6 +174,11 @@ def _build_indoor_starts_due(user_id, target_date):
     transplant_date (or no transplant_date at all). This uses the existing
     PlantingEvent seed_start_date field that the indoor-seed-starts feature
     sets.
+
+    Returns a dict with two lists:
+      {'active': [...], 'missed': [...]}
+    Items whose seed_start_date is older than STALE_INDOOR_START_DAYS move
+    into `missed`. Neither list mutates any underlying model.
     """
     _, end_of_day = _day_bounds(target_date)
 
@@ -170,13 +189,15 @@ def _build_indoor_starts_due(user_id, target_date):
             PlantingEvent.event_type == 'planting',
             PlantingEvent.seed_start_date.isnot(None),
             PlantingEvent.seed_start_date <= end_of_day,
+            PlantingEvent.cancelled_at.is_(None),
         )
         .order_by(PlantingEvent.seed_start_date.asc())
         .limit(SIGNAL_CAP * 3)
         .all()
     )
 
-    results = []
+    active = []
+    missed = []
     linked_event_ids = set()
     for e in events:
         if e.is_complete:
@@ -184,7 +205,7 @@ def _build_indoor_starts_due(user_id, target_date):
         seed_start = _as_date(e.seed_start_date)
         if seed_start is None:
             continue
-        results.append({
+        row = {
             'signalKey': f'indoor-{e.id}',
             'plantingEventId': e.id,
             'indoorSeedStartId': None,
@@ -192,9 +213,16 @@ def _build_indoor_starts_due(user_id, target_date):
             'variety': e.variety,
             'seedStartDate': seed_start.isoformat(),
             'quantity': e.quantity,
-        })
+        }
+        days_past = (target_date - seed_start).days
+        if days_past > STALE_INDOOR_START_DAYS:
+            if len(missed) < SIGNAL_CAP:
+                missed.append(row)
+        else:
+            if len(active) < SIGNAL_CAP:
+                active.append(row)
         linked_event_ids.add(e.id)
-        if len(results) >= SIGNAL_CAP:
+        if len(active) >= SIGNAL_CAP and len(missed) >= SIGNAL_CAP:
             break
 
     # Also surface standalone IndoorSeedStart records that the user created
@@ -203,7 +231,7 @@ def _build_indoor_starts_due(user_id, target_date):
     # export). We include any IndoorSeedStart whose status is still 'planned'
     # (the seed has not actually been seeded yet) and whose start_date has
     # arrived. Dedup against rows already surfaced via their planting_event_id.
-    if len(results) < SIGNAL_CAP:
+    if len(active) < SIGNAL_CAP or len(missed) < SIGNAL_CAP:
         _, end_of_day = _day_bounds(target_date)
         seed_starts = (
             IndoorSeedStart.query
@@ -212,6 +240,7 @@ def _build_indoor_starts_due(user_id, target_date):
                 IndoorSeedStart.status == 'planned',
                 IndoorSeedStart.start_date.isnot(None),
                 IndoorSeedStart.start_date <= end_of_day,
+                IndoorSeedStart.cancelled_at.is_(None),
             )
             .order_by(IndoorSeedStart.start_date.asc())
             .limit(SIGNAL_CAP * 3)
@@ -223,7 +252,7 @@ def _build_indoor_starts_due(user_id, target_date):
             start_date = _as_date(s.start_date)
             if start_date is None:
                 continue
-            results.append({
+            row = {
                 'signalKey': f'indoor-iss-{s.id}',
                 'plantingEventId': s.planting_event_id,
                 'indoorSeedStartId': s.id,
@@ -231,15 +260,26 @@ def _build_indoor_starts_due(user_id, target_date):
                 'variety': s.variety,
                 'seedStartDate': start_date.isoformat(),
                 'quantity': s.seeds_started,
-            })
-            if len(results) >= SIGNAL_CAP:
+            }
+            days_past = (target_date - start_date).days
+            if days_past > STALE_INDOOR_START_DAYS:
+                if len(missed) < SIGNAL_CAP:
+                    missed.append(row)
+            else:
+                if len(active) < SIGNAL_CAP:
+                    active.append(row)
+            if len(active) >= SIGNAL_CAP and len(missed) >= SIGNAL_CAP:
                 break
 
-    return results
+    return {'active': active, 'missed': missed}
 
 
 def _build_transplants_due(user_id, target_date):
-    """PlantingEvents with transplant_date <= target_date, not complete."""
+    """PlantingEvents with transplant_date <= target_date, not complete.
+
+    Returns a dict {'active': [...], 'missed': [...]}. Items older than
+    STALE_TRANSPLANT_DAYS move into `missed`. Model state is not mutated.
+    """
     _, end_of_day = _day_bounds(target_date)
 
     events = (
@@ -249,6 +289,7 @@ def _build_transplants_due(user_id, target_date):
             PlantingEvent.event_type == 'planting',
             PlantingEvent.transplant_date.isnot(None),
             PlantingEvent.transplant_date <= end_of_day,
+            PlantingEvent.cancelled_at.is_(None),
         )
         .order_by(PlantingEvent.transplant_date.asc())
         .limit(SIGNAL_CAP * 3)
@@ -261,7 +302,8 @@ def _build_transplants_due(user_id, target_date):
         for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
             bed_lookup[bed.id] = bed.name
 
-    results = []
+    active = []
+    missed = []
     for e in events:
         if e.is_complete:
             continue
@@ -276,7 +318,7 @@ def _build_transplants_due(user_id, target_date):
         transplant = _as_date(e.transplant_date)
         if transplant is None:
             continue
-        results.append({
+        row = {
             'signalKey': f'transplant-{e.id}',
             'plantingEventId': e.id,
             'plantName': _plant_name(e.plant_id),
@@ -285,14 +327,25 @@ def _build_transplants_due(user_id, target_date):
             'quantity': e.quantity,
             'bedId': e.garden_bed_id,
             'bedName': bed_lookup.get(e.garden_bed_id),
-        })
-        if len(results) >= SIGNAL_CAP:
+        }
+        days_past = (target_date - transplant).days
+        if days_past > STALE_TRANSPLANT_DAYS:
+            if len(missed) < SIGNAL_CAP:
+                missed.append(row)
+        else:
+            if len(active) < SIGNAL_CAP:
+                active.append(row)
+        if len(active) >= SIGNAL_CAP and len(missed) >= SIGNAL_CAP:
             break
-    return results
+    return {'active': active, 'missed': missed}
 
 
 def _build_direct_seed_due(user_id, target_date):
-    """PlantingEvents with direct_seed_date <= target_date, not complete."""
+    """PlantingEvents with direct_seed_date <= target_date, not complete.
+
+    Returns a dict {'active': [...], 'missed': [...]}. Items older than
+    STALE_DIRECT_SEED_DAYS move into `missed`. Model state is not mutated.
+    """
     _, end_of_day = _day_bounds(target_date)
 
     events = (
@@ -302,6 +355,7 @@ def _build_direct_seed_due(user_id, target_date):
             PlantingEvent.event_type == 'planting',
             PlantingEvent.direct_seed_date.isnot(None),
             PlantingEvent.direct_seed_date <= end_of_day,
+            PlantingEvent.cancelled_at.is_(None),
         )
         .order_by(PlantingEvent.direct_seed_date.asc())
         .limit(SIGNAL_CAP * 3)
@@ -314,14 +368,15 @@ def _build_direct_seed_due(user_id, target_date):
         for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
             bed_lookup[bed.id] = bed.name
 
-    results = []
+    active = []
+    missed = []
     for e in events:
         if e.is_complete:
             continue
         direct_seed = _as_date(e.direct_seed_date)
         if direct_seed is None:
             continue
-        results.append({
+        row = {
             'signalKey': f'direct-seed-{e.id}',
             'plantingEventId': e.id,
             'plantName': _plant_name(e.plant_id),
@@ -330,10 +385,17 @@ def _build_direct_seed_due(user_id, target_date):
             'quantity': e.quantity,
             'bedId': e.garden_bed_id,
             'bedName': bed_lookup.get(e.garden_bed_id),
-        })
-        if len(results) >= SIGNAL_CAP:
+        }
+        days_past = (target_date - direct_seed).days
+        if days_past > STALE_DIRECT_SEED_DAYS:
+            if len(missed) < SIGNAL_CAP:
+                missed.append(row)
+        else:
+            if len(active) < SIGNAL_CAP:
+                active.append(row)
+        if len(active) >= SIGNAL_CAP and len(missed) >= SIGNAL_CAP:
             break
-    return results
+    return {'active': active, 'missed': missed}
 
 
 def _build_germination_check(user_id, target_date):
@@ -346,6 +408,7 @@ def _build_germination_check(user_id, target_date):
             PlantingEvent.user_id == user_id,
             PlantingEvent.event_type == 'planting',
             PlantingEvent.direct_seed_date.isnot(None),
+            PlantingEvent.cancelled_at.is_(None),
         )
         .order_by(PlantingEvent.direct_seed_date.asc())
         .limit(SIGNAL_CAP * 3)
@@ -373,6 +436,12 @@ def _build_germination_check(user_id, target_date):
         expected_germ = seed_date + timedelta(days=germ_days)
         if expected_germ > target_date:
             continue  # Not yet time to check
+        # Silent drop for stale germination checks — if germination hasn't
+        # been logged STALE_GERMINATION_CHECK_DAYS past the expected date,
+        # the reminder has no actionable value left (germinated unlogged, or
+        # failed). No `missed` bucket for germ checks per plan §2.2.
+        if (target_date - expected_germ).days > STALE_GERMINATION_CHECK_DAYS:
+            continue
         results.append({
             'signalKey': f'germination-{e.id}',
             'plantingEventId': e.id,
@@ -427,6 +496,7 @@ def _build_indoor_germination_check(user_id, target_date):
             IndoorSeedStart.status.notin_(
                 ('germinating', 'growing', 'ready', 'transplanted')
             ),
+            IndoorSeedStart.cancelled_at.is_(None),
         )
         .order_by(IndoorSeedStart.start_date.asc())
         .limit(SIGNAL_CAP * 3)
@@ -465,6 +535,12 @@ def _build_indoor_germination_check(user_id, target_date):
             if expected_germ > target_date:
                 continue
 
+        # Silent drop for stale indoor germination checks (plan §2.2).
+        if (target_date - expected_germ).days > STALE_GERMINATION_CHECK_DAYS:
+            if s.planting_event_id is not None:
+                linked_event_ids.add(s.planting_event_id)
+            continue
+
         results.append({
             'signalKey': f'indoor-germ-iss-{s.id}',
             'plantingEventId': s.planting_event_id,
@@ -489,6 +565,7 @@ def _build_indoor_germination_check(user_id, target_date):
                 PlantingEvent.user_id == user_id,
                 PlantingEvent.event_type == 'planting',
                 PlantingEvent.seed_start_date.isnot(None),
+                PlantingEvent.cancelled_at.is_(None),
             )
             .order_by(PlantingEvent.seed_start_date.asc())
             .limit(SIGNAL_CAP * 3)
@@ -515,6 +592,9 @@ def _build_indoor_germination_check(user_id, target_date):
                 germ_days = plant_germ if plant_germ is not None else DEFAULT_GERMINATION_DAYS
             expected_germ = seed_start + timedelta(days=germ_days)
             if expected_germ > target_date:
+                continue
+            # Silent drop for stale indoor germination checks (plan §2.2).
+            if (target_date - expected_germ).days > STALE_GERMINATION_CHECK_DAYS:
                 continue
             results.append({
                 'signalKey': f'indoor-germ-pe-{e.id}',
@@ -763,11 +843,18 @@ def build_dashboard_today(user_id, target_date):
 
     Returns a dict already in camelCase, ready to be jsonified by the route.
     """
+    # Builders that can age out return {'active': [...], 'missed': [...]}.
+    # Unpack and distribute between the `signals` block (active) and the
+    # top-level `missed` block (aged out). Model state is never mutated.
+    indoor_starts = _build_indoor_starts_due(user_id, target_date)
+    transplants = _build_transplants_due(user_id, target_date)
+    direct_seeds = _build_direct_seed_due(user_id, target_date)
+
     signals = {
         'harvestReady': _build_harvest_ready(user_id, target_date),
-        'indoorStartsDue': _build_indoor_starts_due(user_id, target_date),
-        'transplantsDue': _build_transplants_due(user_id, target_date),
-        'directSeedDue': _build_direct_seed_due(user_id, target_date),
+        'indoorStartsDue': indoor_starts['active'],
+        'transplantsDue': transplants['active'],
+        'directSeedDue': direct_seeds['active'],
         'germinationCheck': _build_germination_check(user_id, target_date),
         'indoorGerminationCheck': _build_indoor_germination_check(user_id, target_date),
         'frostRisk': _build_frost_risk(user_id, target_date),
@@ -778,7 +865,15 @@ def build_dashboard_today(user_id, target_date):
         'livestockActionsDue': _build_livestock_actions(user_id, target_date),
     }
 
-    # Filter out snoozed signals
+    missed = {
+        'indoorStartsDue': indoor_starts['missed'],
+        'transplantsDue': transplants['missed'],
+        'directSeedDue': direct_seeds['missed'],
+    }
+
+    # Filter out snoozed signals — runs across BOTH signals.* and missed.*
+    # so a dismissed item does not resurface when it ages into the missed
+    # bucket (plan §5 snooze interaction risk).
     from models import DashboardSnooze
     snoozed = DashboardSnooze.query.filter(
         DashboardSnooze.user_id == user_id,
@@ -794,6 +889,11 @@ def build_dashboard_today(user_id, target_date):
             if key in signals and isinstance(signals[key], list):
                 signals[key] = [r for r in signals[key] if r.get('signalKey') not in snoozed_keys]
 
+        # Filter missed buckets using the same snoozed_keys set
+        for key in ['indoorStartsDue', 'transplantsDue', 'directSeedDue']:
+            if key in missed and isinstance(missed[key], list):
+                missed[key] = [r for r in missed[key] if r.get('signalKey') not in snoozed_keys]
+
         # Filter scalar signals (frost/rain)
         if signals.get('frostRisk', {}).get('signalKey') in snoozed_keys:
             signals['frostRisk']['atRisk'] = False
@@ -803,6 +903,7 @@ def build_dashboard_today(user_id, target_date):
     return {
         'date': target_date.isoformat(),
         'signals': signals,
+        'missed': missed,
         'meta': {
             'generatedAt': datetime.utcnow().isoformat() + 'Z',
             'userTimezone': 'UTC',  # No per-user timezone field in schema

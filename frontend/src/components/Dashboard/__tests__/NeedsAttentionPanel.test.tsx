@@ -627,4 +627,362 @@ describe('NeedsAttentionPanel', () => {
       expect(nav.onNavigate).not.toHaveBeenCalled();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Missed bucket (Slice C) — collapsed section below primary feed, renders
+  // gray-toned rows from data.missed.*. Covers finding/plan:
+  //   dev/active/production-readiness-audit/dashboard-stale-needs-attention-plan.md §2.3
+  // ---------------------------------------------------------------------------
+
+  describe('Missed bucket rendering', () => {
+    /**
+     * Fixture: an indoor-start row body. Kept in one place so Missed and
+     * live tests compare identical shapes.
+     */
+    const makeIndoorRow = (id: number, variety: string) => ({
+      signalKey: `indoor-${id}`,
+      plantingEventId: id,
+      indoorSeedStartId: null,
+      plantName: 'Pepper',
+      variety,
+      seedStartDate: '2026-02-01',
+      quantity: 8,
+    });
+
+    const makeTransplantRow = (id: number) => ({
+      signalKey: `transplant-${id}`,
+      plantingEventId: id,
+      plantName: 'Tomato',
+      variety: 'Roma',
+      transplantDate: '2026-03-01',
+      quantity: 4,
+      bedId: 7,
+      bedName: 'Bed Alpha',
+    });
+
+    const makeDirectSeedRow = (id: number) => ({
+      signalKey: `direct-seed-${id}`,
+      plantingEventId: id,
+      plantName: 'Carrot',
+      variety: 'Nantes',
+      directSeedDate: '2026-02-15',
+      quantity: 30,
+      bedId: 9,
+      bedName: 'Bed Beta',
+    });
+
+    test('does NOT render Missed section when data.missed is absent (undefined)', async () => {
+      const payload = emptyPayload();
+      // Do not set payload.missed — stays undefined (older cached responses).
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/All clear/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/^Missed \(/i)).not.toBeInTheDocument();
+    });
+
+    test('does NOT render Missed section when all three missed arrays are empty', async () => {
+      const payload = emptyPayload();
+      payload.missed = {
+        indoorStartsDue: [],
+        transplantsDue: [],
+        directSeedDue: [],
+      };
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/All clear/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/^Missed \(/i)).not.toBeInTheDocument();
+    });
+
+    test('renders Missed section collapsed by default with correct count label', async () => {
+      const payload = emptyPayload();
+      payload.missed = {
+        indoorStartsDue: [makeIndoorRow(101, 'Jalapeno'), makeIndoorRow(102, 'Shishito')],
+        transplantsDue: [makeTransplantRow(201)],
+        directSeedDue: [makeDirectSeedRow(301)],
+      };
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      // Summary label shows the total count across the three buckets.
+      await waitFor(() => {
+        expect(screen.getByText(/^Missed \(4\)$/)).toBeInTheDocument();
+      });
+
+      // Collapsed by default — the <details> element exists but inner rows
+      // are not reachable via visible role queries. Inspect the `open`
+      // attribute directly.
+      const summary = screen.getByText(/^Missed \(4\)$/);
+      const details = summary.closest('details') as HTMLDetailsElement;
+      expect(details).not.toBeNull();
+      expect(details.open).toBe(false);
+    });
+
+    test('Missed rows are visible after the user expands the section', async () => {
+      const payload = emptyPayload();
+      payload.missed = {
+        indoorStartsDue: [makeIndoorRow(42, 'Ancho')],
+        transplantsDue: [],
+        directSeedDue: [],
+      };
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const summary = await screen.findByText(/^Missed \(1\)$/);
+      const details = summary.closest('details') as HTMLDetailsElement;
+
+      // Open it programmatically (jsdom supports the open attribute on details).
+      act(() => {
+        details.open = true;
+        details.dispatchEvent(new Event('toggle', { bubbles: true }));
+      });
+
+      expect(screen.getByText(/Indoor start due — Pepper \(Ancho\)/i)).toBeInTheDocument();
+    });
+
+    test('clicking a Missed row calls onNavigate with identical target to its live counterpart', async () => {
+      // Render twice: once with the row live, once with the row in missed.
+      // Assert the emitted NeedsAttentionTarget matches exactly.
+      const liveTargets: any[] = [];
+      const missedTargets: any[] = [];
+
+      // --- Live render ---
+      {
+        const payload = emptyPayload();
+        payload.signals.indoorStartsDue = [makeIndoorRow(42, 'Ancho')];
+        installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+        const nav: NeedsAttentionPanelProps = {
+          onNavigate: jest.fn((t) => { liveTargets.push(t); }),
+        };
+        const { unmount } = render(<NeedsAttentionPanel {...nav} />);
+        await waitFor(() => {
+          expect(screen.getByText(/Indoor start due — Pepper \(Ancho\)/i)).toBeInTheDocument();
+        });
+        fireEvent.click(screen.getByText(/Indoor start due — Pepper \(Ancho\)/i));
+        unmount();
+      }
+
+      clearFetchMock();
+
+      // --- Missed render ---
+      {
+        const payload = emptyPayload();
+        payload.missed = {
+          indoorStartsDue: [makeIndoorRow(42, 'Ancho')],
+          transplantsDue: [],
+          directSeedDue: [],
+        };
+        installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+        const nav: NeedsAttentionPanelProps = {
+          onNavigate: jest.fn((t) => { missedTargets.push(t); }),
+        };
+        render(<NeedsAttentionPanel {...nav} />);
+        const summary = await screen.findByText(/^Missed \(1\)$/);
+        const details = summary.closest('details') as HTMLDetailsElement;
+        act(() => {
+          details.open = true;
+          details.dispatchEvent(new Event('toggle', { bubbles: true }));
+        });
+        fireEvent.click(screen.getByText(/Indoor start due — Pepper \(Ancho\)/i));
+      }
+
+      expect(liveTargets).toHaveLength(1);
+      expect(missedTargets).toHaveLength(1);
+      // Deep-link invariant: same kind + same ids regardless of bucket.
+      expect(missedTargets[0]).toEqual(liveTargets[0]);
+      expect(missedTargets[0]).toEqual({
+        kind: 'indoorStart',
+        indoorSeedStartId: null,
+        plantingEventId: 42,
+      });
+    });
+
+    test('Missed rows render with gray tone (not blue)', async () => {
+      const payload = emptyPayload();
+      payload.missed = {
+        indoorStartsDue: [makeIndoorRow(42, 'Ancho')],
+        transplantsDue: [],
+        directSeedDue: [],
+      };
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const summary = await screen.findByText(/^Missed \(1\)$/);
+      const details = summary.closest('details') as HTMLDetailsElement;
+      act(() => {
+        details.open = true;
+        details.dispatchEvent(new Event('toggle', { bubbles: true }));
+      });
+
+      const title = screen.getByText(/Indoor start due — Pepper \(Ancho\)/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      expect(btn).not.toBeNull();
+      // toneClasses.gray adds bg-gray-50; toneClasses.blue uses bg-blue-50.
+      expect(btn.className).toContain('bg-gray-50');
+      expect(btn.className).not.toContain('bg-blue-50');
+      // Missed rows also get opacity-60 to signal "archived, not urgent".
+      expect(btn.className).toContain('opacity-60');
+    });
+
+    test('Missed row hides the Skip 3d chip but keeps Cancel task and Dismiss', async () => {
+      // indoorStart rows have a cancellable action (`indoor-*` prefix →
+      // planting-event cancel), so the expected chip set for a Missed indoor
+      // row is: Cancel task present, Skip 3d absent. (Dismiss is mutually
+      // exclusive with Cancel task — only non-cancellable rows show ×.)
+      const payload = emptyPayload();
+      payload.missed = {
+        indoorStartsDue: [makeIndoorRow(42, 'Ancho')],
+        transplantsDue: [],
+        directSeedDue: [],
+      };
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const summary = await screen.findByText(/^Missed \(1\)$/);
+      const details = summary.closest('details') as HTMLDetailsElement;
+      act(() => {
+        details.open = true;
+        details.dispatchEvent(new Event('toggle', { bubbles: true }));
+      });
+
+      const title = screen.getByText(/Indoor start due — Pepper \(Ancho\)/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+
+      // Skip 3d chip is absent on Missed rows (snoozing an aged-out task is pointless).
+      expect(btn.querySelector('[role="button"]')).not.toBeNull(); // cancel OR dismiss present
+      const chipLabels = Array.from(btn.querySelectorAll('[role="button"]'))
+        .map((el) => el.textContent || '');
+      expect(chipLabels.some((t) => /Skip 3d/i.test(t))).toBe(false);
+      // Cancel task IS present (indoor-* prefix → cancellable).
+      expect(chipLabels.some((t) => /Cancel task/i.test(t))).toBe(true);
+    });
+
+    test('live (non-missed) row still shows Skip 3d chip for comparison', async () => {
+      // Sanity check: the "Skip 3d hidden on missed" assertion is only
+      // meaningful if we confirm the same row SHOWS Skip 3d when live.
+      const payload = emptyPayload();
+      payload.signals.indoorStartsDue = [makeIndoorRow(42, 'Ancho')];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Indoor start due — Pepper \(Ancho\)/i)).toBeInTheDocument();
+      });
+      const title = screen.getByText(/Indoor start due — Pepper \(Ancho\)/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      const chipLabels = Array.from(btn.querySelectorAll('[role="button"]'))
+        .map((el) => el.textContent || '');
+      // Live indoor row: Skip 3d AND Cancel task both present.
+      expect(chipLabels.some((t) => /Skip 3d/i.test(t))).toBe(true);
+      expect(chipLabels.some((t) => /Cancel task/i.test(t))).toBe(true);
+    });
+
+    test('"All clear" empty-state hides when Missed is populated but signals are empty', async () => {
+      const payload = emptyPayload();
+      payload.missed = {
+        indoorStartsDue: [makeIndoorRow(42, 'Ancho')],
+        transplantsDue: [],
+        directSeedDue: [],
+      };
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      // Missed header must render, and "All clear" must NOT.
+      await waitFor(() => {
+        expect(screen.getByText(/^Missed \(1\)$/)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/All clear/i)).not.toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Harvest isStale flag (Slice C) — harvests are integrity-sensitive and
+  // NEVER drop; isStale=true only demotes the visual tone to gray.
+  // ---------------------------------------------------------------------------
+
+  describe('Harvest isStale tone', () => {
+    test('row with isStale=true renders with gray tone (not green) but is still visible', async () => {
+      const payload = emptyPayload();
+      payload.signals.harvestReady = [
+        {
+          signalKey: 'harvest-7',
+          plantingEventId: 7,
+          plantName: 'Lettuce',
+          variety: 'Buttercrunch',
+          bedId: 3,
+          bedName: 'Bed Alpha',
+          quantity: 12,
+          daysPastExpected: 40,
+          isStale: true,
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Harvest ready — Lettuce/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      expect(btn).not.toBeNull();
+      expect(btn.className).toContain('bg-gray-50');
+      expect(btn.className).not.toContain('bg-green-50');
+      // Stale harvest rows are not opacity-dimmed (only Missed rows are).
+      expect(btn.className).not.toContain('opacity-60');
+      // Still clickable — never hidden.
+      expect(btn.disabled).toBe(false);
+    });
+
+    test('row with isStale=false renders with normal green tone', async () => {
+      const payload = emptyPayload();
+      payload.signals.harvestReady = [
+        {
+          signalKey: 'harvest-7',
+          plantingEventId: 7,
+          plantName: 'Lettuce',
+          variety: 'Buttercrunch',
+          bedId: 3,
+          bedName: 'Bed Alpha',
+          quantity: 12,
+          daysPastExpected: 2,
+          isStale: false,
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Harvest ready — Lettuce/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      expect(btn.className).toContain('bg-green-50');
+      expect(btn.className).not.toContain('bg-gray-50');
+    });
+
+    test('row with isStale undefined (field absent) renders with normal green tone', async () => {
+      // Backward compatibility: pre-Slice-A servers don't set isStale at all.
+      // The harvest row should render as if fresh (green).
+      const payload = emptyPayload();
+      payload.signals.harvestReady = [
+        {
+          signalKey: 'harvest-7',
+          plantingEventId: 7,
+          plantName: 'Lettuce',
+          variety: null,
+          bedId: null,
+          bedName: null,
+          quantity: 1,
+          daysPastExpected: 0,
+          // isStale intentionally omitted
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Harvest ready — Lettuce/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      expect(btn.className).toContain('bg-green-50');
+      expect(btn.className).not.toContain('bg-gray-50');
+    });
+  });
 });

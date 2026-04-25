@@ -14,6 +14,11 @@ export interface HarvestReadyRow {
   // the API faithfully passes null through. UI must guard before rendering.
   quantity: number | null;
   daysPastExpected: number;
+  // Optional. When true, the harvest is older than HARVEST_DEMOTION_DAYS
+  // (backend constant). UI demotes the visual tone to gray but — per the
+  // stale-needs-attention finding — NEVER hides the row, because a harvest
+  // that wasn't logged is still real inventory data the user may back-date.
+  isStale?: boolean;
 }
 
 export interface IndoorStartDueRow {
@@ -145,9 +150,30 @@ export interface DashboardTodayMeta {
   userTimezone: string;
 }
 
+/**
+ * Aged-out rows surfaced in the collapsed "Missed" bucket below the primary
+ * feed. The bucket is populated by the backend after applying per-type
+ * staleness filters (STALE_INDOOR_START_DAYS etc. in dashboard_service.py).
+ * Only the three bucketable types are present here — germination checks drop
+ * silently when stale, and harvests stay in `signals.harvestReady` with
+ * `isStale=true`. See dashboard-stale-needs-attention-plan.md §2.3.
+ *
+ * Row shapes are identical to their live counterparts in `DashboardSignals`,
+ * so the frontend reuses the same row builders with an `isMissed` flag for
+ * tone + chip changes.
+ */
+export interface DashboardMissed {
+  indoorStartsDue: IndoorStartDueRow[];
+  transplantsDue: TransplantDueRow[];
+  directSeedDue: DirectSeedDueRow[];
+}
+
 export interface DashboardToday {
   date: string;
   signals: DashboardSignals;
+  // Optional in the type so older cached/mocked payloads without the key
+  // don't crash the panel. Runtime code defaults to empty lists.
+  missed?: DashboardMissed;
   meta: DashboardTodayMeta;
 }
 

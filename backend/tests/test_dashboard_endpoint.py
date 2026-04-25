@@ -302,19 +302,22 @@ class TestTransplantsDueMissedSeedStartGuard:
             # is_complete=False by default (completed=False, quantity_completed=None)
         )
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
-        signals = resp.get_json()['signals']
+        body = resp.get_json()
+        signals = body['signals']
 
-        # Transplant row suppressed by the new guard
+        # Transplant row suppressed by the seed-start guard
         assert signals['transplantsDue'] == [], (
             "Transplant-due row should be suppressed when the scheduled indoor "
             "seed-start was missed (seed_start_date <= today, incomplete)"
         )
-        # Companion signal still surfaces the missed indoor start — this is the
-        # critical part of the contract: the user still sees an actionable row.
-        indoor = signals['indoorStartsDue']
-        assert len(indoor) == 1
-        assert indoor[0]['variety'] == 'Brandywine'
-        assert indoor[0]['seedStartDate'] == '2026-03-15'
+        # seed_start_date 2026-03-15 vs TODAY 2026-04-14 = 30 days past, which
+        # exceeds STALE_INDOOR_START_DAYS (14). The item ages out of the primary
+        # feed and moves into missed.indoorStartsDue.
+        assert signals['indoorStartsDue'] == []
+        missed_indoor = body['missed']['indoorStartsDue']
+        assert len(missed_indoor) == 1
+        assert missed_indoor[0]['variety'] == 'Brandywine'
+        assert missed_indoor[0]['seedStartDate'] == '2026-03-15'
 
     def test_direct_seed_path_still_included(self, auth_client_a, user_a):
         """(B) seed_start None + transplant past + incomplete -> row INCLUDED.
