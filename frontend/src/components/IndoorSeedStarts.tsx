@@ -699,13 +699,13 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                   )}
                   {start.location && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Location:</span>
+                      <span className="text-gray-600">Current location:</span>
                       <span className="font-medium">{start.location}</span>
                     </div>
                   )}
                   {start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Destination:</span>
+                      <span className="text-gray-600">{start.destinationBedDetails.length > 1 ? 'Planned beds:' : 'Planned bed:'}</span>
                       <span className="font-medium">
                         {start.destinationBedDetails.map((bed, idx) => (
                           <React.Fragment key={bed.id}>
@@ -727,12 +727,12 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                     </div>
                   ) : start.destinationBeds && start.destinationBeds.length > 0 ? (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Destination:</span>
+                      <span className="text-gray-600">{start.destinationBeds.length > 1 ? 'Planned beds:' : 'Planned bed:'}</span>
                       <span className="font-medium text-green-700">{start.destinationBeds.join(', ')}</span>
                     </div>
                   ) : (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Destination:</span>
+                      <span className="text-gray-600">Planned bed:</span>
                       <span className="text-gray-500 italic">not assigned</span>
                     </div>
                   )}
@@ -1248,10 +1248,10 @@ const AddSeedStartModal: React.FC<AddSeedStartModalProps> = ({
           </div>
         </div>
 
-        {/* Location */}
+        {/* Current Location */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Location
+            Current location
           </label>
           <input
             type="text"

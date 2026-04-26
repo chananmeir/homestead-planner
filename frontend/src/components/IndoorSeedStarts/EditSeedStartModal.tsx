@@ -346,10 +346,10 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
           </div>
         </div>
 
-        {/* Destination Beds */}
+        {/* Planned Beds */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Destination Beds
+            Planned beds
           </label>
           {allBeds.length > 0 ? (
             <div className="border border-gray-300 rounded-md p-2 max-h-40 overflow-y-auto space-y-1">
