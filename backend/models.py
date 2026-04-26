@@ -1226,7 +1226,18 @@ class IndoorSeedStart(db.Model):
         else:
             in_sync = abs(expected_seeds - self.seeds_started) <= 1
             if not in_sync:
-                warning = f"Garden plan changed: now {current_count} plants (was ~{math.ceil(self.seeds_started / 1.15 * 0.85)} when created)"
+                # Wording deliberately avoids any "(was ~N when created)"
+                # back-inference from current seeds_started — the model
+                # does not persist a historical plan-quantity snapshot,
+                # so claiming an exact original count overstates the
+                # app's confidence. State only what is actually known:
+                # current plan count, current recommendation, and what
+                # the user actually started.
+                warning = (
+                    f"Plan updated: {current_count} plants now scheduled. "
+                    f"Recommended: {expected_seeds} seeds "
+                    f"(you started {self.seeds_started})."
+                )
 
         return {
             'count': current_count,
