@@ -10,6 +10,7 @@ for converting the returned dict to the camelCase API shape (already done by
 the per-signal builders here, which return camelCase dicts).
 """
 import logging
+from collections import defaultdict
 from datetime import datetime, date, timedelta, time
 
 from models import (
@@ -112,6 +113,11 @@ def _build_harvest_ready(user_id, target_date):
     """
     PlantingEvents whose expected_harvest_date <= target_date, not complete,
     event_type == 'planting'.
+
+    Groups events sharing
+    (expected_harvest_date, plant_id, variety, garden_bed_id) into one
+    signal row. `daysPastExpected` is the MAX across the group;
+    `isStale` is True if any event in the group is stale.
     """
     _, end_of_day = _day_bounds(target_date)
 
@@ -138,27 +144,51 @@ def _build_harvest_ready(user_id, target_date):
         for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
             bed_lookup[bed.id] = bed.name
 
-    results = []
+    # Group qualifying events by composite key.
+    # Variety normalization: empty string → None for key consistency.
+    groups = defaultdict(list)
     for e in events:
         if e.is_complete:
             continue
         harvest_date = _as_date(e.expected_harvest_date)
         if harvest_date is None:
             continue
-        days_past = (target_date - harvest_date).days
-        days_past_clamped = max(0, days_past)
+        variety_key = e.variety if e.variety else None
+        key = (harvest_date, e.plant_id, variety_key, e.garden_bed_id)
+        groups[key].append(e)
+
+    results = []
+    # Order groups by their first event's harvest_date (stable ordering)
+    # then by the min event id within the group for determinism.
+    sorted_keys = sorted(
+        groups.keys(),
+        key=lambda k: (k[0], min(ev.id for ev in groups[k])),
+    )
+    for key in sorted_keys:
+        members = sorted(groups[key], key=lambda ev: ev.id)
+        rep = members[0]
+        harvest_date = _as_date(rep.expected_harvest_date)
+        # Per-event days_past_clamped, then aggregate
+        per_event_days_past = [
+            max(0, (target_date - _as_date(m.expected_harvest_date)).days)
+            for m in members
+        ]
+        max_days_past = max(per_event_days_past)
+        any_stale = any(d > HARVEST_DEMOTION_DAYS for d in per_event_days_past)
+        total_quantity = sum((m.quantity or 0) for m in members)
         results.append({
-            'signalKey': f'harvest-{e.id}',
-            'plantingEventId': e.id,
-            'plantName': _plant_name(e.plant_id),
-            'variety': e.variety,
-            'bedId': e.garden_bed_id,
-            'bedName': bed_lookup.get(e.garden_bed_id),
-            'quantity': e.quantity,
-            'daysPastExpected': days_past_clamped,
+            'signalKey': f'harvest-{rep.id}',
+            'plantingEventId': rep.id,
+            'plantingEventIds': [m.id for m in members],
+            'plantName': _plant_name(rep.plant_id),
+            'variety': rep.variety,
+            'bedId': rep.garden_bed_id,
+            'bedName': bed_lookup.get(rep.garden_bed_id),
+            'quantity': total_quantity,
+            'daysPastExpected': max_days_past,
             # Harvest rows NEVER drop (integrity-sensitive — would fabricate yield).
             # Frontend uses isStale to demote tone after HARVEST_DEMOTION_DAYS.
-            'isStale': days_past_clamped > HARVEST_DEMOTION_DAYS,
+            'isStale': any_stale,
         })
         if len(results) >= SIGNAL_CAP:
             break
@@ -179,6 +209,10 @@ def _build_indoor_starts_due(user_id, target_date):
       {'active': [...], 'missed': [...]}
     Items whose seed_start_date is older than STALE_INDOOR_START_DAYS move
     into `missed`. Neither list mutates any underlying model.
+
+    Grouping: events sharing (seed_start_date, plant_id, variety) collapse
+    to a single row (no bed key — indoor starts are pre-placement).
+    `quantity` is summed; `plantingEventIds` lists all member ids.
     """
     _, end_of_day = _day_bounds(target_date)
 
@@ -196,8 +230,8 @@ def _build_indoor_starts_due(user_id, target_date):
         .all()
     )
 
-    active = []
-    missed = []
+    # ---- PE path: group qualifying events ----
+    pe_groups = defaultdict(list)
     linked_event_ids = set()
     for e in events:
         if e.is_complete:
@@ -205,15 +239,36 @@ def _build_indoor_starts_due(user_id, target_date):
         seed_start = _as_date(e.seed_start_date)
         if seed_start is None:
             continue
+        variety_key = e.variety if e.variety else None
+        key = (seed_start, e.plant_id, variety_key)
+        pe_groups[key].append(e)
+        linked_event_ids.add(e.id)
+
+    active = []
+    missed = []
+
+    # Order groups by seed_start_date then min event id (deterministic).
+    sorted_keys = sorted(
+        pe_groups.keys(),
+        key=lambda k: (k[0], min(ev.id for ev in pe_groups[k])),
+    )
+    for key in sorted_keys:
+        members = sorted(pe_groups[key], key=lambda ev: ev.id)
+        rep = members[0]
+        seed_start = _as_date(rep.seed_start_date)
+        total_quantity = sum((m.quantity or 0) for m in members)
         row = {
-            'signalKey': f'indoor-{e.id}',
-            'plantingEventId': e.id,
+            'signalKey': f'indoor-{rep.id}',
+            'plantingEventId': rep.id,
+            'plantingEventIds': [m.id for m in members],
             'indoorSeedStartId': None,
-            'plantName': _plant_name(e.plant_id),
-            'variety': e.variety,
+            'plantName': _plant_name(rep.plant_id),
+            'variety': rep.variety,
             'seedStartDate': seed_start.isoformat(),
-            'quantity': e.quantity,
+            'quantity': total_quantity,
         }
+        # All members in a group share seed_start_date by definition,
+        # so days_past is identical across the group.
         days_past = (target_date - seed_start).days
         if days_past > STALE_INDOOR_START_DAYS:
             if len(missed) < SIGNAL_CAP:
@@ -221,7 +276,6 @@ def _build_indoor_starts_due(user_id, target_date):
         else:
             if len(active) < SIGNAL_CAP:
                 active.append(row)
-        linked_event_ids.add(e.id)
         if len(active) >= SIGNAL_CAP and len(missed) >= SIGNAL_CAP:
             break
 
@@ -246,20 +300,42 @@ def _build_indoor_starts_due(user_id, target_date):
             .limit(SIGNAL_CAP * 3)
             .all()
         )
+
+        # ---- ISS path: group qualifying records ----
+        iss_groups = defaultdict(list)
         for s in seed_starts:
             if s.planting_event_id is not None and s.planting_event_id in linked_event_ids:
                 continue  # already shown via the PlantingEvent path
             start_date = _as_date(s.start_date)
             if start_date is None:
                 continue
+            variety_key = s.variety if s.variety else None
+            key = (start_date, s.plant_id, variety_key)
+            iss_groups[key].append(s)
+
+        sorted_iss_keys = sorted(
+            iss_groups.keys(),
+            key=lambda k: (k[0], min(rec.id for rec in iss_groups[k])),
+        )
+        for key in sorted_iss_keys:
+            members = sorted(iss_groups[key], key=lambda rec: rec.id)
+            rep = members[0]
+            start_date = _as_date(rep.start_date)
+            total_quantity = sum((m.seeds_started or 0) for m in members)
+            # Carry through any linked PlantingEvent id from any member.
+            linked_pe_id = next(
+                (m.planting_event_id for m in members if m.planting_event_id is not None),
+                None,
+            )
             row = {
-                'signalKey': f'indoor-iss-{s.id}',
-                'plantingEventId': s.planting_event_id,
-                'indoorSeedStartId': s.id,
-                'plantName': _plant_name(s.plant_id),
-                'variety': s.variety,
+                'signalKey': f'indoor-iss-{rep.id}',
+                'plantingEventId': linked_pe_id,
+                'indoorSeedStartId': rep.id,
+                'indoorSeedStartIds': [m.id for m in members],
+                'plantName': _plant_name(rep.plant_id),
+                'variety': rep.variety,
                 'seedStartDate': start_date.isoformat(),
-                'quantity': s.seeds_started,
+                'quantity': total_quantity,
             }
             days_past = (target_date - start_date).days
             if days_past > STALE_INDOOR_START_DAYS:
@@ -279,6 +355,10 @@ def _build_transplants_due(user_id, target_date):
 
     Returns a dict {'active': [...], 'missed': [...]}. Items older than
     STALE_TRANSPLANT_DAYS move into `missed`. Model state is not mutated.
+
+    Grouping: events sharing
+    (transplant_date, plant_id, variety, garden_bed_id) collapse to a
+    single row. `quantity` is summed; `plantingEventIds` lists members.
     """
     _, end_of_day = _day_bounds(target_date)
 
@@ -302,8 +382,8 @@ def _build_transplants_due(user_id, target_date):
         for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
             bed_lookup[bed.id] = bed.name
 
-    active = []
-    missed = []
+    # Group qualifying events by composite key.
+    groups = defaultdict(list)
     for e in events:
         if e.is_complete:
             continue
@@ -318,16 +398,33 @@ def _build_transplants_due(user_id, target_date):
         transplant = _as_date(e.transplant_date)
         if transplant is None:
             continue
+        variety_key = e.variety if e.variety else None
+        key = (transplant, e.plant_id, variety_key, e.garden_bed_id)
+        groups[key].append(e)
+
+    active = []
+    missed = []
+    sorted_keys = sorted(
+        groups.keys(),
+        key=lambda k: (k[0], min(ev.id for ev in groups[k])),
+    )
+    for key in sorted_keys:
+        members = sorted(groups[key], key=lambda ev: ev.id)
+        rep = members[0]
+        transplant = _as_date(rep.transplant_date)
+        total_quantity = sum((m.quantity or 0) for m in members)
         row = {
-            'signalKey': f'transplant-{e.id}',
-            'plantingEventId': e.id,
-            'plantName': _plant_name(e.plant_id),
-            'variety': e.variety,
+            'signalKey': f'transplant-{rep.id}',
+            'plantingEventId': rep.id,
+            'plantingEventIds': [m.id for m in members],
+            'plantName': _plant_name(rep.plant_id),
+            'variety': rep.variety,
             'transplantDate': transplant.isoformat(),
-            'quantity': e.quantity,
-            'bedId': e.garden_bed_id,
-            'bedName': bed_lookup.get(e.garden_bed_id),
+            'quantity': total_quantity,
+            'bedId': rep.garden_bed_id,
+            'bedName': bed_lookup.get(rep.garden_bed_id),
         }
+        # All members share transplant_date by key definition.
         days_past = (target_date - transplant).days
         if days_past > STALE_TRANSPLANT_DAYS:
             if len(missed) < SIGNAL_CAP:
@@ -345,6 +442,10 @@ def _build_direct_seed_due(user_id, target_date):
 
     Returns a dict {'active': [...], 'missed': [...]}. Items older than
     STALE_DIRECT_SEED_DAYS move into `missed`. Model state is not mutated.
+
+    Grouping: events sharing
+    (direct_seed_date, plant_id, variety, garden_bed_id) collapse to a
+    single row. `quantity` is summed; `plantingEventIds` lists members.
     """
     _, end_of_day = _day_bounds(target_date)
 
@@ -368,23 +469,39 @@ def _build_direct_seed_due(user_id, target_date):
         for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
             bed_lookup[bed.id] = bed.name
 
-    active = []
-    missed = []
+    # Group qualifying events by composite key.
+    groups = defaultdict(list)
     for e in events:
         if e.is_complete:
             continue
         direct_seed = _as_date(e.direct_seed_date)
         if direct_seed is None:
             continue
+        variety_key = e.variety if e.variety else None
+        key = (direct_seed, e.plant_id, variety_key, e.garden_bed_id)
+        groups[key].append(e)
+
+    active = []
+    missed = []
+    sorted_keys = sorted(
+        groups.keys(),
+        key=lambda k: (k[0], min(ev.id for ev in groups[k])),
+    )
+    for key in sorted_keys:
+        members = sorted(groups[key], key=lambda ev: ev.id)
+        rep = members[0]
+        direct_seed = _as_date(rep.direct_seed_date)
+        total_quantity = sum((m.quantity or 0) for m in members)
         row = {
-            'signalKey': f'direct-seed-{e.id}',
-            'plantingEventId': e.id,
-            'plantName': _plant_name(e.plant_id),
-            'variety': e.variety,
+            'signalKey': f'direct-seed-{rep.id}',
+            'plantingEventId': rep.id,
+            'plantingEventIds': [m.id for m in members],
+            'plantName': _plant_name(rep.plant_id),
+            'variety': rep.variety,
             'directSeedDate': direct_seed.isoformat(),
-            'quantity': e.quantity,
-            'bedId': e.garden_bed_id,
-            'bedName': bed_lookup.get(e.garden_bed_id),
+            'quantity': total_quantity,
+            'bedId': rep.garden_bed_id,
+            'bedName': bed_lookup.get(rep.garden_bed_id),
         }
         days_past = (target_date - direct_seed).days
         if days_past > STALE_DIRECT_SEED_DAYS:
@@ -399,7 +516,14 @@ def _build_direct_seed_due(user_id, target_date):
 
 
 def _build_germination_check(user_id, target_date):
-    """PlantingEvents where direct_seed_date + germination_days <= target_date, not complete."""
+    """PlantingEvents where direct_seed_date + germination_days <= target_date, not complete.
+
+    Grouping: events sharing
+    (direct_seed_date, plant_id, variety, garden_bed_id) collapse to a
+    single row. `quantity` is summed; `plantingEventIds` lists members.
+    All members in a group share the same plant_id (and thus the same
+    germination_days), so expected_germ is identical across the group.
+    """
     # Query all direct-seeded, incomplete planting events (no date filter in SQL —
     # we need the plant's germination_days to compute the threshold, done in Python)
     events = (
@@ -422,7 +546,9 @@ def _build_germination_check(user_id, target_date):
             bed_lookup[bed.id] = bed.name
 
     DEFAULT_GERMINATION_DAYS = 10
-    results = []
+
+    # Group qualifying events by composite key (after applying all guards).
+    groups = defaultdict(list)
     for e in events:
         if e.is_complete:
             continue
@@ -442,17 +568,37 @@ def _build_germination_check(user_id, target_date):
         # failed). No `missed` bucket for germ checks per plan §2.2.
         if (target_date - expected_germ).days > STALE_GERMINATION_CHECK_DAYS:
             continue
+        variety_key = e.variety if e.variety else None
+        key = (seed_date, e.plant_id, variety_key, e.garden_bed_id)
+        groups[key].append(e)
+
+    results = []
+    sorted_keys = sorted(
+        groups.keys(),
+        key=lambda k: (k[0], min(ev.id for ev in groups[k])),
+    )
+    for key in sorted_keys:
+        members = sorted(groups[key], key=lambda ev: ev.id)
+        rep = members[0]
+        seed_date = _as_date(rep.direct_seed_date)
+        plant = get_plant_by_id(rep.plant_id)
+        germ_days = DEFAULT_GERMINATION_DAYS
+        if plant:
+            germ_days = plant.get('germination_days') or DEFAULT_GERMINATION_DAYS
+        expected_germ = seed_date + timedelta(days=germ_days)
+        total_quantity = sum((m.quantity or 0) for m in members)
         results.append({
-            'signalKey': f'germination-{e.id}',
-            'plantingEventId': e.id,
-            'plantName': _plant_name(e.plant_id),
-            'variety': e.variety,
+            'signalKey': f'germination-{rep.id}',
+            'plantingEventId': rep.id,
+            'plantingEventIds': [m.id for m in members],
+            'plantName': _plant_name(rep.plant_id),
+            'variety': rep.variety,
             'directSeedDate': seed_date.isoformat(),
             'expectedGerminationDate': expected_germ.isoformat(),
             'germinationDays': germ_days,
-            'quantity': e.quantity,
-            'bedId': e.garden_bed_id,
-            'bedName': bed_lookup.get(e.garden_bed_id),
+            'quantity': total_quantity,
+            'bedId': rep.garden_bed_id,
+            'bedName': bed_lookup.get(rep.garden_bed_id),
         })
         if len(results) >= SIGNAL_CAP:
             break
@@ -479,6 +625,10 @@ def _build_indoor_germination_check(user_id, target_date):
          "transplant due" signal will surface them — analogous to the
          suppression in _build_transplants_due).
 
+    Grouping: each path groups by (seed_start_date, plant_id, variety).
+    Output payload includes `indoorSeedStartIds` (ISS path) or
+    `plantingEventIds` (PE path).
+
     Sibling of _build_germination_check (which stays direct-seed-only).
     """
     _, end_of_day = _day_bounds(target_date)
@@ -503,6 +653,9 @@ def _build_indoor_germination_check(user_id, target_date):
         .all()
     )
 
+    # Pre-compute per-record fields, drop stale (and accumulate linked_event_ids
+    # for downstream PE dedup), then group qualifying records.
+    iss_groups = defaultdict(list)
     for s in iss_records:
         start_date = _as_date(s.start_date)
         if start_date is None:
@@ -536,24 +689,47 @@ def _build_indoor_germination_check(user_id, target_date):
                 continue
 
         # Silent drop for stale indoor germination checks (plan §2.2).
+        # We still record the linked PE id so the PE path doesn't resurface it.
         if (target_date - expected_germ).days > STALE_GERMINATION_CHECK_DAYS:
             if s.planting_event_id is not None:
                 linked_event_ids.add(s.planting_event_id)
             continue
 
-        results.append({
-            'signalKey': f'indoor-germ-iss-{s.id}',
-            'plantingEventId': s.planting_event_id,
-            'indoorSeedStartId': s.id,
-            'plantName': _plant_name(s.plant_id),
-            'variety': s.variety,
-            'seedStartDate': start_date.isoformat(),
-            'expectedGerminationDate': expected_germ.isoformat(),
-            'germinationDays': germ_days_used,
-            'quantity': s.seeds_started,
-        })
+        # Always track linked PE id (for dedup with PE path) regardless of grouping.
         if s.planting_event_id is not None:
             linked_event_ids.add(s.planting_event_id)
+
+        variety_key = s.variety if s.variety else None
+        key = (start_date, s.plant_id, variety_key)
+        # Stash the per-record computed values alongside the record.
+        iss_groups[key].append((s, expected_germ, germ_days_used))
+
+    sorted_iss_keys = sorted(
+        iss_groups.keys(),
+        key=lambda k: (k[0], min(rec.id for rec, _, _ in iss_groups[k])),
+    )
+    for key in sorted_iss_keys:
+        members = sorted(iss_groups[key], key=lambda tup: tup[0].id)
+        rep_record, rep_expected_germ, rep_germ_days = members[0]
+        start_date = _as_date(rep_record.start_date)
+        total_quantity = sum((m[0].seeds_started or 0) for m in members)
+        # Carry through any linked PE id from any member (representative-style).
+        linked_pe_id = next(
+            (m[0].planting_event_id for m in members if m[0].planting_event_id is not None),
+            None,
+        )
+        results.append({
+            'signalKey': f'indoor-germ-iss-{rep_record.id}',
+            'plantingEventId': linked_pe_id,
+            'indoorSeedStartId': rep_record.id,
+            'indoorSeedStartIds': [m[0].id for m in members],
+            'plantName': _plant_name(rep_record.plant_id),
+            'variety': rep_record.variety,
+            'seedStartDate': start_date.isoformat(),
+            'expectedGerminationDate': rep_expected_germ.isoformat(),
+            'germinationDays': rep_germ_days,
+            'quantity': total_quantity,
+        })
         if len(results) >= SIGNAL_CAP:
             break
 
@@ -572,6 +748,8 @@ def _build_indoor_germination_check(user_id, target_date):
             .all()
         )
 
+        # Group qualifying events by composite key.
+        pe_groups = defaultdict(list)
         for e in events:
             if e.id in linked_event_ids:
                 continue  # already surfaced via ISS path
@@ -596,16 +774,30 @@ def _build_indoor_germination_check(user_id, target_date):
             # Silent drop for stale indoor germination checks (plan §2.2).
             if (target_date - expected_germ).days > STALE_GERMINATION_CHECK_DAYS:
                 continue
+            variety_key = e.variety if e.variety else None
+            key = (seed_start, e.plant_id, variety_key)
+            pe_groups[key].append((e, expected_germ, germ_days))
+
+        sorted_pe_keys = sorted(
+            pe_groups.keys(),
+            key=lambda k: (k[0], min(ev.id for ev, _, _ in pe_groups[k])),
+        )
+        for key in sorted_pe_keys:
+            members = sorted(pe_groups[key], key=lambda tup: tup[0].id)
+            rep_event, rep_expected_germ, rep_germ_days = members[0]
+            seed_start = _as_date(rep_event.seed_start_date)
+            total_quantity = sum((m[0].quantity or 0) for m in members)
             results.append({
-                'signalKey': f'indoor-germ-pe-{e.id}',
-                'plantingEventId': e.id,
+                'signalKey': f'indoor-germ-pe-{rep_event.id}',
+                'plantingEventId': rep_event.id,
+                'plantingEventIds': [m[0].id for m in members],
                 'indoorSeedStartId': None,
-                'plantName': _plant_name(e.plant_id),
-                'variety': e.variety,
+                'plantName': _plant_name(rep_event.plant_id),
+                'variety': rep_event.variety,
                 'seedStartDate': seed_start.isoformat(),
-                'expectedGerminationDate': expected_germ.isoformat(),
-                'germinationDays': germ_days,
-                'quantity': e.quantity,
+                'expectedGerminationDate': rep_expected_germ.isoformat(),
+                'germinationDays': rep_germ_days,
+                'quantity': total_quantity,
             })
             if len(results) >= SIGNAL_CAP:
                 break
