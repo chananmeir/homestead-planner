@@ -28,6 +28,16 @@ export interface NeedsAttentionPanelProps {
 interface SignalRow {
   key: string;
   signalKey?: string;
+  // For grouped rows (backend collapsed N same-task events into one row), this
+  // carries the full set of signalKeys so snooze/dismiss can fan out one POST
+  // per member. When undefined or length 1, the row is a singleton and behaves
+  // exactly as before — single POST against `signalKey`.
+  //
+  // The representative `signalKey` above is always the FIRST element of this
+  // array when populated. Click target / cancel / undo continue to use the
+  // representative — only snooze + dismiss fan out (per D2 + D3 in
+  // dashboard-needs-attention-row-splitting-decision.md).
+  groupSignalKeys?: string[];
   icon: string;
   tone: Tone;
   title: string;
@@ -102,6 +112,48 @@ function cancelUrl(action: CancellableAction): string {
   return `${API_BASE_URL}/api/${base}/${action.entityId}/cancel`;
 }
 
+/**
+ * Build the full set of signalKeys covered by a grouped row, using the
+ * backend's `f'{prefix}-{id}'` template. The representative `signalKey` on
+ * the row is the FIRST element so callers that don't fan out still hit the
+ * representative event.
+ *
+ * Returns an array of length 1 when the row is a singleton (no grouping
+ * present, or only one id). The handler-level fan-out short-circuits a
+ * length-1 array to a single POST so behavior is bit-identical to the
+ * pre-grouping path.
+ *
+ * Prefixes are duplicated from `backend/services/dashboard_service.py` —
+ * if the backend changes a prefix, this helper must change too.
+ */
+function buildGroupSignalKeys(
+  prefix: string,
+  ids: number[] | undefined,
+  fallbackKey: string,
+): string[] {
+  if (!ids || ids.length === 0) return [fallbackKey];
+  return ids.map(id => `${prefix}-${id}`);
+}
+
+/**
+ * Merge two grouped-key arrays into a single deduped array. Used for ISS-path
+ * rows that may carry BOTH `plantingEventIds` (with `indoor-` prefix) and
+ * `indoorSeedStartIds` (with `indoor-iss-` prefix) — fan-out walks both.
+ */
+function mergeGroupSignalKeys(a: string[], b: string[]): string[] {
+  if (b.length === 0) return a;
+  if (a.length === 0) return b;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const k of a) {
+    if (!seen.has(k)) { seen.add(k); out.push(k); }
+  }
+  for (const k of b) {
+    if (!seen.has(k)) { seen.add(k); out.push(k); }
+  }
+  return out;
+}
+
 function uncancelUrl(action: CancellableAction): string {
   const base = action.kind === 'planting-event' ? 'planting-events' : 'indoor-seed-starts';
   return `${API_BASE_URL}/api/${base}/${action.entityId}/uncancel`;
@@ -123,16 +175,23 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
   // Keyed by signalKey. Presence here means the strip should render as
   // "Cancelled · Undo" instead of "Dismissed · Undo".
   const pendingCancelsRef = useRef<Map<string, CancellableAction>>(new Map());
+  // For grouped-row dismissals we capture the full set of signalKeys at
+  // dismiss-time so Undo can fan out a DELETE across each member. Keyed by
+  // the representative signalKey (= keys[0]). Singletons store a length-1
+  // array; the lookup is uniform.
+  const pendingDismissKeysRef = useRef<Map<string, string[]>>(new Map());
 
   // Clear any outstanding dismiss timers on unmount so they don't fire
   // setReloadKey on an unmounted component.
   useEffect(() => {
     const timers = dismissTimersRef.current;
     const cancels = pendingCancelsRef.current;
+    const dismissKeys = pendingDismissKeysRef.current;
     return () => {
       timers.forEach(id => window.clearTimeout(id));
       timers.clear();
       cancels.clear();
+      dismissKeys.clear();
     };
   }, []);
 
@@ -179,16 +238,35 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
   }, [data, onNavigate]);
   const [missedExpanded, setMissedExpanded] = useState(false);
 
-  const handleSnooze = async (signalKey: string, e: React.MouseEvent | React.KeyboardEvent) => {
+  /**
+   * Snooze one or more signalKeys for 3 days. For grouped rows the keys
+   * array contains all member events; we fan out one POST per key in
+   * parallel via Promise.all. The endpoint accepts a single key per call
+   * (see dashboard_bp.py:53-98); per D3 we deferred the bulk-snooze
+   * endpoint to a future pass. Reload only fires after every member has
+   * resolved so the feed doesn't re-render mid-fan-out.
+   */
+  const handleSnooze = async (
+    signalKeyOrKeys: string | string[],
+    e: React.MouseEvent | React.KeyboardEvent,
+  ) => {
     e.stopPropagation();
+    const keys = Array.isArray(signalKeyOrKeys) ? signalKeyOrKeys : [signalKeyOrKeys];
+    if (keys.length === 0) return;
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ signalKey, days: 3 }),
-      });
-      if (resp.ok) {
+      const responses = await Promise.all(
+        keys.map(key =>
+          fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ signalKey: key, days: 3 }),
+          })
+        )
+      );
+      // Reload if at least one succeeded — partial success still hides
+      // the snoozed members on next refresh.
+      if (responses.some(r => r.ok)) {
         setReloadKey(k => k + 1);
       }
     } catch (err) {
@@ -196,25 +274,45 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
     }
   };
 
-  const handleDismiss = async (signalKey: string, e: React.MouseEvent | React.KeyboardEvent) => {
+  /**
+   * Dismiss-forever for one or more signalKeys. Fan-out mirrors handleSnooze.
+   * The 5-second undo window is keyed by the representative signalKey only;
+   * Undo restores all group members because handleUndo also fans out across
+   * the same array (stored on the SignalRow at render time).
+   */
+  const handleDismiss = async (
+    signalKeyOrKeys: string | string[],
+    e: React.MouseEvent | React.KeyboardEvent,
+  ) => {
     e.stopPropagation();
+    const keys = Array.isArray(signalKeyOrKeys) ? signalKeyOrKeys : [signalKeyOrKeys];
+    if (keys.length === 0) return;
+    const representativeKey = keys[0];
     // No-op if already in the pending-dismissed window (guards against double-click).
-    if (dismissTimersRef.current.has(signalKey)) return;
+    if (dismissTimersRef.current.has(representativeKey)) return;
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ signalKey, forever: true }),
-      });
-      if (!resp.ok) {
-        // Failure: don't enter the pending-dismissed state; row stays as-is.
+      const responses = await Promise.all(
+        keys.map(key =>
+          fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ signalKey: key, forever: true }),
+          })
+        )
+      );
+      if (!responses.some(r => r.ok)) {
+        // All members failed: don't enter the pending-dismissed state.
         return;
       }
+      const signalKey = representativeKey;
+      // Remember the full key set so Undo can fan-out the DELETE.
+      pendingDismissKeysRef.current.set(signalKey, keys);
       // Start the 5-second undo window. POST already persisted the snooze,
       // so even if the tab closes the dismiss sticks.
       const timerId = window.setTimeout(() => {
         dismissTimersRef.current.delete(signalKey);
+        pendingDismissKeysRef.current.delete(signalKey);
         setPendingDismissals(prev => {
           const next = new Set(prev);
           next.delete(signalKey);
@@ -329,18 +427,27 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
       window.clearTimeout(timerId);
       dismissTimersRef.current.delete(signalKey);
     }
+    // Recover the full key set captured at dismiss time. Fall back to the
+    // representative if grouping wasn't recorded (singletons, or stale
+    // pending state from a prior session).
+    const keysToUndo = pendingDismissKeysRef.current.get(signalKey) ?? [signalKey];
+    pendingDismissKeysRef.current.delete(signalKey);
     setPendingDismissals(prev => {
       const next = new Set(prev);
       next.delete(signalKey);
       return next;
     });
     try {
-      await fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ signalKey }),
-      });
+      await Promise.all(
+        keysToUndo.map(key =>
+          fetch(`${API_BASE_URL}/api/dashboard/snooze`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ signalKey: key }),
+          })
+        )
+      );
     } catch (err) {
       console.error('[NeedsAttentionPanel] undo failed:', err);
     } finally {
@@ -527,8 +634,10 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
           <div
             role="button"
             tabIndex={0}
-            onClick={(e) => handleSnooze(row.signalKey!, e)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSnooze(row.signalKey!, e); }}
+            onClick={(e) => handleSnooze(row.groupSignalKeys ?? row.signalKey!, e)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSnooze(row.groupSignalKeys ?? row.signalKey!, e);
+            }}
             className="text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 hover:!opacity-100 bg-gray-200/60 hover:bg-gray-300/80 text-gray-600 hover:text-gray-800 transition-all flex-shrink-0"
           >
             Skip 3d
@@ -558,8 +667,10 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
             tabIndex={0}
             aria-label="Dismiss this signal"
             title="Dismiss permanently"
-            onClick={(e) => handleDismiss(row.signalKey!, e)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleDismiss(row.signalKey!, e); }}
+            onClick={(e) => handleDismiss(row.groupSignalKeys ?? row.signalKey!, e)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleDismiss(row.groupSignalKeys ?? row.signalKey!, e);
+            }}
             className="text-xs leading-none w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:!opacity-100 bg-red-100/60 hover:bg-red-200 text-red-700 transition-all flex-shrink-0"
           >
             ×
@@ -687,6 +798,17 @@ function plantsFragment(quantity: number | null | undefined): string | null {
   return `${quantity} plants`;
 }
 
+/**
+ * Returns the trailing `(N)` group-count badge appended to row titles when
+ * the backend collapses N same-task PlantingEvents into a single row.
+ * Empty string for singletons so the title is byte-identical to the
+ * pre-grouping output. The same convention is used by ListView.
+ */
+function countSuffix(count: number): string {
+  if (count <= 1) return '';
+  return ` (${count})`;
+}
+
 function harvestRow(row: HarvestReadyRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
   const hasId = row.plantingEventId != null;
@@ -697,12 +819,15 @@ function harvestRow(row: HarvestReadyRow, idx: number, onNavigate: NavigateFn): 
   // from that. Use `=== true` per the standing nullable-field rule even
   // though `!= null` would be fine here — keeps the pattern consistent.
   const tone: Tone = row.isStale === true ? 'gray' : 'green';
+  const groupKeys = buildGroupSignalKeys('harvest', row.plantingEventIds, row.signalKey);
+  const count = groupKeys.length;
   return {
     key: `harvest-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
+    groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '🧺',
     tone,
-    title: `Harvest ready — ${label}`,
+    title: `Harvest ready — ${label}${countSuffix(count)}`,
     subtitle: joinSubtitle([
       plantsFragment(row.quantity),
       row.bedName,
@@ -725,12 +850,28 @@ function indoorStartRow(
   // row — only the tone + chip visibility differ. Key is prefixed so React
   // doesn't collide a stale row with a fresh one if both were ever present.
   const keyPrefix = isMissed ? 'missed-indoor' : 'indoor';
+  // Indoor-start rows can group across BOTH PlantingEvents (`indoor-` prefix)
+  // and IndoorSeedStarts (`indoor-iss-` prefix). Merge the two arrays so a
+  // single row can fan-out across both ID spaces if backend ever emits both.
+  const peKeys = buildGroupSignalKeys('indoor', row.plantingEventIds,
+    row.plantingEventId != null ? row.signalKey : '');
+  const issKeys = buildGroupSignalKeys('indoor-iss', row.indoorSeedStartIds,
+    row.indoorSeedStartId != null ? row.signalKey : '');
+  // Drop the empty-string fallbacks that occur when the corresponding side
+  // is absent (so we don't end up with stray "" entries).
+  const filteredPe = peKeys.filter(k => k !== '');
+  const filteredIss = issKeys.filter(k => k !== '');
+  const merged = mergeGroupSignalKeys(filteredPe, filteredIss);
+  // Final fallback: representative signalKey when neither array yielded keys.
+  const groupKeys = merged.length > 0 ? merged : [row.signalKey];
+  const count = groupKeys.length;
   return {
     key: `${keyPrefix}-${row.plantingEventId ?? `iss-${row.indoorSeedStartId}`}-${idx}`,
     signalKey: row.signalKey,
+    groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '🪴',
     tone: isMissed ? 'gray' : 'blue',
-    title: `Indoor start due — ${label}`,
+    title: `Indoor start due — ${label}${countSuffix(count)}`,
     subtitle: joinSubtitle([
       plantsFragment(row.quantity),
       formatDate(row.seedStartDate),
@@ -756,12 +897,15 @@ function transplantRow(
   const hasId = row.plantingEventId != null;
   if (!hasId) warnMissingId('transplant', row);
   const keyPrefix = isMissed ? 'missed-transplant' : 'transplant';
+  const groupKeys = buildGroupSignalKeys('transplant', row.plantingEventIds, row.signalKey);
+  const count = groupKeys.length;
   return {
     key: `${keyPrefix}-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
+    groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '🌱',
     tone: isMissed ? 'gray' : 'blue',
-    title: `Transplant due — ${label}`,
+    title: `Transplant due — ${label}${countSuffix(count)}`,
     subtitle: joinSubtitle([
       plantsFragment(row.quantity),
       row.bedName,
@@ -784,12 +928,15 @@ function directSeedRow(
   const hasId = row.plantingEventId != null;
   if (!hasId) warnMissingId('directSeed', row);
   const keyPrefix = isMissed ? 'missed-direct-seed' : 'direct-seed';
+  const groupKeys = buildGroupSignalKeys('direct-seed', row.plantingEventIds, row.signalKey);
+  const count = groupKeys.length;
   return {
     key: `${keyPrefix}-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
+    groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '\u{1F330}',
     tone: isMissed ? 'gray' : 'blue',
-    title: `Direct seed due \u2014 ${label}`,
+    title: `Direct seed due \u2014 ${label}${countSuffix(count)}`,
     subtitle: joinSubtitle([
       plantsFragment(row.quantity),
       row.bedName,
@@ -806,12 +953,15 @@ function germinationRow(row: GerminationCheckRow, idx: number, onNavigate: Navig
   const label = buildPlantLabel(row.plantName, row.variety);
   const hasId = row.plantingEventId != null;
   if (!hasId) warnMissingId('germinationCheck', row);
+  const groupKeys = buildGroupSignalKeys('germination', row.plantingEventIds, row.signalKey);
+  const count = groupKeys.length;
   return {
     key: `germination-${row.plantingEventId}-${idx}`,
     signalKey: row.signalKey,
+    groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '\u{1F331}',
     tone: 'green',
-    title: `Check germination \u2014 ${label}`,
+    title: `Check germination \u2014 ${label}${countSuffix(count)}`,
     subtitle: joinSubtitle([
       plantsFragment(row.quantity),
       row.bedName,
@@ -830,12 +980,26 @@ function indoorGerminationRow(row: IndoorGerminationCheckRow, idx: number, onNav
     : `pe-${row.plantingEventId}`;
   const hasId = row.indoorSeedStartId != null || row.plantingEventId != null;
   if (!hasId) warnMissingId('indoorGerminationCheck', row);
+  // Indoor germination has dual prefixes:
+  //   - ISS path: signalKey = `indoor-germ-iss-{id}`
+  //   - PE  path: signalKey = `indoor-germ-pe-{id}`
+  // Build both possible groups; merge so a row with both ID arrays fans out.
+  const peKeys = buildGroupSignalKeys('indoor-germ-pe', row.plantingEventIds,
+    row.plantingEventId != null ? row.signalKey : '');
+  const issKeys = buildGroupSignalKeys('indoor-germ-iss', row.indoorSeedStartIds,
+    row.indoorSeedStartId != null ? row.signalKey : '');
+  const filteredPe = peKeys.filter(k => k !== '');
+  const filteredIss = issKeys.filter(k => k !== '');
+  const merged = mergeGroupSignalKeys(filteredPe, filteredIss);
+  const groupKeys = merged.length > 0 ? merged : [row.signalKey];
+  const count = groupKeys.length;
   return {
     key: `indoor-germ-${keySuffix}-${idx}`,
     signalKey: row.signalKey,
+    groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '\u{1F33F}',
     tone: 'green',
-    title: `Check indoor germination \u2014 ${label}`,
+    title: `Check indoor germination \u2014 ${label}${countSuffix(count)}`,
     subtitle: joinSubtitle([
       plantsFragment(row.quantity),
       `started ${formatDate(row.seedStartDate)}`,

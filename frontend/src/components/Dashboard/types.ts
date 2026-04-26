@@ -6,12 +6,19 @@
 export interface HarvestReadyRow {
   signalKey: string;
   plantingEventId: number;
+  // NEW (row-grouping, Apr 2026). When the backend collapses N events that
+  // share (date, plantId, variety, bedId) into a single row, this carries
+  // the full id list so snooze/dismiss can fan out one POST per id. Always
+  // length 1 for singletons. Optional for backward compat with older payloads
+  // — frontend defaults to `[plantingEventId]` when absent.
+  plantingEventIds?: number[];
   plantName: string;
   variety?: string | null;
   bedId?: number | null;
   bedName?: string | null;
   // PlantingEvent.quantity is a nullable Integer column in the backend;
   // the API faithfully passes null through. UI must guard before rendering.
+  // For grouped rows the backend returns the SUM across the group.
   quantity: number | null;
   daysPastExpected: number;
   // Optional. When true, the harvest is older than HARVEST_DEMOTION_DAYS
@@ -28,6 +35,11 @@ export interface IndoorStartDueRow {
   // IndoorSeedStart is linked to an outdoor PlantingEvent.
   plantingEventId: number | null;
   indoorSeedStartId?: number | null;
+  // NEW (row-grouping, Apr 2026). Same semantics as HarvestReadyRow above.
+  // For ISS-path indoor starts the row may carry indoorSeedStartIds INSTEAD
+  // of (or in addition to) plantingEventIds — fan-out walks both arrays.
+  plantingEventIds?: number[];
+  indoorSeedStartIds?: number[];
   plantName: string;
   variety?: string | null;
   seedStartDate: string;
@@ -37,6 +49,7 @@ export interface IndoorStartDueRow {
 export interface TransplantDueRow {
   signalKey: string;
   plantingEventId: number;
+  plantingEventIds?: number[];
   plantName: string;
   variety?: string | null;
   transplantDate: string;
@@ -48,6 +61,7 @@ export interface TransplantDueRow {
 export interface DirectSeedDueRow {
   signalKey: string;
   plantingEventId: number;
+  plantingEventIds?: number[];
   plantName: string;
   variety?: string | null;
   directSeedDate: string;
@@ -59,6 +73,7 @@ export interface DirectSeedDueRow {
 export interface GerminationCheckRow {
   signalKey: string;
   plantingEventId: number;
+  plantingEventIds?: number[];
   plantName: string;
   variety?: string | null;
   directSeedDate: string;
@@ -75,6 +90,11 @@ export interface IndoorGerminationCheckRow {
   // plantingEventId is the fallback path. At least one will always be populated.
   plantingEventId: number | null;
   indoorSeedStartId: number | null;
+  // NEW (row-grouping, Apr 2026). Same semantics as IndoorStartDueRow —
+  // ISS-path rows may carry indoorSeedStartIds; PE-path rows carry
+  // plantingEventIds. Both optional for backward compat.
+  plantingEventIds?: number[];
+  indoorSeedStartIds?: number[];
   plantName: string;
   variety?: string | null;
   seedStartDate: string;            // ISO date

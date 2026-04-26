@@ -985,4 +985,349 @@ describe('NeedsAttentionPanel', () => {
       expect(btn.className).not.toContain('bg-gray-50');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Grouped rows (Apr 2026) — backend collapses N same-task PlantingEvents
+  // into a single row with `plantingEventIds: [id, id, ...]`. Frontend must:
+  //   - render `(N)` badge in title when N > 1
+  //   - display the SUMMED quantity (backend already sums, frontend passes through)
+  //   - fan out N parallel POSTs on Skip-3d / Dismiss
+  //   - leave singletons (length 1 or undefined) bit-identical to the
+  //     pre-grouping path (no badge, single POST)
+  //
+  // Decision doc: dev/active/production-readiness-audit/dashboard-needs-attention-row-splitting-decision.md
+  // ---------------------------------------------------------------------------
+
+  describe('Grouped rows', () => {
+    /**
+     * Helper: wait for any pending Promise.all to flush. The grouped snooze /
+     * dismiss handlers fire N parallel fetches; we need to let microtasks
+     * settle before asserting on call counts.
+     */
+    const flushPromises = () => act(async () => { await Promise.resolve(); });
+
+    test('grouped indoor-start row shows (N) badge in title and summed quantity', async () => {
+      const payload = emptyPayload();
+      // Backend collapsed 4 same-task indoor starts (32 beets total) into one row.
+      payload.signals.indoorStartsDue = [
+        {
+          signalKey: 'indoor-101',
+          plantingEventId: 101,
+          indoorSeedStartId: null,
+          plantingEventIds: [101, 102, 103, 104],
+          plantName: 'Beet',
+          variety: 'Detroit Dark Red',
+          seedStartDate: '2026-04-01',
+          quantity: 32, // SUM across the group, returned by the backend
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      // Title shows the (4) badge — same convention as ListView.
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Indoor start due — Beet \(Detroit Dark Red\) \(4\)/i)
+        ).toBeInTheDocument();
+      });
+      // Subtitle shows the summed quantity straight through.
+      expect(screen.getByText(/32 plants/i)).toBeInTheDocument();
+    });
+
+    test('snooze on grouped row fans out one POST per id with the matching prefix', async () => {
+      const payload = emptyPayload();
+      payload.signals.indoorStartsDue = [
+        {
+          signalKey: 'indoor-101',
+          plantingEventId: 101,
+          indoorSeedStartId: null,
+          plantingEventIds: [101, 102, 103, 104],
+          plantName: 'Beet',
+          variety: 'Detroit Dark Red',
+          seedStartDate: '2026-04-01',
+          quantity: 32,
+        },
+      ];
+      const fetchMock = installFetchMock([
+        { match: '/api/dashboard/today', response: payload },
+        { match: '/api/dashboard/snooze', response: { ok: true }, status: 200 },
+      ]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Indoor start due — Beet/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      const skipChip = Array.from(btn.querySelectorAll('[role="button"]'))
+        .find((el) => /Skip 3d/i.test(el.textContent || ''));
+      expect(skipChip).not.toBeUndefined();
+
+      // Reset call count so we count only the snooze fan-out, not the load.
+      fetchMock.mockClear();
+      fireEvent.click(skipChip!);
+      await flushPromises();
+
+      // Four POSTs to /api/dashboard/snooze, one per group member.
+      const snoozeCalls = fetchMock.mock.calls.filter((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/snooze')
+      );
+      expect(snoozeCalls).toHaveLength(4);
+
+      // The request bodies carry the four reconstructed signalKeys: indoor-101..104
+      const sentKeys = new Set<string>();
+      for (const call of snoozeCalls) {
+        const init = call[1] as RequestInit;
+        const body = JSON.parse(init.body as string);
+        sentKeys.add(body.signalKey);
+        // Skip 3d uses days=3, never forever.
+        expect(body.days).toBe(3);
+      }
+      expect(sentKeys).toEqual(new Set(['indoor-101', 'indoor-102', 'indoor-103', 'indoor-104']));
+    });
+
+    test('dismiss on grouped row fans out one POST per id with forever=true', async () => {
+      const payload = emptyPayload();
+      // Use a non-cancellable type so we hit the × dismiss path, not Cancel task.
+      // Harvest rows are not cancellable — getCancellableAction returns null.
+      payload.signals.harvestReady = [
+        {
+          signalKey: 'harvest-7',
+          plantingEventId: 7,
+          plantingEventIds: [7, 8, 9],
+          plantName: 'Lettuce',
+          variety: 'Buttercrunch',
+          bedId: 3,
+          bedName: 'Bed Alpha',
+          quantity: 36,
+          daysPastExpected: 1,
+        },
+      ];
+      const fetchMock = installFetchMock([
+        { match: '/api/dashboard/today', response: payload },
+        { match: '/api/dashboard/snooze', response: { ok: true }, status: 200 },
+      ]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Harvest ready — Lettuce/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      const dismissChip = Array.from(btn.querySelectorAll('[role="button"]'))
+        .find((el) => /Dismiss this signal/i.test(el.getAttribute('aria-label') || ''));
+      expect(dismissChip).not.toBeUndefined();
+
+      fetchMock.mockClear();
+      fireEvent.click(dismissChip!);
+      await flushPromises();
+
+      const dismissCalls = fetchMock.mock.calls.filter((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/snooze')
+      );
+      expect(dismissCalls).toHaveLength(3);
+
+      const sentKeys = new Set<string>();
+      for (const call of dismissCalls) {
+        const init = call[1] as RequestInit;
+        const body = JSON.parse(init.body as string);
+        sentKeys.add(body.signalKey);
+        // Dismiss uses forever=true.
+        expect(body.forever).toBe(true);
+      }
+      expect(sentKeys).toEqual(new Set(['harvest-7', 'harvest-8', 'harvest-9']));
+    });
+
+    test('singleton row (plantingEventIds undefined) shows no badge and POSTs once on snooze', async () => {
+      // Regression guard: rows that come from older backends without the new
+      // field, or genuinely-singleton groups, must behave bit-identically to
+      // the pre-grouping path — no (N) badge, exactly one POST.
+      const payload = emptyPayload();
+      payload.signals.indoorStartsDue = [
+        {
+          signalKey: 'indoor-501',
+          plantingEventId: 501,
+          indoorSeedStartId: null,
+          // plantingEventIds intentionally absent
+          plantName: 'Pepper',
+          variety: 'Roma',
+          seedStartDate: '2026-04-01',
+          quantity: 8,
+        },
+      ];
+      const fetchMock = installFetchMock([
+        { match: '/api/dashboard/today', response: payload },
+        { match: '/api/dashboard/snooze', response: { ok: true }, status: 200 },
+      ]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Indoor start due — Pepper/i);
+      // No (N) suffix — title is exactly the singleton form.
+      expect(title.textContent).toBe('Indoor start due — Pepper (Roma)');
+
+      const btn = title.closest('button') as HTMLButtonElement;
+      const skipChip = Array.from(btn.querySelectorAll('[role="button"]'))
+        .find((el) => /Skip 3d/i.test(el.textContent || ''));
+      expect(skipChip).not.toBeUndefined();
+
+      fetchMock.mockClear();
+      fireEvent.click(skipChip!);
+      await flushPromises();
+
+      const snoozeCalls = fetchMock.mock.calls.filter((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/snooze')
+      );
+      expect(snoozeCalls).toHaveLength(1);
+      const body = JSON.parse((snoozeCalls[0][1] as RequestInit).body as string);
+      expect(body.signalKey).toBe('indoor-501');
+    });
+
+    test('singleton row with plantingEventIds: [id] (length 1) also POSTs once', async () => {
+      // Edge: backend always sets plantingEventIds, even for singletons.
+      // Length-1 arrays must NOT trigger the badge or fan-out.
+      const payload = emptyPayload();
+      payload.signals.transplantsDue = [
+        {
+          signalKey: 'transplant-22',
+          plantingEventId: 22,
+          plantingEventIds: [22],
+          plantName: 'Tomato',
+          variety: 'Roma',
+          transplantDate: '2026-04-14',
+          quantity: 4,
+          bedId: 4,
+          bedName: 'Bed Beta',
+        },
+      ];
+      const fetchMock = installFetchMock([
+        { match: '/api/dashboard/today', response: payload },
+        { match: '/api/dashboard/snooze', response: { ok: true }, status: 200 },
+      ]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Transplant due — Tomato/i);
+      // No badge for length-1.
+      expect(title.textContent).toBe('Transplant due — Tomato (Roma)');
+
+      const btn = title.closest('button') as HTMLButtonElement;
+      const skipChip = Array.from(btn.querySelectorAll('[role="button"]'))
+        .find((el) => /Skip 3d/i.test(el.textContent || ''));
+      fetchMock.mockClear();
+      fireEvent.click(skipChip!);
+      await flushPromises();
+
+      const snoozeCalls = fetchMock.mock.calls.filter((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/snooze')
+      );
+      expect(snoozeCalls).toHaveLength(1);
+    });
+
+    test('grouped row click target uses representative id only (D2: lossy deep-link)', async () => {
+      const payload = emptyPayload();
+      payload.signals.transplantsDue = [
+        {
+          signalKey: 'transplant-201',
+          plantingEventId: 201,
+          plantingEventIds: [201, 202, 203],
+          plantName: 'Pepper',
+          variety: 'Jalapeno',
+          transplantDate: '2026-04-14',
+          quantity: 24,
+          bedId: 7,
+          bedName: 'Bed Gamma',
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      const nav = makeNav();
+      render(<NeedsAttentionPanel {...nav} />);
+
+      const title = await screen.findByText(/Transplant due — Pepper/i);
+      fireEvent.click(title);
+
+      // Click target is still the representative id, not an array — D2 default.
+      expect(nav.onNavigate).toHaveBeenCalledTimes(1);
+      expect((nav.onNavigate as jest.Mock).mock.calls[0][0]).toEqual({
+        kind: 'transplant',
+        plantingEventId: 201,
+        bedId: 7,
+      });
+    });
+
+    test('grouped harvest row sums quantity and labels (3) without changing daysPastExpected', async () => {
+      // Sanity that other subtitle pieces (bed name, days-past-due) survive grouping.
+      const payload = emptyPayload();
+      payload.signals.harvestReady = [
+        {
+          signalKey: 'harvest-7',
+          plantingEventId: 7,
+          plantingEventIds: [7, 8, 9],
+          plantName: 'Lettuce',
+          variety: null,
+          bedId: 3,
+          bedName: 'Bed Alpha',
+          quantity: 36,
+          daysPastExpected: 4,
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      // Title gets (3) appended.
+      await waitFor(() => {
+        expect(screen.getByText(/Harvest ready — Lettuce \(3\)/i)).toBeInTheDocument();
+      });
+      // Subtitle composition: 36 plants · Bed Alpha · 4d past due
+      expect(screen.getByText(/36 plants.*Bed Alpha.*4d past due/i)).toBeInTheDocument();
+    });
+
+    test('grouped indoor germination ISS-path uses indoor-germ-iss prefix on fan-out', async () => {
+      // Indoor germination has dual prefixes (`indoor-germ-iss-` for ISS path,
+      // `indoor-germ-pe-` for PE path). ISS-path fan-out must use the iss
+      // prefix and walk indoorSeedStartIds.
+      const payload = emptyPayload();
+      payload.signals.indoorGerminationCheck = [
+        {
+          signalKey: 'indoor-germ-iss-50',
+          plantingEventId: null,
+          indoorSeedStartId: 50,
+          indoorSeedStartIds: [50, 51, 52],
+          plantName: 'Tomato',
+          variety: 'Cherokee Purple',
+          seedStartDate: '2026-04-01',
+          expectedGerminationDate: '2026-04-08',
+          germinationDays: 7,
+          quantity: 36,
+        },
+      ];
+      const fetchMock = installFetchMock([
+        { match: '/api/dashboard/today', response: payload },
+        { match: '/api/dashboard/snooze', response: { ok: true }, status: 200 },
+      ]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Check indoor germination — Tomato \(Cherokee Purple\) \(3\)/i)
+        ).toBeInTheDocument();
+      });
+
+      const title = screen.getByText(/Check indoor germination/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      const skipChip = Array.from(btn.querySelectorAll('[role="button"]'))
+        .find((el) => /Skip 3d/i.test(el.textContent || ''));
+      expect(skipChip).not.toBeUndefined();
+
+      fetchMock.mockClear();
+      fireEvent.click(skipChip!);
+      await flushPromises();
+
+      const snoozeCalls = fetchMock.mock.calls.filter((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/snooze')
+      );
+      expect(snoozeCalls).toHaveLength(3);
+      const sentKeys = new Set<string>();
+      for (const call of snoozeCalls) {
+        const init = call[1] as RequestInit;
+        const body = JSON.parse(init.body as string);
+        sentKeys.add(body.signalKey);
+      }
+      expect(sentKeys).toEqual(new Set([
+        'indoor-germ-iss-50', 'indoor-germ-iss-51', 'indoor-germ-iss-52',
+      ]));
+    });
+  });
 });
