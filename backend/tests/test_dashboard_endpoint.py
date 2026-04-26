@@ -378,6 +378,226 @@ class TestTransplantsDueMissedSeedStartGuard:
         assert rows[0]['variety'] == 'Black Krim'
         assert rows[0]['transplantDate'] == '2026-04-12'
 
+    # ------------------------------------------------------------------
+    # ISS-status-aware guard tests
+    # ------------------------------------------------------------------
+    # The guard above uses `seed_start_date <= today AND not is_complete`
+    # as a proxy for "indoor start was missed". That proxy fires for
+    # SUCCESSFUL indoor-started crops too because the Indoor Starts PUT
+    # endpoint advances IndoorSeedStart.status without touching
+    # linked_event.completed. The fix queries the linked IndoorSeedStart
+    # and only suppresses when no ISS exists OR the ISS is still in
+    # 'planned' status. See:
+    #   dev/active/production-readiness-audit/
+    #     dashboard-missing-transplant-due-investigation.md
+    #     dashboard-missing-transplant-due-decision.md
+
+    def test_guard_does_not_fire_when_iss_status_advanced_seeded(
+        self, auth_client_a, user_a,
+    ):
+        """ISS linked with status='seeded' -> transplant signal SHOULD appear.
+        The seed-start phase has progressed, so the proxy is wrong here."""
+        bed = _make_bed(user_a.id, 'Bed Eta')
+        event = _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Cherokee Purple',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),   # past
+            transplant_date=datetime(2026, 4, 12),   # past
+            quantity=4,
+        )
+        _make_seed_start(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Cherokee Purple',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=4,
+            status='seeded',
+            planting_event_id=event.id,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['transplantsDue']
+        assert len(rows) == 1
+        assert rows[0]['variety'] == 'Cherokee Purple'
+        assert rows[0]['transplantDate'] == '2026-04-12'
+
+    def test_guard_does_not_fire_when_iss_status_growing(
+        self, auth_client_a, user_a,
+    ):
+        """ISS linked with status='growing' -> transplant signal SHOULD appear."""
+        bed = _make_bed(user_a.id, 'Bed Theta')
+        event = _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Sun Gold',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 12),
+            quantity=2,
+        )
+        _make_seed_start(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Sun Gold',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=2,
+            status='growing',
+            planting_event_id=event.id,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['transplantsDue']
+        assert len(rows) == 1
+        assert rows[0]['variety'] == 'Sun Gold'
+
+    def test_guard_does_not_fire_when_iss_status_ready(
+        self, auth_client_a, user_a,
+    ):
+        """ISS linked with status='ready' -> transplant signal SHOULD appear.
+
+        'ready' is the canonical pre-transplant terminus in the
+        IndoorSeedStart.status enum (see models.py:
+        'planned', 'seeded', 'germinating', 'growing', 'ready',
+        'transplanted'). The fix logic suppresses ONLY for 'planned';
+        any other status unblocks the transplant row. This test pins
+        the production-realistic happy path."""
+        bed = _make_bed(user_a.id, 'Bed Iota')
+        event = _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Green Zebra',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 12),
+            quantity=3,
+        )
+        _make_seed_start(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Green Zebra',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=3,
+            status='ready',
+            planting_event_id=event.id,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['transplantsDue']
+        assert len(rows) == 1
+        assert rows[0]['variety'] == 'Green Zebra'
+
+    def test_guard_fires_when_iss_status_planned(
+        self, auth_client_a, user_a,
+    ):
+        """ISS linked with status='planned' -> transplant signal SUPPRESSED.
+        Original guard intent is preserved when the seed-start was
+        scheduled but never actually performed."""
+        bed = _make_bed(user_a.id, 'Bed Kappa')
+        event = _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Mortgage Lifter',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 12),
+            quantity=4,
+        )
+        _make_seed_start(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Mortgage Lifter',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=4,
+            status='planned',
+            planting_event_id=event.id,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        signals = resp.get_json()['signals']
+        assert signals['transplantsDue'] == [], (
+            "Transplant-due row should be suppressed when the linked "
+            "IndoorSeedStart is still in 'planned' status (seed-start was "
+            "scheduled but never started)."
+        )
+
+    def test_guard_user_isolation_for_iss_lookup(
+        self, auth_client_a, user_a, user_b,
+    ):
+        """User A's PE has passed seed_start; user B has an ISS with the
+        same planting_event_id (cross-user) and status='growing'. The
+        new query MUST filter by user_id, so user B's ISS should NOT
+        unblock user A's guard."""
+        bed = _make_bed(user_a.id, 'Bed Lambda')
+        event_a = _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Beefsteak',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 12),
+            quantity=4,
+        )
+        # Cross-user ISS pointing at user A's event id (data leakage canary).
+        _make_seed_start(
+            user_b.id,
+            plant_id='tomato-1',
+            variety='Beefsteak',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=4,
+            status='growing',
+            planting_event_id=event_a.id,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        signals = resp.get_json()['signals']
+        assert signals['transplantsDue'] == [], (
+            "User A's guard must not be unblocked by user B's "
+            "IndoorSeedStart, even when planting_event_id matches."
+        )
+
+    def test_guard_fires_when_iss_linked_to_different_event(
+        self, auth_client_a, user_a,
+    ):
+        """User A has TWO PEs. The 'growing' ISS is linked to PE #2, but
+        we are evaluating PE #1. The query must use planting_event_id == e.id,
+        so PE #1's guard should still fire (no ISS for PE #1)."""
+        bed = _make_bed(user_a.id, 'Bed Mu')
+        event_one = _make_event(
+            user_a.id,
+            plant_id='tomato-1',
+            variety='Yellow Pear',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 12),
+            quantity=2,
+        )
+        event_two = _make_event(
+            user_a.id,
+            plant_id='pepper-1',
+            variety='Jalapeno',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 6, 1),   # future, won't appear
+            quantity=2,
+        )
+        # ISS only links to event_two; event_one has no ISS.
+        _make_seed_start(
+            user_a.id,
+            plant_id='pepper-1',
+            variety='Jalapeno',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=2,
+            status='growing',
+            planting_event_id=event_two.id,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['transplantsDue']
+        # event_one (Yellow Pear) suppressed — no linked ISS, falls through
+        # to original proxy. event_two (Jalapeno) has future transplant date
+        # and is filtered out of the candidate list before the guard.
+        assert rows == [], (
+            "PE #1 must remain suppressed because its own planting_event_id "
+            "has no ISS — PE #2's ISS is unrelated."
+        )
+        assert event_one.id != event_two.id  # sanity
+
 
 class TestDirectSeedDue:
 

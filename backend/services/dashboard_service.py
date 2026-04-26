@@ -388,13 +388,29 @@ def _build_transplants_due(user_id, target_date):
         if e.is_complete:
             continue
         # If this event has a scheduled indoor seed-start that has already
-        # passed and the event is still incomplete, the prerequisite start
-        # never happened — suppress the transplant-due row. The companion
-        # "indoor start due" builder will still surface the missed start as
-        # the actionable item. See plan: snuggly-marinating-canyon.md.
+        # passed and the event is still incomplete, decide whether to
+        # suppress based on the linked IndoorSeedStart's status (if any):
+        #   - no ISS linked -> use the original proxy (assume PE-only flow,
+        #     in which case the seed-start truly was never performed since
+        #     no tracking record exists)
+        #   - ISS linked, status='planned' -> seed-start was scheduled but
+        #     never started; suppress
+        #   - ISS linked, any advanced status ('seeded', 'germinating',
+        #     'growing', 'ready', 'transplanted') -> seed-start was
+        #     started; do NOT suppress (the linked PlantingEvent stays
+        #     is_complete=False for the entire ISS lifecycle by design —
+        #     see dashboard-missing-transplant-due-investigation.md).
+        # The companion "indoor start due" builder still surfaces the
+        # missed start as the actionable item when the guard fires.
         seed_start = _as_date(e.seed_start_date)
         if seed_start is not None and seed_start <= target_date:
-            continue
+            iss = (
+                IndoorSeedStart.query
+                .filter_by(planting_event_id=e.id, user_id=user_id)
+                .first()
+            )
+            if iss is None or iss.status == 'planned':
+                continue
         transplant = _as_date(e.transplant_date)
         if transplant is None:
             continue
