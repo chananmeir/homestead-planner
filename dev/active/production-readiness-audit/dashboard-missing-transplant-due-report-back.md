@@ -1,14 +1,15 @@
 # Dashboard Missing Transplant-Due — Report Back (2026-04-25)
 
-Option 1 shipped per `dashboard-missing-transplant-due-decision.md`.
+Option 1 shipped. Two commits:
 
 | Commit | Type | Content |
 |---|---|---|
-| **`bb5a082`** | `fix:` | ISS-status-aware guard + 6 new regression tests (2 files) |
+| **`bb5a082`** | `fix:` | ISS-status-aware guard + 6 regression tests |
+| `3653295` | `docs:` | decision + fix-report + report-back |
 
-## Exact guard behavior
+## Report-back
 
-`backend/services/dashboard_service.py:_build_transplants_due` (lines 390–413):
+**Exact guard behavior implemented** (`dashboard_service.py:390-413`):
 
 ```python
 seed_start = _as_date(e.seed_start_date)
@@ -26,28 +27,19 @@ Decision matrix:
 
 | Linked ISS? | ISS status | Guard fires? |
 |---|---|---|
-| No | n/a | **YES** — original PE-only behavior |
+| No | n/a | **YES** — original PE-only behavior preserved |
 | Yes | `'planned'` | **YES** — original intent preserved |
 | Yes | `'seeded'` / `'germinating'` / `'growing'` / `'ready'` | **NO** — signal surfaces |
 
-## PE-only events preserve current behavior
+ISS query properly scoped by `planting_event_id == e.id` AND `user_id == user_id` (verified by user-isolation test).
 
-When `iss is None`, guard fires per original `b8f3cb8` proxy. All 4 existing `TestTransplantsDueMissedSeedStartGuard` tests pass without modification.
+**PE-only events preserve current behavior:** All 4 existing `TestTransplantsDueMissedSeedStartGuard` tests pass without modification — the no-ISS path falls through to the original `b8f3cb8` proxy.
 
-## Test results
-
+**Test results:**
 - `TestTransplantsDueMissedSeedStartGuard`: **10/10 passing** (4 existing + 6 new)
-  - 3 ISS-advanced-status tests (seeded / growing / ready) — happy path
-  - 1 ISS-planned-status test — intent preserved
-  - 1 user-isolation test — security boundary
-  - 1 wrong-event-link test — query correctness
 - `test_dashboard_endpoint.py`: **41/41 passing**
-- `test_dashboard_service_grouping.py`: **22/22 passing** (regression)
-- `test_dashboard_staleness.py`: **27/27 passing** (regression)
+- `test_dashboard_service_grouping.py` + `test_dashboard_staleness.py`: **49/49 passing** (regression)
 - Full backend suite: **1364 passed** (2 pre-existing geocoding network failures unrelated)
-- `code-review` verdict: **APPROVE** (1 cosmetic nit applied — renamed `hardening` → `ready` to match canonical enum)
+- `code-review` verdict: **APPROVE** (1 cosmetic nit applied — renamed `hardening` → `ready` to match canonical `IndoorSeedStart.status` enum, since the actual enum doesn't include `'hardening'`)
 
-## Out of scope (per decision)
-
-- Option 2 (data-model fix): rejected — would break `is_complete` semantics
-- Option 3 (remove guard): rejected — re-introduces b8f3cb8 UX issue
+For the user's reproducible scenario (sim 2024-03-24, beets seed-started 2024-02-18 with `weeksIndoors=4`): the guard now correctly identifies the ISS has progressed beyond `'planned'` (e.g., `'growing'`) and lets the transplant-due signal surface on the Dashboard.
