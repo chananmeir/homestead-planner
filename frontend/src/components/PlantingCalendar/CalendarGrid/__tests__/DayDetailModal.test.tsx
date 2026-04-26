@@ -63,12 +63,19 @@ describe('DayDetailModal — Plan only vs Tracked seed-start rows', () => {
   });
 
   test('renders Tracked pill (no button) for tracked row and Plan only pill + Start tracking button for plan-only row', () => {
+    // Use distinct beds so the two events do NOT share the (date, type, plantId,
+    // variety, bedId) grouping key — each event must remain a separate row in
+    // order for both the Tracked pill and the Plan only pill + button to render
+    // at the row level. Group keys for "different bed" stay distinct, mirroring
+    // the ListView fix in commit 47a0e4a.
     const trackedEvent = makeSeedStartEvent({
       id: 1,
+      gardenBedId: 1,
       indoorSeedStartStatus: 'planned',
     });
     const planOnlyEvent = makeSeedStartEvent({
       id: 2,
+      gardenBedId: 2,
       indoorSeedStartStatus: undefined,
     });
 
@@ -173,5 +180,106 @@ describe('DayDetailModal — Plan only vs Tracked seed-start rows', () => {
     expect(screen.getByText('Plan only')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Start tracking/i })).toBeInTheDocument();
     expect(onEventUpdated).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Row-splitting grouping tests — third application of the composite key
+// (date + markerType + plantId + variety + bedId) already used by ListView and
+// CalendarGrid. Reference investigation:
+//   dev/active/production-readiness-audit/calendar-day-detail-row-splitting-investigation.md
+// ---------------------------------------------------------------------------
+describe('DayDetailModal — same-day same-bed same-plant rows collapse to one grouped row', () => {
+  afterEach(() => {
+    clearFetchMock();
+    jest.restoreAllMocks();
+  });
+
+  test('4 same-key direct-seed events render as 1 grouped row with "(4)" badge and no per-event Trash button', () => {
+    // 4 direct-seed bean events on the same date + bed + variety: should collapse to ONE row.
+    const events: PlantingCalendar[] = Array.from({ length: 4 }).map((_, i) => ({
+      id: 100 + i,
+      plantId: 'beans-1',
+      variety: 'Provider',
+      gardenBedId: 7,
+      directSeedDate: DAY,
+      quantity: 6,
+      completed: false,
+      eventType: 'planting',
+    }) as PlantingCalendar);
+
+    renderModal({ events });
+
+    // Group count badge "(4)" appears next to the plant name.
+    expect(screen.getByText('(4)')).toBeInTheDocument();
+
+    // Phase header summary shows 1 grouped item, not 4.
+    // The phase bucket header "Direct Seed (1)" has the "(1)" rendered as separate
+    // text node from the section label.
+    expect(screen.getByText('Direct Seed')).toBeInTheDocument();
+
+    // No per-event Trash button on grouped rows (singleton-only). The trash
+    // button has title="Delete event" — assert no buttons with that title exist.
+    const trashButtons = screen.queryAllByTitle('Delete event');
+    expect(trashButtons).toHaveLength(0);
+
+    // Total quantity summary aggregates across the group: 4 * 6 = 24 plants.
+    expect(screen.getByText('24 plants')).toBeInTheDocument();
+  });
+
+  test('singleton (count === 1) row preserves the per-event Trash button and existing UX', () => {
+    const event = makeSeedStartEvent({
+      id: 200,
+      gardenBedId: 5,
+      indoorSeedStartStatus: undefined,
+    });
+
+    const { container } = renderModal({ events: [event] });
+
+    // No row-level "(N)" badge for singletons. The row-level badge is rendered
+    // with class "text-sm font-semibold text-gray-700 ml-1" — distinct from
+    // the phase header's gray "(1)" count of items in the section.
+    const rowBadges = container.querySelectorAll('span.font-semibold.text-gray-700.ml-1');
+    expect(rowBadges.length).toBe(0);
+
+    // No data-grouped-count attribute on singletons (only set when count > 1).
+    expect(container.querySelector('[data-grouped-count]')).toBeNull();
+
+    // Trash button is still present for singletons.
+    const trashButtons = screen.getAllByTitle('Delete event');
+    expect(trashButtons.length).toBeGreaterThan(0);
+
+    // Existing per-event UX: Plan only pill + Start tracking button still render.
+    expect(screen.getByText('Plan only')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Start tracking/i })).toBeInTheDocument();
+  });
+
+  test('clicking a grouped row opens GroupedEventsModal (count + plant name visible in header)', async () => {
+    // 3 same-key direct-seed events. Click the grouped row -> GroupedEventsModal
+    // mounts with the marker.count rendered in its header ("3 plantings").
+    const events: PlantingCalendar[] = Array.from({ length: 3 }).map((_, i) => ({
+      id: 300 + i,
+      plantId: 'radish-1',
+      variety: 'Cherry Belle',
+      gardenBedId: 9,
+      directSeedDate: DAY,
+      quantity: 12,
+      completed: false,
+      eventType: 'planting',
+    }) as PlantingCalendar);
+
+    const { container } = renderModal({ events });
+
+    // The grouped row carries data-grouped-count={count} (mirrors ListView).
+    const groupedRow = container.querySelector('[data-grouped-count="3"]');
+    expect(groupedRow).not.toBeNull();
+
+    // Click the grouped row -> GroupedEventsModal opens.
+    fireEvent.click(groupedRow as HTMLElement);
+
+    // GroupedEventsModal header includes "3 plantings" summary.
+    await waitFor(() => {
+      expect(screen.getByText(/3 plantings/i)).toBeInTheDocument();
+    });
   });
 });

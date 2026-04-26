@@ -6,6 +6,8 @@ import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import PlantIcon from '../../common/PlantIcon';
 import { apiPatch, apiDelete, apiPost } from '../../../utils/api';
 import { useToast } from '../../common/Toast';
+import GroupedEventsModal from './GroupedEventsModal';
+import { GroupedDateMarker, EventMarkerType } from './utils';
 
 interface DayDetailModalProps {
   isOpen: boolean;
@@ -18,12 +20,32 @@ interface DayDetailModalProps {
   onEventUpdated?: () => void;
 }
 
-const getEventTypeInfo = (event: PlantingCalendar) => {
-  if (event.seedStartDate) return { icon: '\u{1F331}', label: 'Start Seeds (Indoor)', color: 'bg-green-100 text-green-700' };
-  if (event.directSeedDate) return { icon: '\u{1F955}', label: 'Direct Seed', color: 'bg-orange-100 text-orange-700' };
-  if (event.transplantDate && !event.seedStartDate) return { icon: '\u{1F33F}', label: 'Transplant', color: 'bg-blue-100 text-blue-700' };
-  if (event.expectedHarvestDate) return { icon: '\u{1F389}', label: 'Harvest', color: 'bg-yellow-100 text-yellow-700' };
-  return { icon: '\u{1F331}', label: 'Planting', color: 'bg-gray-100 text-gray-700' };
+interface PhaseInfo {
+  icon: string;
+  label: string;
+  color: string;
+  markerType: EventMarkerType;
+}
+
+// Inferred phase / EventMarkerType for an event based on which date columns are
+// populated. Marker type is required so the grouping key is byte-identical to
+// CalendarGrid (utils.ts:139) and ListView (index.tsx:156).
+const getEventTypeInfo = (event: PlantingCalendar): PhaseInfo => {
+  if (event.seedStartDate) return { icon: '\u{1F331}', label: 'Start Seeds (Indoor)', color: 'bg-green-100 text-green-700', markerType: 'seed-start' };
+  if (event.directSeedDate) return { icon: '\u{1F955}', label: 'Direct Seed', color: 'bg-orange-100 text-orange-700', markerType: 'direct-seed' };
+  if (event.transplantDate && !event.seedStartDate) return { icon: '\u{1F33F}', label: 'Transplant', color: 'bg-blue-100 text-blue-700', markerType: 'transplant' };
+  if (event.expectedHarvestDate) return { icon: '\u{1F389}', label: 'Harvest', color: 'bg-yellow-100 text-yellow-700', markerType: 'harvest' };
+  return { icon: '\u{1F331}', label: 'Planting', color: 'bg-gray-100 text-gray-700', markerType: 'seed-start' };
+};
+
+// Singleton groups (count === 1) keep the existing per-event row UX.
+// Grouped (count > 1) collapse same-key events into one row with "(N)" badge
+// and a click that opens GroupedEventsModal.
+type DayGroupedItem = {
+  key: string;
+  info: PhaseInfo;
+  events: PlantingCalendar[];
+  count: number;
 };
 
 const DayDetailModal: React.FC<DayDetailModalProps> = ({
@@ -40,6 +62,8 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
   const [bulkSwitching, setBulkSwitching] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [trackingId, setTrackingId] = useState<number | null>(null);
+  // Modal state for grouped (count > 1) rows. Mirrors ListView (index.tsx:118).
+  const [selectedGroup, setSelectedGroup] = useState<GroupedDateMarker | null>(null);
   const { showSuccess, showError } = useToast();
 
   // Reset selection when modal closes or a different day is opened
@@ -61,15 +85,58 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
       checkDate(e.transplantDate) || checkDate(e.expectedHarvestDate);
   });
 
-  // Group events by type for better organization
-  const groupedByType: Record<string, { info: ReturnType<typeof getEventTypeInfo>; events: PlantingCalendar[] }> = {};
+  // Step 1: Group events by composite key (date + markerType + plantId + variety + bedId).
+  // Group key formula intentionally matches CalendarGrid (utils.ts:139) and
+  // ListView (index.tsx:156) so a row of N same-key events collapses to one row
+  // consistently across all three calendar views.
+  const dateKey = format(date, 'yyyy-MM-dd');
+  const groupMap = new Map<string, DayGroupedItem>();
   dayEvents.forEach(event => {
     const info = getEventTypeInfo(event);
-    if (!groupedByType[info.label]) {
-      groupedByType[info.label] = { info, events: [] };
+    const groupKey = `${dateKey}_${info.markerType}_${event.plantId}_${event.variety || 'none'}_${event.gardenBedId || 'none'}`;
+    const existing = groupMap.get(groupKey);
+    if (existing) {
+      existing.events.push(event);
+      existing.count = existing.events.length;
+    } else {
+      groupMap.set(groupKey, {
+        key: groupKey,
+        info,
+        events: [event],
+        count: 1,
+      });
     }
-    groupedByType[info.label].events.push(event);
   });
+
+  // Step 2: Bucket groups by phase label, preserving the modal's existing
+  // "Direct Seed" / "Transplant" / "Start Seeds (Indoor)" section structure.
+  const groupedByType: Record<string, { info: PhaseInfo; items: DayGroupedItem[] }> = {};
+  groupMap.forEach(item => {
+    if (!groupedByType[item.info.label]) {
+      groupedByType[item.info.label] = { info: item.info, items: [] };
+    }
+    groupedByType[item.info.label].items.push(item);
+  });
+
+  // Convert a grouped item to the GroupedDateMarker shape that GroupedEventsModal expects.
+  // Only called for count > 1 rows (planting events with valid plantId).
+  const toGroupedDateMarker = (item: DayGroupedItem): GroupedDateMarker => ({
+    date,
+    type: item.info.markerType,
+    plantId: item.events[0].plantId || '',
+    variety: item.events[0].variety,
+    gardenBedId: item.events[0].gardenBedId,
+    events: item.events,
+    count: item.count,
+  });
+
+  const handleGroupedRowClick = (item: DayGroupedItem) => {
+    setSelectedGroup(toGroupedDateMarker(item));
+  };
+
+  const handleModalEdit = (event: PlantingCalendar) => {
+    onEventClick(event);
+  };
 
   // Indoor starts that haven't been completed (eligible for bulk switch)
   const indoorStartEvents = dayEvents.filter(e =>
@@ -168,6 +235,7 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
   };
 
   return (
+    <>
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
@@ -203,10 +271,12 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                   <div className="flex items-center gap-2 mb-2">
                     <span>{group.info.icon}</span>
                     <span className="text-sm font-medium text-gray-600">{label}</span>
-                    <span className="text-xs text-gray-400">({group.events.length})</span>
+                    <span className="text-xs text-gray-400">({group.items.length})</span>
                   </div>
                   <div className="space-y-2">
-                    {group.events.map(event => {
+                    {group.items.map(item => {
+                      const isGrouped = item.count > 1;
+                      const event = item.events[0];
                       const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
                       const bedName = gardenBeds?.find(b => b.id === event.gardenBedId)?.name;
                       // Phase-specific completion:
@@ -215,22 +285,36 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                       // - Other phases: use event.completed flag
                       const isSeedStartPhase = group.info.label === 'Start Seeds (Indoor)';
                       const isHarvestPhase = group.info.label === 'Harvest';
-                      const isCompleted = isSeedStartPhase
-                        ? (event.indoorSeedStartStatus != null && event.indoorSeedStartStatus !== 'planned')
-                        : isHarvestPhase
-                        ? !!event.harvestCompleted
-                        : (event.completed || event.isComplete);
-                      const isSelectable = isSeedStartPhase && !isCompleted;
+                      const computeEventCompleted = (e: PlantingCalendar) =>
+                        isSeedStartPhase
+                          ? (e.indoorSeedStartStatus != null && e.indoorSeedStartStatus !== 'planned')
+                          : isHarvestPhase
+                          ? !!e.harvestCompleted
+                          : (e.completed || e.isComplete);
+                      // For grouped rows, treat as complete only when ALL underlying events are complete.
+                      // For singletons, this collapses to the single event's completion state.
+                      const isCompleted = item.events.every(computeEventCompleted);
+                      // Selection / Plan-only / Start-tracking are singleton-only because the
+                      // server endpoints (bulk-switch + /from-planting-event) operate on a
+                      // single eventId. Hide on grouped rows.
+                      const isSelectable = !isGrouped && isSeedStartPhase && !isCompleted;
                       const isPlanOnly =
+                        !isGrouped &&
                         isSeedStartPhase &&
                         event.indoorSeedStartStatus == null &&
                         event.seedStartDate != null;
                       const isTracked =
-                        isSeedStartPhase && event.indoorSeedStartStatus != null;
+                        !isGrouped &&
+                        isSeedStartPhase &&
+                        event.indoorSeedStartStatus != null;
+                      // Aggregate quantity across the group for the row summary.
+                      const totalQty = item.events.reduce((sum, e) => sum + (e.quantity || 0), 0);
 
                       return (
                         <div
-                          key={event.id}
+                          key={item.key}
+                          {...(isGrouped ? { 'data-grouped-count': item.count } : {})}
+                          onClick={isGrouped ? () => handleGroupedRowClick(item) : undefined}
                           className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-gray-50 ${
                             isCompleted ? 'border-gray-200 bg-gray-50' : 'border-gray-200'
                           } ${selectedIds.has(event.id) ? 'ring-2 ring-orange-300 border-orange-300' : ''}`}
@@ -244,7 +328,10 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                               onClick={e => e.stopPropagation()}
                             />
                           )}
-                          <div className="flex-1 min-w-0 flex items-center gap-3" onClick={() => onEventClick(event)}>
+                          <div
+                            className="flex-1 min-w-0 flex items-center gap-3"
+                            onClick={isGrouped ? undefined : () => onEventClick(event)}
+                          >
                             {plant && (
                               <PlantIcon plantId={plant.id} plantIcon={plant.icon || ''} size={32} />
                             )}
@@ -252,9 +339,14 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                               <div className={`font-medium text-gray-800 ${isCompleted ? 'line-through opacity-60' : ''}`}>
                                 {plant?.name || event.plantId}
                                 {event.variety && <span className="text-gray-500 font-normal ml-1">({event.variety})</span>}
+                                {isGrouped && (
+                                  <span className="text-sm font-semibold text-gray-700 ml-1">
+                                    ({item.count})
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
-                                {event.quantity != null && <span>{event.quantity} plants</span>}
+                                {totalQty > 0 && <span>{totalQty} plants</span>}
                                 {bedName && <span className="text-green-600">{bedName}</span>}
                                 {isTracked && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-green-100 text-green-700">
@@ -285,19 +377,28 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                           {isCompleted && (
                             <span className="text-green-600 text-sm font-medium">{'\u2713'}</span>
                           )}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event); }}
-                            disabled={deletingId === event.id}
-                            className="text-gray-300 hover:text-red-500 transition-colors p-1 flex-shrink-0"
-                            title="Delete event"
-                          >
-                            {deletingId === event.id ? (
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
-                            ) : (
-                              <Trash2 size={14} />
-                            )}
-                          </button>
-                          <span className="text-gray-400 text-xs" onClick={() => onEventClick(event)}>{'\u203A'}</span>
+                          {/* Trash + per-event chevron: singletons only.
+                              Grouped row delegates per-event management to GroupedEventsModal. */}
+                          {!isGrouped && (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event); }}
+                                disabled={deletingId === event.id}
+                                className="text-gray-300 hover:text-red-500 transition-colors p-1 flex-shrink-0"
+                                title="Delete event"
+                              >
+                                {deletingId === event.id ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+                                ) : (
+                                  <Trash2 size={14} />
+                                )}
+                              </button>
+                              <span className="text-gray-400 text-xs" onClick={() => onEventClick(event)}>{'\u203A'}</span>
+                            </>
+                          )}
+                          {isGrouped && (
+                            <span className="text-gray-400 text-xs ml-1 whitespace-nowrap">{'\u203A'}</span>
+                          )}
                         </div>
                       );
                     })}
@@ -350,6 +451,17 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
         )}
       </div>
     </div>
+
+    {/* Grouped Events Modal — opens for grouped (count > 1) rows.
+        Mirrors the modal ListView uses (ListView/index.tsx:678). */}
+    <GroupedEventsModal
+      isOpen={!!selectedGroup}
+      marker={selectedGroup}
+      onClose={() => setSelectedGroup(null)}
+      onEditEvent={handleModalEdit}
+      onEventUpdated={onEventUpdated}
+    />
+    </>
   );
 };
 
