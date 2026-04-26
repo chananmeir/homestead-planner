@@ -594,6 +594,8 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, in
               firstFrostDate={firstFrostDate}
               registerEventRef={registerEventRef}
               highlightedEventId={highlightedEventId}
+              onEditEvent={(event) => setDetailEvent(event)}
+              onEventUpdated={fetchPlantingEvents}
             />
           )}
 

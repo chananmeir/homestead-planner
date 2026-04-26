@@ -3,6 +3,8 @@ import { PlantingCalendar as PlantingCalendarType } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { format, addWeeks } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';
+import GroupedEventsModal from '../CalendarGrid/GroupedEventsModal';
+import { GroupedDateMarker, EventMarkerType } from '../CalendarGrid/utils';
 
 interface ListViewProps {
   plantingEvents: PlantingCalendarType[];
@@ -11,9 +13,38 @@ interface ListViewProps {
   firstFrostDate?: Date;
   registerEventRef?: (id: number) => (el: HTMLElement | null) => void;
   highlightedEventId?: number | null;
+  onEditEvent?: (event: PlantingCalendarType) => void;
+  onEventUpdated?: () => void;
 }
 
-const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, lastFrostDate: lastFrostProp, firstFrostDate: firstFrostProp, registerEventRef, highlightedEventId }) => {
+// A grouped item rendered as a single card representing 1+ events sharing
+// (date, type, plantId, variety, bedId). When count === 1, the card looks
+// identical to the legacy per-event card. When count > 1, the card shows
+// "(N)" after the plant name and clicking opens GroupedEventsModal.
+type ListGroupedItem = {
+  key: string;
+  primaryDate: Date;          // used for monthly bucketing + sorting
+  type: EventMarkerType;      // primary date phase ('seed-start' | 'direct-seed' | 'transplant')
+  plantId?: string;
+  variety?: string;
+  gardenBedId?: number;
+  events: PlantingCalendarType[];
+  count: number;
+};
+
+// Determine the primary date phase used for monthly grouping in ListView.
+// Mirrors the priority used at line 88-89 below: seedStartDate first, then
+// directSeedDate, then transplantDate. Returns null if none are set.
+const getPrimaryDateAndType = (
+  event: PlantingCalendarType
+): { date: Date; type: EventMarkerType } | null => {
+  if (event.seedStartDate) return { date: event.seedStartDate, type: 'seed-start' };
+  if (event.directSeedDate) return { date: event.directSeedDate, type: 'direct-seed' };
+  if (event.transplantDate) return { date: event.transplantDate, type: 'transplant' };
+  return null;
+};
+
+const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, lastFrostDate: lastFrostProp, firstFrostDate: firstFrostProp, registerEventRef, highlightedEventId, onEditEvent, onEventUpdated }) => {
   const [lastFrostDate, setLastFrostDate] = useState<Date>(lastFrostProp || new Date(new Date().getFullYear() + '-04-15'));
   const [firstFrostDate, setFirstFrostDate] = useState<Date>(firstFrostProp || new Date(new Date().getFullYear() + '-10-15'));
 
@@ -83,17 +114,95 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
 
   const getPlantById = (id: string) => PLANT_DATABASE.find((p) => p.id === id);
 
-  // Group events by month
-  const groupedEvents = plantingEvents.reduce((acc, event) => {
-    const date =
-      event.seedStartDate || event.directSeedDate || event.transplantDate;
-    if (!date) return acc;
+  // Modal state for grouped (count > 1) cards
+  const [selectedGroup, setSelectedGroup] = useState<GroupedDateMarker | null>(null);
 
-    const monthYear = format(date, 'MMMM yyyy');
+  // Step 1: Collapse events that share (date, type, plantId, variety, bedId)
+  // into ListGroupedItem objects. Group key formula intentionally matches
+  // CalendarGrid (frontend/src/components/PlantingCalendar/CalendarGrid/utils.ts:139)
+  // so future changes to grouping apply consistently across both views.
+  // Non-planting events (maple-tapping, mulch) and events without a primary
+  // date are passed through as singleton groups to preserve existing behavior.
+  const groupedItems: ListGroupedItem[] = (() => {
+    const groupMap = new Map<string, ListGroupedItem>();
+
+    plantingEvents.forEach((event) => {
+      // Maple-tapping uses expectedHarvestDate; render it as its own non-grouped card.
+      // Mulch / other non-planting events also fall through as singletons.
+      const isPlantingEvent = !event.eventType || event.eventType === 'planting';
+
+      if (!isPlantingEvent) {
+        // Maple-tapping: keep its existing primary date (expectedHarvestDate) for monthly bucketing.
+        const fallbackDate = event.expectedHarvestDate || event.seedStartDate || event.directSeedDate || event.transplantDate;
+        if (!fallbackDate) return;
+        groupMap.set(`solo_${event.id}`, {
+          key: `solo_${event.id}`,
+          primaryDate: fallbackDate,
+          type: 'seed-start', // unused for non-planting render path, but type-required
+          plantId: event.plantId,
+          variety: event.variety,
+          gardenBedId: event.gardenBedId,
+          events: [event],
+          count: 1,
+        });
+        return;
+      }
+
+      const primary = getPrimaryDateAndType(event);
+      if (!primary) return;
+
+      const dateKey = format(primary.date, 'yyyy-MM-dd');
+      // Same composite key shape as CalendarGrid utils.ts (line ~139).
+      const groupKey = `${dateKey}_${primary.type}_${event.plantId}_${event.variety || 'none'}_${event.gardenBedId || 'none'}`;
+
+      const existing = groupMap.get(groupKey);
+      if (existing) {
+        existing.events.push(event);
+        existing.count = existing.events.length;
+      } else {
+        groupMap.set(groupKey, {
+          key: groupKey,
+          primaryDate: primary.date,
+          type: primary.type,
+          plantId: event.plantId,
+          variety: event.variety,
+          gardenBedId: event.gardenBedId,
+          events: [event],
+          count: 1,
+        });
+      }
+    });
+
+    return Array.from(groupMap.values());
+  })();
+
+  // Step 2: Bucket groups by month, preserving existing month-sort behavior.
+  const groupedByMonth = groupedItems.reduce((acc, item) => {
+    const monthYear = format(item.primaryDate, 'MMMM yyyy');
     if (!acc[monthYear]) acc[monthYear] = [];
-    acc[monthYear].push(event);
+    acc[monthYear].push(item);
     return acc;
-  }, {} as Record<string, PlantingCalendarType[]>);
+  }, {} as Record<string, ListGroupedItem[]>);
+
+  // Convert a grouped item to the GroupedDateMarker shape that GroupedEventsModal expects.
+  // Only called for count > 1 cards (planting events with valid plantId).
+  const toGroupedDateMarker = (item: ListGroupedItem): GroupedDateMarker => ({
+    date: item.primaryDate,
+    type: item.type,
+    plantId: item.plantId || '',
+    variety: item.variety,
+    gardenBedId: item.gardenBedId,
+    events: item.events,
+    count: item.count,
+  });
+
+  const handleGroupedCardClick = (item: ListGroupedItem) => {
+    setSelectedGroup(toGroupedDateMarker(item));
+  };
+
+  const handleModalEdit = (event: PlantingCalendarType) => {
+    if (onEditEvent) onEditEvent(event);
+  };
 
   return (
     <div className="space-y-6">
@@ -321,19 +430,25 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
           </p>
         ) : (
           <div className="space-y-6">
-            {Object.entries(groupedEvents)
+            {Object.entries(groupedByMonth)
               .sort(
                 ([a], [b]) =>
                   new Date(a).getTime() - new Date(b).getTime()
               )
-              .map(([month, events]) => (
+              .map(([month, items]) => (
                 <div key={month}>
                   <h4 className="text-lg font-semibold text-gray-700 mb-3 pb-2 border-b">
                     {month}
                   </h4>
                   <div className="space-y-3">
-                    {events.map((event) => {
-                      // Handle maple-tapping events
+                    {items.map((item) => {
+                      // Singleton groups (count === 1) render exactly as the legacy
+                      // per-event card to avoid any visual regression. Only count > 1
+                      // groups get the "(N)" badge + click-to-open-modal behavior.
+                      const event = item.events[0];
+                      const isGrouped = item.count > 1;
+
+                      // Handle maple-tapping events (always singletons by design)
                       if (event.eventType === 'maple-tapping') {
                         let treeType = 'Sugar Maple';
                         let tapCount = 1;
@@ -391,33 +506,69 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                       const plant = getPlantById(event.plantId);
                       if (!plant) return null;
 
+                      // Aggregate completion / total quantities across the group for the header summary.
+                      const totalQty = item.events.reduce((sum, e) => sum + (e.quantity || 0), 0);
+                      const completedQty = item.events.reduce((sum, e) => sum + (e.quantityCompleted || 0), 0);
+                      // For grouped cards we treat the card as "complete" only when ALL underlying events are complete.
+                      const allComplete = item.events.every((e) => e.isComplete || e.completed);
+
+                      // For singleton cards, the existing per-event focus + completion styling applies.
+                      // For grouped cards, we use group-level completion + only register the first event id
+                      // for focus highlighting (deep-link still works against any underlying event id).
+                      const focusId = event.id;
+                      const isCardComplete = isGrouped ? allComplete : (event.isComplete || event.completed);
+
                       return (
                         <div
-                          key={event.id}
-                          ref={registerEventRef ? registerEventRef(event.id) : undefined}
+                          key={item.key}
+                          ref={registerEventRef ? registerEventRef(focusId) : undefined}
                           data-testid="planting-event-item"
-                          data-focus-id={event.id}
+                          data-focus-id={focusId}
+                          {...(isGrouped ? { 'data-grouped-count': item.count } : {})}
+                          onClick={isGrouped ? () => handleGroupedCardClick(item) : undefined}
                           className={`p-4 rounded-lg border transition-all ${
-                            event.isComplete || event.completed
+                            isCardComplete
                               ? 'bg-green-50 border-green-200 opacity-60'
                               : 'bg-white border-gray-200'
-                          } ${highlightedEventId === event.id ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}
+                          } ${highlightedEventId === focusId ? 'ring-2 ring-amber-400 ring-offset-2' : ''} ${
+                            isGrouped ? 'cursor-pointer hover:bg-gray-50' : ''
+                          }`}
                         >
                           <div className="flex justify-between items-start">
                             <div className="flex-1">
                               <div className="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={event.completed}
-                                  onChange={() => toggleCompleted(event.id)}
-                                  className="w-5 h-5"
-                                />
+                                {/* Singletons keep the inline checkbox toggle. Grouped cards
+                                    delegate per-event completion to the modal so we don't show
+                                    an ambiguous group-level checkbox. */}
+                                {!isGrouped && (
+                                  <input
+                                    type="checkbox"
+                                    checked={event.completed}
+                                    onChange={() => toggleCompleted(event.id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-5 h-5"
+                                  />
+                                )}
                                 <div>
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <h5 className="font-semibold text-gray-800">
                                       {plant.name}
+                                      {item.variety && (
+                                        <span className="text-sm text-gray-600 ml-1">
+                                          ({item.variety})
+                                        </span>
+                                      )}
+                                      {isGrouped && (
+                                        <span className="text-sm text-gray-700 ml-1 font-semibold">
+                                          ({item.count})
+                                        </span>
+                                      )}
                                     </h5>
-                                    {event.seedStartDate && (
+                                    {/* "Plan only" / "Tracked" pill: only meaningful when the primary
+                                        date is the seed-start date. For grouped cards the pill applies
+                                        to the underlying first event (same plant + variety + bed + date,
+                                        so all events share the same indoorSeedStartStatus value). */}
+                                    {event.seedStartDate && item.type === 'seed-start' && (
                                       event.indoorSeedStartStatus != null ? (
                                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-green-100 text-green-700">
                                           Tracked
@@ -464,16 +615,32 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                                         {format(event.expectedHarvestDate, 'MMM d')}
                                       </div>
                                     )}
+                                    {/* Group summary: total quantity and per-bed indicator when grouped. */}
+                                    {isGrouped && totalQty > 0 && (
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        {completedQty}/{totalQty} planted across {item.count} plantings
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
                             </div>
-                            <button
-                              onClick={() => removeEvent(event.id)}
-                              className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
-                            >
-                              Remove
-                            </button>
+                            {!isGrouped && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeEvent(event.id);
+                                }}
+                                className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                              >
+                                Remove
+                              </button>
+                            )}
+                            {isGrouped && (
+                              <span className="text-xs text-gray-500 ml-4 whitespace-nowrap">
+                                Click to manage →
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -505,6 +672,16 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
           <li>• Keep a planting journal to refine your schedule each year</li>
         </ul>
       </div>
+
+      {/* Grouped Events Modal — opens for cards where count > 1.
+          Mirrors the modal CalendarGrid uses (CalendarDayCell.tsx:122). */}
+      <GroupedEventsModal
+        isOpen={!!selectedGroup}
+        marker={selectedGroup}
+        onClose={() => setSelectedGroup(null)}
+        onEditEvent={handleModalEdit}
+        onEventUpdated={onEventUpdated}
+      />
     </div>
   );
 };
