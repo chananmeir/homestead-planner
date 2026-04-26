@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Modal } from '../common/Modal';
-import { Plant, PlantedItem, ValidationWarning, ValidationResult, DateSuggestion, GardenBed, SeedInventoryItem } from '../../types';
+import { Plant, PlantedItem, ValidationWarning, DateSuggestion, GardenBed, SeedInventoryItem } from '../../types';
 import { API_BASE_URL } from '../../config';
 import WarningDisplay from '../common/WarningDisplay';
 import { extractCropName } from '../../utils/plantUtils';
@@ -1899,35 +1899,47 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Planting Method
           </label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="plantingMethod"
-                value="direct"
-                checked={plantingMethod === 'direct'}
-                onChange={(e) => setPlantingMethod(e.target.value as 'direct' | 'transplant')}
-                className="text-green-600 focus:ring-green-500"
-              />
-              <span className="text-sm text-gray-700">Direct Seed</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="plantingMethod"
-                value="transplant"
-                checked={plantingMethod === 'transplant'}
-                onChange={(e) => setPlantingMethod(e.target.value as 'direct' | 'transplant')}
-                className="text-green-600 focus:ring-green-500"
-              />
-              <span className="text-sm text-gray-700">Transplant</span>
-            </label>
-          </div>
-          <p className="mt-1 text-sm text-gray-500">
-            {plantingMethod === 'direct'
-              ? 'Seeds will be sown directly in the garden'
-              : 'Seedlings will be transplanted from indoor starts'}
-          </p>
+          {(() => {
+            // Disable Transplant for plants that are typically direct-seeded (no indoor seed-starting window).
+            // Treat undefined / null / 0 as "direct seed only" — matches the default-method logic above.
+            const transplantDisabled = !representativePlant?.weeksIndoors;
+            return (
+              <>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="plantingMethod"
+                      value="direct"
+                      checked={plantingMethod === 'direct'}
+                      onChange={(e) => setPlantingMethod(e.target.value as 'direct' | 'transplant')}
+                      className="text-green-600 focus:ring-green-500"
+                    />
+                    <span className="text-sm text-gray-700">Direct Seed</span>
+                  </label>
+                  <label className={`flex items-center gap-2 ${transplantDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                    <input
+                      type="radio"
+                      name="plantingMethod"
+                      value="transplant"
+                      checked={plantingMethod === 'transplant'}
+                      onChange={(e) => setPlantingMethod(e.target.value as 'direct' | 'transplant')}
+                      disabled={transplantDisabled}
+                      className="text-green-600 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <span className="text-sm text-gray-700">Transplant</span>
+                  </label>
+                </div>
+                <p className="mt-1 text-sm text-gray-500">
+                  {transplantDisabled
+                    ? 'This crop is typically direct-seeded. Transplant requires indoor seed starting (weeks indoors).'
+                    : plantingMethod === 'direct'
+                      ? 'Seeds will be sown directly in the garden'
+                      : 'Seedlings will be transplanted from indoor starts'}
+                </p>
+              </>
+            );
+          })()}
         </div>
 
         {/* Planting Style Selector - Available for ALL methods */}
