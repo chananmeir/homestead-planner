@@ -738,6 +738,29 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                   )}
                 </div>
 
+                {/* Placement confirmation — shown after the cell-picker flow
+                    flips status to 'transplanted'. The actual bed the user
+                    picked isn't directly exposed on IndoorSeedStart; for the
+                    typical single-destination case the planned destination
+                    IS the bed where the placement landed, so we use
+                    destinationBedDetails[0]. For multi-destination cards
+                    this may show the first planned destination rather than
+                    the literal bed picked — acceptable as a clear positive
+                    affordance until backend exposes the linked bed name. */}
+                {start.status === 'transplanted' && (
+                  <div
+                    data-testid={`iss-placement-confirmation-${start.id}`}
+                    className="mt-4 flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm font-medium text-green-700"
+                  >
+                    <span className="text-base leading-none" aria-hidden="true">✓</span>
+                    {start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
+                      <span>Placed in {start.destinationBedDetails[0].name}</span>
+                    ) : (
+                      <span>Placement chosen</span>
+                    )}
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div className="mt-4 flex gap-2">
                   {start.status !== 'transplanted' && start.status !== 'failed' && onNavigateToBed && (() => {
