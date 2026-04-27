@@ -43,7 +43,12 @@ from soil_temperature import (
     calculate_crop_readiness_forecast
 )
 from maple_tapping_calculator import calculate_tapping_season
-from services.geocoding_service import geocoding_service
+from services.geocoding_service import (
+    geocoding_service,
+    ZIP_STATUS_OK,
+    ZIP_STATUS_PROVIDER_ERROR,
+    ZIP_STATUS_INVALID_INPUT,
+)
 from conflict_checker import validate_planting_conflict
 from season_validator import validate_planting_for_property
 from forward_planting_validator import validate_planting_date, check_future_cold_danger
@@ -439,17 +444,35 @@ def get_soil_temperature():
         latitude = request.args.get('latitude')
         longitude = request.args.get('longitude')
 
-        # If zipcode provided, geocode it to get coordinates
+        # If zipcode provided, geocode it to get coordinates.
+        # Uses validate_zipcode so quota / provider outages return 503 instead
+        # of an opaque 400 "Could not geocode zipcode".
         if zipcode and not (latitude and longitude):
             try:
-                geo_result = geocoding_service.validate_address(zipcode)
-                if geo_result:
+                geo_result, status = geocoding_service.validate_zipcode(zipcode)
+                if status == ZIP_STATUS_OK and geo_result:
                     lat = geo_result['latitude']
                     lon = geo_result['longitude']
+                elif status == ZIP_STATUS_INVALID_INPUT:
+                    return jsonify({
+                        'error': 'ZIP code must be 5 digits.',
+                        'errorCode': 'invalid_zipcode_format',
+                    }), 400
+                elif status == ZIP_STATUS_PROVIDER_ERROR:
+                    return jsonify({
+                        'error': 'Geocoding provider unavailable. Please try again shortly.',
+                        'errorCode': 'geocoding_provider_unavailable',
+                    }), 503
                 else:
-                    return jsonify({'error': 'Could not geocode zipcode'}), 400
+                    return jsonify({
+                        'error': 'Could not geocode zipcode',
+                        'errorCode': 'zipcode_not_found',
+                    }), 400
             except Exception as e:
-                return jsonify({'error': f'Geocoding error: {str(e)}'}), 500
+                return jsonify({
+                    'error': f'Geocoding error: {str(e)}',
+                    'errorCode': 'geocoding_internal_error',
+                }), 500
         elif latitude and longitude:
             lat = float(latitude)
             lon = float(longitude)
@@ -674,14 +697,30 @@ def get_maple_tapping_season():
 
         if zipcode and not (latitude and longitude):
             try:
-                geo_result = geocoding_service.validate_address(zipcode)
-                if geo_result:
+                geo_result, status = geocoding_service.validate_zipcode(zipcode)
+                if status == ZIP_STATUS_OK and geo_result:
                     lat = geo_result['latitude']
                     lon = geo_result['longitude']
+                elif status == ZIP_STATUS_INVALID_INPUT:
+                    return jsonify({
+                        'error': 'ZIP code must be 5 digits.',
+                        'errorCode': 'invalid_zipcode_format',
+                    }), 400
+                elif status == ZIP_STATUS_PROVIDER_ERROR:
+                    return jsonify({
+                        'error': 'Geocoding provider unavailable. Please try again shortly.',
+                        'errorCode': 'geocoding_provider_unavailable',
+                    }), 503
                 else:
-                    return jsonify({'error': 'Could not geocode zipcode'}), 400
+                    return jsonify({
+                        'error': 'Could not geocode zipcode',
+                        'errorCode': 'zipcode_not_found',
+                    }), 400
             except Exception as e:
-                return jsonify({'error': f'Geocoding error: {str(e)}'}), 500
+                return jsonify({
+                    'error': f'Geocoding error: {str(e)}',
+                    'errorCode': 'geocoding_internal_error',
+                }), 500
         elif latitude and longitude:
             lat = float(latitude)
             lon = float(longitude)
@@ -1763,7 +1802,13 @@ def validate_plants_batch():
     batch_lon = None
     if zipcode:
         try:
-            geo_result = geocoding_service.validate_address(zipcode)
+            # Cached via GeocodingService internal ZIP cache; provider quota
+            # cost is paid at most once per ZIP per cache TTL. Best-effort:
+            # any failure (including invalid input or provider error) leaves
+            # coords as None — INVALID_INPUT explicitly does NOT upgrade to
+            # 503 here; the batch endpoint stays best-effort and the rest of
+            # the validation can still produce useful per-plant warnings.
+            geo_result, _status = geocoding_service.validate_zipcode(zipcode)
             if geo_result:
                 batch_lat = geo_result['latitude']
                 batch_lon = geo_result['longitude']
@@ -1933,16 +1978,32 @@ def validate_planting_date_api():
         except ValueError:
             return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
-        # Geocode zipcode
+        # Geocode zipcode (cached + provider-error-aware)
         try:
-            geo_result = geocoding_service.validate_address(data['zipcode'])
+            geo_result, status = geocoding_service.validate_zipcode(data['zipcode'])
+            if status == ZIP_STATUS_INVALID_INPUT:
+                return jsonify({
+                    'error': 'ZIP code must be 5 digits.',
+                    'errorCode': 'invalid_zipcode_format',
+                }), 400
+            if status == ZIP_STATUS_PROVIDER_ERROR:
+                return jsonify({
+                    'error': 'Geocoding provider unavailable. Please try again shortly.',
+                    'errorCode': 'geocoding_provider_unavailable',
+                }), 503
             if not geo_result:
-                return jsonify({'error': 'Could not geocode zipcode'}), 400
+                return jsonify({
+                    'error': 'Could not geocode zipcode',
+                    'errorCode': 'zipcode_not_found',
+                }), 400
 
             latitude = geo_result['latitude']
             longitude = geo_result['longitude']
         except Exception as e:
-            return jsonify({'error': f'Geocoding error: {str(e)}'}), 500
+            return jsonify({
+                'error': f'Geocoding error: {str(e)}',
+                'errorCode': 'geocoding_internal_error',
+            }), 500
 
         # Run validation
         result = validate_planting_date(
