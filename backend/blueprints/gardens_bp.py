@@ -207,7 +207,18 @@ def _auto_create_indoor_seed_start(user_id, planting_event, plant, quantity):
         expected_transplant_date=expected_transplant_date,
         seeds_started=seeds_to_start,
         expected_germination_rate=expected_rate,
-        location=(GardenBed.query.get(planting_event.garden_bed_id).name if planting_event.garden_bed_id else 'windowsill'),
+        location='windowsill',
+        # Capture the placement bed as a manual destination override.
+        # Without this the indoor-start card shows "Planned bed: not assigned"
+        # because get_current_garden_plan_count() intentionally excludes the
+        # self-linked planting_event from bed resolution, and there is no
+        # GardenPlanItem in this auto-create path (placement bypassed the
+        # season planner). See models.py::get_current_garden_plan_count.
+        destination_bed_ids=(
+            json.dumps([planting_event.garden_bed_id])
+            if planting_event.garden_bed_id
+            else None
+        ),
         light_hours=12,
         temperature=70,
         notes=(

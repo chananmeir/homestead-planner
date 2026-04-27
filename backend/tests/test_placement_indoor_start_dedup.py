@@ -14,6 +14,7 @@ Fix lives in backend/blueprints/gardens_bp.py:
   - _link_existing_indoor_seed_start (new helper)
   - Call sites in POST /api/planted-items and POST /api/planted-items/batch
 """
+import json
 from datetime import datetime
 
 import pytest
@@ -183,6 +184,58 @@ class TestPlacementDoesNotDuplicateIndoorStart:
 
         db.session.expire_all()
         assert IndoorSeedStart.query.get(ss_done.id).planting_event_id is None
+
+    def test_auto_created_seed_start_captures_placement_bed(
+        self, auth_client_a, user_a, bed_a
+    ):
+        """When placement auto-creates an IndoorSeedStart (no matching
+        existing record), the new row must record the placement bed in
+        destination_bed_ids so the Indoor Starts card shows the correct
+        Planned bed instead of "not assigned".
+
+        Regression for: indoor-start-auto-create-missing-planned-bed-finding.
+
+        Why this matters: get_current_garden_plan_count() intentionally
+        excludes the self-linked PlantingEvent from bed resolution (it's a
+        placeholder, not a plan entry). With no other matching events and
+        no GardenPlanItem (placement bypassed the season planner), bed
+        resolution would return empty unless destination_bed_ids is set.
+        """
+        before = IndoorSeedStart.query.filter_by(user_id=user_a.id).count()
+        assert before == 0
+
+        resp = auth_client_a.post('/api/planted-items', json={
+            'plantId': PLANT_ID,
+            'gardenBedId': bed_a.id,
+            'plantedDate': '2026-05-01',
+            'position': {'x': 0, 'y': 0},
+            'quantity': 1,
+        })
+        assert resp.status_code == 201, resp.get_json()
+        payload = resp.get_json()
+        assert payload.get('indoorSeedStartCreated') is True
+
+        # Exactly one IndoorSeedStart was auto-created.
+        ss = IndoorSeedStart.query.filter_by(user_id=user_a.id).one()
+
+        # Raw column persists the placement bed.
+        assert ss.destination_bed_ids is not None, (
+            'destination_bed_ids must be set so Indoor Starts card can '
+            'render Planned bed; got NULL.'
+        )
+        assert json.loads(ss.destination_bed_ids) == [bed_a.id]
+
+        # to_dict() surfaces the bed downstream (frontend reads these keys).
+        as_dict = ss.to_dict()
+        assert as_dict['destinationBedIds'] == [bed_a.id]
+        assert as_dict['hasManualDestination'] is True
+        # destinationBeds is the human-readable name list used by the card.
+        assert as_dict['destinationBeds'] == [bed_a.name]
+        # destinationBedDetails is the resolved {id, name} list used by the UI.
+        details = as_dict['destinationBedDetails']
+        assert len(details) == 1
+        assert details[0]['id'] == bed_a.id
+        assert details[0]['name'] == bed_a.name
 
     def test_placement_respects_user_isolation(
         self, full_app, user_a, user_b, bed_a
