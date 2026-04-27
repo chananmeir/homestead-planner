@@ -687,13 +687,26 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                       </span>
                     </div>
                   )}
-                  {daysToTransplant !== null && start.status !== 'transplanted' && (
+                  {start.expectedTransplantDate && start.status !== 'transplanted' && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">
-                        {daysToTransplant > 0 ? 'Transplant in:' : 'Transplant:'}
-                      </span>
-                      <span className={`font-medium ${daysToTransplant > 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                        {daysToTransplant > 0 ? `${daysToTransplant} days` : daysToTransplant === 0 ? 'Today!' : `${Math.abs(daysToTransplant)} days overdue`}
+                      <span className="text-gray-600">Transplant on:</span>
+                      <span
+                        className={`font-medium ${
+                          daysToTransplant != null && daysToTransplant < 0 ? 'text-red-600' : 'text-blue-600'
+                        }`}
+                        title={
+                          daysToTransplant != null
+                            ? daysToTransplant > 0
+                              ? `In ${daysToTransplant} days`
+                              : daysToTransplant === 0
+                                ? 'Today'
+                                : `${Math.abs(daysToTransplant)} days overdue`
+                            : undefined
+                        }
+                      >
+                        {parseLocalDate(start.expectedTransplantDate).toLocaleDateString('en-US', {
+                          month: 'long', day: 'numeric', year: 'numeric',
+                        })}
                       </span>
                     </div>
                   )}
