@@ -226,6 +226,7 @@ class PlantingEvent(db.Model):
     completed = db.Column(db.Boolean, default=False)
     harvest_completed = db.Column(db.Boolean, default=False)  # Separate completion tracking for harvest phase
     quantity_completed = db.Column(db.Integer, nullable=True, default=None)  # How many actually planted (None=not started, 0-quantity=partial, >=quantity=complete)
+    cancelled_at = db.Column(db.DateTime, nullable=True, index=True)
     notes = db.Column(db.Text)
 
     @property
@@ -287,6 +288,7 @@ class PlantingEvent(db.Model):
             'completed': self.completed,
             'harvestCompleted': self.harvest_completed,
             'quantityCompleted': self.quantity_completed,
+            'cancelledAt': self.cancelled_at.isoformat() if self.cancelled_at else None,
             'notes': self.notes,
             # NEW: Seed density fields
             'plantingMethod': self.planting_method,
@@ -1087,6 +1089,7 @@ class IndoorSeedStart(db.Model):
     status = db.Column(db.String(20), default='planned')  # planned, seeded, germinating, growing, ready, transplanted
     hardening_off_started = db.Column(db.DateTime)  # When hardening off began
     transplant_ready = db.Column(db.Boolean, default=False)  # User-marked ready flag
+    cancelled_at = db.Column(db.DateTime, nullable=True, index=True)
 
     # Manual destination bed override (JSON array of bed IDs, e.g. "[1, 3]")
     # NULL = compute from garden plan; set = user override
@@ -1273,6 +1276,7 @@ class IndoorSeedStart(db.Model):
             'status': self.status,
             'hardeningOffStarted': self.hardening_off_started.isoformat() if self.hardening_off_started else None,
             'transplantReady': self.transplant_ready,
+            'cancelledAt': self.cancelled_at.isoformat() if self.cancelled_at else None,
             'plantingEventId': self.planting_event_id,
             'notes': self.notes,
             'createdAt': self.created_at.isoformat() if self.created_at else None,
