@@ -73,6 +73,23 @@ KNOWN_US_ZIPCODE_COORDS = {
 }
 
 
+KNOWN_USDA_ZONES_BY_ZIPCODE = {
+    '02101': '7a',
+    '20001': '7a',
+    '32801': '9b',
+    '33101': '11a',
+    '53209': '6a',
+    '53703': '5b',
+    '55401': '5a',
+    '60601': '6a',
+    '80201': '6a',
+    '90210': '10b',
+    '92101': '10b',
+    '94102': '10b',
+    '98101': '9a',
+}
+
+
 class GeocodingService:
     """Wrapper for geocoding APIs (Geocodio or Google Maps)"""
 
@@ -429,6 +446,10 @@ class GeocodingService:
         match = re.search(r'\b(\d{5})\b', formatted_address)
         return match.group(1) if match else None
 
+    def _lookup_zone_from_known_zipcode(self, zipcode: str) -> Optional[str]:
+        """Deterministic fallback for common ZIP codes when the zone API is unavailable."""
+        return KNOWN_USDA_ZONES_BY_ZIPCODE.get(zipcode)
+
     def _lookup_zone_via_api(self, zipcode: str) -> Optional[str]:
         """
         Query phzmapi.org API for USDA zone by ZIP code.
@@ -460,11 +481,11 @@ class GeocodingService:
                     f"{response.text[:200]}"
                 )
 
-        except (requests.exceptions.RequestException, ValueError, KeyError):
-            # Log error but don't raise - fallback tiers will handle
-            logger.exception(f"phzmapi.org lookup failed for ZIP {zipcode}")
+        except (requests.exceptions.RequestException, ValueError, KeyError) as exc:
+            # Network access can be unavailable in local/dev environments.
+            logger.warning("phzmapi.org lookup failed for ZIP %s: %s", zipcode, exc)
 
-        return None
+        return self._lookup_zone_from_known_zipcode(zipcode)
 
     def get_hardiness_zone(self, latitude: float, longitude: float,
                           formatted_address: Optional[str] = None) -> Optional[str]:
@@ -523,6 +544,22 @@ class GeocodingService:
         Returns:
             USDA zone string (e.g., "7a", "8b") or None
         """
+        # Alaska needs a dedicated branch; broad Pacific buckets overestimate its zones.
+        if lat >= 58 and lng <= -130:
+            if lat >= 66:
+                return "2b"
+            if lat >= 63:
+                return "3b"
+            if lat >= 61:
+                return "4a"
+            return "4b"
+
+        # South Florida and the Keys are materially warmer than the generic East Coast curve.
+        if lat < 26.2 and -83.5 <= lng <= -79.0:
+            return "11b" if lat < 25.1 else "11a"
+        if lat < 28.5 and -84.5 <= lng <= -79.0:
+            return "10b"
+
         # Determine region based on longitude
         if lng < -115:
             region = 'PACIFIC_WEST'
@@ -597,7 +634,8 @@ class GeocodingService:
             elif lat >= 31: return "9a"
             elif lat >= 29: return "9b"
             elif lat >= 27: return "10a"
-            else: return "10b"
+            elif lat >= 25.5: return "10b"
+            else: return "11a"
 
 
 # Create singleton instance

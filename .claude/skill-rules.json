@@ -1,0 +1,140 @@
+{
+  "backend-dev-guidelines": {
+    "type": "domain",
+    "enforcement": "suggest",
+    "priority": "high",
+    "description": "Flask/Python backend development best practices",
+    "promptTriggers": {
+      "keywords": [
+        "backend",
+        "flask",
+        "route",
+        "endpoint",
+        "api",
+        "controller",
+        "model",
+        "sqlalchemy",
+        "python",
+        "database operation",
+        "query"
+      ],
+      "intentPatterns": [
+        "(create|add|make).*?(route|endpoint|api)",
+        "(how to|best practice).*(backend|flask|python)",
+        "(write|create).*(model|class)",
+        "(handle|manage).*(request|response|error)"
+      ]
+    },
+    "fileTriggers": {
+      "pathPatterns": [
+        "backend/**/*.py",
+        "backend/app.py",
+        "backend/models.py",
+        "backend/garden_methods.py",
+        "backend/plant_database.py",
+        "backend/structures_database.py"
+      ],
+      "contentPatterns": [
+        "@app\\.route",
+        "db\\.Model",
+        "db\\.session",
+        "jsonify",
+        "request\\.get_json"
+      ]
+    }
+  },
+  "frontend-dev-guidelines": {
+    "type": "domain",
+    "enforcement": "suggest",
+    "priority": "high",
+    "description": "React/TypeScript frontend development best practices",
+    "promptTriggers": {
+      "keywords": [
+        "frontend",
+        "react",
+        "component",
+        "typescript",
+        "tailwind",
+        "ui",
+        "form",
+        "state",
+        "hook",
+        "jsx",
+        "tsx"
+      ],
+      "intentPatterns": [
+        "(create|add|make).*(component|form|page)",
+        "(how to|best practice).*(react|frontend|typescript)",
+        "(style|design).*(component|page|ui)",
+        "(fetch|call|request).*(api|data)"
+      ]
+    },
+    "fileTriggers": {
+      "pathPatterns": [
+        "frontend/src/**/*.tsx",
+        "frontend/src/**/*.ts",
+        "frontend/src/**/*.jsx",
+        "frontend/src/**/*.js",
+        "frontend/src/components/**/*",
+        "frontend/src/types.ts"
+      ],
+      "contentPatterns": [
+        "React\\.FC",
+        "useState",
+        "useEffect",
+        "interface.*Props",
+        "className=",
+        "fetch\\("
+      ]
+    }
+  },
+  "database-guidelines": {
+    "type": "domain",
+    "enforcement": "strict",
+    "priority": "critical",
+    "description": "Database operations and migration guidelines",
+    "promptTriggers": {
+      "keywords": [
+        "database",
+        "migration",
+        "schema",
+        "column",
+        "table",
+        "relationship",
+        "foreign key",
+        "alter",
+        "add column",
+        "migrate",
+        "alembic"
+      ],
+      "intentPatterns": [
+        "(add|create|modify).*(column|table|field)",
+        "(create|make|write).*(migration)",
+        "(change|update|alter).*(schema|database)",
+        "(setup|define).*(relationship|foreign key)"
+      ]
+    },
+    "fileTriggers": {
+      "pathPatterns": [
+        "backend/models.py",
+        "backend/migrations/**/*",
+        "backend/*migration*.py",
+        "backend/add_*.py"
+      ],
+      "contentPatterns": [
+        "db\\.Column",
+        "db\\.relationship",
+        "db\\.ForeignKey",
+        "flask db migrate",
+        "op\\.add_column",
+        "op\\.create_table"
+      ]
+    },
+    "criticalReminders": [
+      "⚠️ NEVER modify the database directly!",
+      "⚠️ Always use 'flask db migrate' for schema changes",
+      "⚠️ Test migrations with upgrade and downgrade",
+      "⚠️ Document complex migrations in MIGRATIONS.md"
+    ]
+  }
+}

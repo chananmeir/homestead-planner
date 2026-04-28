@@ -1,0 +1,2 @@
+- [IndoorSeedStart Sync Pattern](project_indoor_start_sync.md) — PlantingEvent completion must sync linked IndoorSeedStart across 6+ code paths
+- [Documentation Locations](project_doc_locations.md) — Where to write different types of documentation in this project

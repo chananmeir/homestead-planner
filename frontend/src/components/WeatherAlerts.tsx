@@ -3,26 +3,21 @@ import { WeatherAlert, WeatherData } from '../types';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../contexts/AuthContext';
-import { useProperty } from '../hooks/useProperty';
+import { useWeatherZipCode, pinWeatherZip } from '../hooks/useWeatherZipCode';
 
 const WeatherAlerts: React.FC = () => {
   const { user } = useAuth();
-  const property = useProperty();
+  // Canonical resolver: pinned weatherZipCode (kept in sync with property
+  // save) > primary property ZIP > ''.
+  const { zipCode: resolvedZipCode } = useWeatherZipCode();
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [forecast, setForecast] = useState<WeatherData[]>([]);
-  const [zipCode, setZipCode] = useState(() => {
-    // Precedence: pinned weatherZipCode > primary property ZIP > empty (no forecast)
-    // Property ZIP is applied lazily in an effect below since useProperty is async.
-    return localStorage.getItem('weatherZipCode') || '';
-  });
-
-  // If no pinned ZIP exists but the user has a primary property with a ZIP,
-  // fall back to it once useProperty resolves.
+  // Local state for the settings input. Initialized from the resolver and
+  // kept in sync when the resolver value changes (e.g. property save).
+  const [zipCode, setZipCode] = useState(resolvedZipCode);
   useEffect(() => {
-    if (!localStorage.getItem('weatherZipCode') && property?.zipCode && !zipCode) {
-      setZipCode(property.zipCode);
-    }
-  }, [property, zipCode]);
+    setZipCode(resolvedZipCode);
+  }, [resolvedZipCode]);
   const [city, setCity] = useState('Your Location');
   const [showSettings, setShowSettings] = useState(false);
   const [currentWeather, setCurrentWeather] = useState<any>(null);
@@ -200,13 +195,9 @@ const WeatherAlerts: React.FC = () => {
                   <button
                     onClick={() => {
                       if (zipCode) {
-                        localStorage.setItem('weatherZipCode', zipCode);
-                        // Also persist per-user so it survives logout/login cycles
-                        if (user) {
-                          localStorage.setItem(`weatherZipCode__user_${user.id}`, zipCode);
-                        }
-                        // Notify same-tab listeners (StorageEvent only fires cross-tab)
-                        window.dispatchEvent(new CustomEvent('weatherZipCodeChanged', { detail: zipCode }));
+                        // Centralized helper writes both the current pin and
+                        // the per-user backup, then dispatches `weatherZipCodeChanged`.
+                        pinWeatherZip(zipCode, user?.id ?? null);
                       }
                       setShowSettings(false);
                     }}

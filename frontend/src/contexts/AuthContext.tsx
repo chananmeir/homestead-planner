@@ -128,6 +128,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       throw new Error(data.error || 'Registration failed');
     }
 
+    // AUDIT-021 retest fix: a freshly registered user must NOT inherit any
+    // weather ZIP state left over from a prior browser session/account.
+    // Mirrors the login/session-resume pattern above: clear the un-namespaced
+    // pin, restore any per-user backup if one exists (rare for a brand-new
+    // account, but symmetric), and notify same-tab listeners so weather
+    // resolvers re-render and fall back to the new user's property (which
+    // is empty until the property creation flow runs).
+    const userId = data.user.id;
+    PER_USER_PERSISTED_KEYS.forEach(key => {
+      const saved = localStorage.getItem(`${key}__user_${userId}`);
+      if (saved) {
+        localStorage.setItem(key, saved);
+      } else {
+        localStorage.removeItem(key);
+      }
+    });
+    // Dispatch with empty detail when there's no restored value — resolver
+    // consumers re-evaluate and fall through to the property fallback.
+    const restoredZip = localStorage.getItem('weatherZipCode') || '';
+    window.dispatchEvent(new CustomEvent('weatherZipCodeChanged', { detail: restoredZip }));
+
     setUser(data.user);
   }, []);
 

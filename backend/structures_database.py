@@ -1043,3 +1043,51 @@ def get_structures_by_category(category):
 def get_all_categories():
     """Get all structure categories"""
     return STRUCTURE_CATEGORIES
+
+
+def validate_structures_database():
+    """
+    Validate structures database integrity at module load.
+    Ensures required fields exist, categories are valid, numeric fields are numeric,
+    and ids are unique.
+    """
+    required_fields = ['id', 'name', 'category', 'width', 'length']
+    errors = []
+    ids = set()
+
+    for i, s in enumerate(STRUCTURES_DATABASE):
+        sid = s.get('id', f'index-{i}')
+
+        # required fields
+        for f in required_fields:
+            if f not in s:
+                errors.append(f"Structure '{sid}': Missing required field '{f}'")
+
+        # duplicate ids
+        if sid in ids:
+            errors.append(f"Structure '{sid}': Duplicate id")
+        ids.add(sid)
+
+        # validate category
+        if s.get('category') not in STRUCTURE_CATEGORIES:
+            errors.append(f"Structure '{sid}': Invalid category '{s.get('category')}'")
+
+        # numeric checks
+        for num_field in ('width', 'length', 'cost'):
+            if num_field in s and not isinstance(s[num_field], (int, float)):
+                errors.append(f"Structure '{sid}': '{num_field}' must be numeric")
+
+    if errors:
+        print('[WARNING] Structures database validation warnings:')
+        for e in errors[:20]:
+            print('  -', e)
+        if len(errors) > 20:
+            print(f'  ... and {len(errors) - 20} more errors')
+    else:
+        print(f"[OK] Structures database validated: {len(STRUCTURES_DATABASE)} structures, all data valid")
+
+    return len(errors) == 0
+
+
+# Run validation on import
+validate_structures_database()

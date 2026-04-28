@@ -1,7 +1,7 @@
 # Production Readiness Audit - Developer Issue Log
 
 **Created**: 2026-04-23
-**Last Updated**: 2026-04-25 (added AUDIT-016 calendar / indoor-starts consistency A1)
+**Last Updated**: 2026-04-28 (AUDIT-021 verified closed)
 
 ## Purpose
 
@@ -118,7 +118,7 @@ Copy this block for each new issue:
 
 ## AUDIT-003
 
-- Status: `Sent to developer`
+- Status: `Verified closed`
 - Priority: `P2`
 - Source: `phase-b-smoke-findings.md` finding 3
 - Area: Garden Planner
@@ -133,13 +133,13 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`
 - Suspected files / systems: plan creation flow, post-save redirect, plan list CTA design
 - Acceptance criteria:
-  - [ ] Post-create destination makes the next step obvious.
-  - [ ] User does not need insider knowledge to continue working on the new plan.
-- Notes: `phase-b-workflow-investigation.md` confirms root cause and proposes a small frontend fix in `GardenPlanner.tsx`. `next-developer-decisions.md` greenlights this after #7/#8.
+  - [x] Post-create destination makes the next step obvious.
+  - [x] User does not need insider knowledge to continue working on the new plan.
+- Notes: Fix shipped in commit `ebba9ee` on 2026-04-23. User re-test confirmed new plan creation now lands directly in the wizard with the plan name pre-wired.
 
 ## AUDIT-004
 
-- Status: `Sent to developer`
+- Status: `Verified closed`
 - Priority: `P1`
 - Source: `phase-b-smoke-findings.md` finding 5
 - Area: Garden Planner / Nutrition loading
@@ -154,13 +154,13 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`
 - Suspected files / systems: planner export flow, nutrition fetch side effects, toast handling
 - Acceptance criteria:
-  - [ ] Successful export does not show unrelated error toasts.
-  - [ ] If a secondary fetch fails, it is either silently retried or messaged in a way that does not contradict export success.
-- Notes: `next-developer-decisions.md` references local fix commit `e748842` for this issue, but this folder does not yet contain a push/report confirmation or re-test note. Keep open until verified.
+  - [x] Successful export does not show unrelated error toasts.
+  - [x] If a secondary fetch fails, it is either silently retried or messaged in a way that does not contradict export success.
+- Notes: Fix shipped in commit `e748842` on 2026-04-23. User re-test reported the red nutrition toast is gone and export to calendar works.
 
 ## AUDIT-005
 
-- Status: `Sent to developer`
+- Status: `Verified closed`
 - Priority: `P1`
 - Source: `phase-b-smoke-findings.md` finding 6
 - Area: Indoor Seed Starts import
@@ -175,13 +175,13 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`, `phase-b-6-indoor-starts-backdating-proposal.md`
 - Suspected files / systems: indoor-start import logic, date handling, plan-to-start conversion rules
 - Acceptance criteria:
-  - [ ] Import behavior is explicit about whether dates are historical, current, or rescheduled.
-  - [ ] Users are not silently dropped into overdue states without guidance.
-- Notes: `phase-b-6-indoor-starts-backdating-proposal.md` completed the research pass. `next-developer-decisions.md` greenlights Option 2 + Option 4 (prompt on import + skip overdue as backend default). Keep open until implementation and re-test.
+  - [x] Import behavior is explicit about whether dates are historical, current, or rescheduled.
+  - [x] Users are not silently dropped into overdue states without guidance.
+- Notes: Fix shipped in commit `58ae342` on 2026-04-23. User re-test reported an overdue options prompt appeared instead of silently importing stale starts.
 
 ## AUDIT-006
 
-- Status: `Sent to developer`
+- Status: `Verified closed`
 - Priority: `P2`
 - Source: `phase-b-smoke-findings.md` finding 7
 - Area: Indoor Seed Starts
@@ -196,13 +196,13 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`
 - Suspected files / systems: indoor-start status derivation, action rendering conditions
 - Acceptance criteria:
-  - [ ] Action availability is consistent for similar records.
-  - [ ] Any intentional differences are explained to the user.
-- Notes: `phase-b-workflow-investigation.md` confirms this is not a separate root cause; it is a symptom of the same destination-resolution problem as `AUDIT-007`.
+  - [x] Action availability is consistent for similar records.
+  - [x] Any intentional differences are explained to the user.
+- Notes: Resolved as part of the destination-resolution/import fixes shipped in `c98b8a0` and later indoor-start flow cleanup. User verification reported the destination/action behavior now looks generally correct from the user side. A minor workflow note remains that importing from plan is not fully obvious unless the plan has first been exported to calendar, but that is tracked separately as a product-clarity observation rather than this issue.
 
 ## AUDIT-007
 
-- Status: `Sent to developer`
+- Status: `Verified closed`
 - Priority: `P2`
 - Source: `phase-b-smoke-findings.md` finding 8
 - Area: Indoor Seed Starts import
@@ -217,13 +217,13 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`
 - Suspected files / systems: import mapping, destination display, plan item attribution
 - Acceptance criteria:
-  - [ ] Destination assignment is clearly surfaced for imported starts.
-  - [ ] Missing destination state is visible and understandable when applicable.
-- Notes: `phase-b-workflow-investigation.md` confirms this shares a root cause with `AUDIT-006`. `next-developer-decisions.md` greenlights `#7 + #8 together` as the next fix pass.
+  - [x] Destination assignment is clearly surfaced for imported starts.
+  - [x] Missing destination state is visible and understandable when applicable.
+- Notes: Resolved as part of the destination-resolution/import fixes shipped in `c98b8a0`. User verification indicated assigned/missing destination states now appear understandable enough in practice.
 
 ## AUDIT-008
 
-- Status: `Sent to developer`
+- Status: `Verified closed`
 - Priority: `P0`
 - Source: `phase-b-smoke-findings.md` finding 9
 - Area: Garden Designer / Indoor Seed Starts linkage
@@ -238,14 +238,14 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`
 - Suspected files / systems: designer placement flow, indoor-start linking logic, planted-item / event / start synchronization
 - Acceptance criteria:
-  - [ ] Existing indoor-start records are reused or advanced instead of duplicated.
-  - [ ] Cross-module status remains consistent after placement.
-  - [ ] No duplicate start cards are created for the same planned/imported start without explicit user intent.
-- Notes: `next-developer-decisions.md` references local fix commit `2b59107` for this issue, but this folder does not yet contain a push/report confirmation or re-test note. Keep open until verified.
+  - [x] Existing indoor-start records are reused or advanced instead of duplicated.
+  - [x] Cross-module status remains consistent after placement.
+  - [x] No duplicate start cards are created for the same planned/imported start without explicit user intent.
+- Notes: Original duplicate-card bug was first addressed in `2b59107`, then substantially superseded by the explicit source-record placement flow shipped in `2ca6390` (`AUDIT-013`). User re-test on 2026-04-24 indicated the flow now appears to work without creating a duplicate record.
 
 ## AUDIT-009
 
-- Status: `Sent to developer`
+- Status: `Verified closed`
 - Priority: `P1`
 - Source: `phase-b-smoke-findings.md` finding 10
 - Area: Seed Saving
@@ -261,13 +261,13 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`
 - Suspected files / systems: planted-item state persistence, save-for-seed toggle flow, backend save path
 - Acceptance criteria:
-  - [ ] Save-for-seed state persists across navigation and reload.
-  - [ ] Subsequent seed-saving workflow steps use the saved state correctly.
-- Notes: `next-developer-decisions.md` references local fix commit `90c09a3` for this issue, but this folder does not yet contain a push/report confirmation or re-test note. Keep open until verified.
+  - [x] Save-for-seed state persists across navigation and reload.
+  - [x] Subsequent seed-saving workflow steps use the saved state correctly.
+- Notes: Earlier fix `90c09a3` addressed the "disappears from grid" symptom but not the stale reopen state. Final retest fix shipped in commit `44cc572` with docs commit `3b71858`. User re-test on 2026-04-24 reported the workflow now appears to pass.
 
 ## AUDIT-010
 
-- Status: `Fixed pending verification`
+- Status: `Verified closed`
 - Priority: `P2`
 - Source: `phase-b-smoke-findings.md` finding 11
 - Area: Garden Planner / Plan Management
@@ -282,9 +282,9 @@ Copy this block for each new issue:
 - Evidence: `phase-b-smoke-findings.md`, `tasks.md` intentional deferral
 - Suspected files / systems: plan duplication flow, plan-management UX
 - Acceptance criteria:
-  - [ ] Duplicate flow gives an obvious, immediate naming path.
-  - [ ] Users can distinguish original and copy without cleanup hunting.
-- Notes: This was initially deferred, but `user-facing-pass-report.md` records it as completed and pushed in commit `29cb17e` on 2026-04-23. Re-test still needed before closing.
+  - [x] Duplicate flow gives an obvious, immediate naming path.
+  - [x] Users can distinguish original and copy without cleanup hunting.
+- Notes: This was initially deferred, then implemented and pushed in commit `29cb17e` on 2026-04-23 per `user-facing-pass-report.md`. User re-test on 2026-04-24 reported that the duplicate-plan naming flow now appears to work.
 
 ## AUDIT-011
 
@@ -332,7 +332,7 @@ Copy this block for each new issue:
 
 ## AUDIT-013
 
-- Status: `New`
+- Status: `Verified closed`
 - Priority: `P1`
 - Source: `indoor-start-specific-placement-followup.md`
 - Area: Indoor Seed Starts / Garden Designer workflow
@@ -348,10 +348,10 @@ Copy this block for each new issue:
 - Evidence: `indoor-start-specific-placement-followup.md`
 - Suspected files / systems: Indoor Starts -> Designer linkage, placement flow semantics, specific-record tracking across modules
 - Acceptance criteria:
-  - [ ] The flow clearly identifies the specific indoor-start record being placed.
-  - [ ] The user can tell they are placing that existing record, not creating a separate new planting flow.
-  - [ ] Resulting placement clearly advances or links the selected indoor-start record.
-- Notes: This is broader than the smaller copy-only seam in `indoor-start-plan-placement-banner-followup.md`. Leave the card-label fix in place; track this as the remaining workflow follow-up.
+  - [x] The flow clearly identifies the specific indoor-start record being placed.
+  - [x] The user can tell they are placing that existing record, not creating a separate new planting flow.
+  - [x] Resulting placement clearly advances or links the selected indoor-start record.
+- Notes: Resolved by the explicit cell-picker placement flow shipped in `2ca6390`, with docs/report commits `195a20d`, `6ae3ef2`, and `64a319c`. A separate future-feature question remains about reserving an exact future spot without also transplanting; that is now tracked as a by-design limitation / intentional deferral, not as an active defect.
 
 ## AUDIT-014
 
@@ -412,6 +412,7 @@ Copy this block for each new issue:
 - Expected: Calendar surfaces should visually distinguish tracked indoor starts from plan-only ones, and the Indoor Starts page should surface plan-only seedings with a one-click way to begin tracking them.
 - Actual: Both layers existed in isolation. `export_to_calendar` creates `PlantingEvent` rows but no `IndoorSeedStart` rows; nothing in the UI told users this asymmetry existed or how to bridge it.
 - Impact: Users could believe an exported plan was "set up" for indoor starts without ever creating the tracking records; conversely, the Indoor Starts page felt empty even though plenty of plan items implied indoor work.
+- Verification notes: User re-test confirmed the tracked / plan-only distinction now reads clearly enough in the calendar flow, and the previously-missed clicked-day modal surface now groups repeated same-day same-bed same-plant rows instead of listing noisy per-cell duplicates.
 - Repro steps:
   1. Export a plan whose items have transplant-method seedings (e.g., tomatoes, peppers).
   2. Open the calendar around the relevant `seedStartDate` — observe markers/rows look identical to tracked ones.
@@ -426,6 +427,127 @@ Copy this block for each new issue:
   - [x] No backend changes, no schema changes, no paired-file sync triggered.
   - [x] `Plan only` predicate uses `== null` (not falsy) on `indoorSeedStartStatus`.
 - Notes: A1 of two product options. **A2 (auto-create `IndoorSeedStart` on Export to Calendar) was explicitly deferred** — see `calendar-indoor-start-consistency-decision.md` for reasoning; do not propose A2 again without revisiting that decision. 16 frontend tests added across DayDetailModal, EventMarker, GroupedEventsModal, ListView, and the IndoorSeedStarts banner. `code-review` returned LGTM; an R1 SearchBar/sort scope creep was flagged and reverted in the parent session before ship. Banner data source: existing `GET /api/planting-events/needs-indoor-starts` endpoint. Source bed name omitted from banner per locked default. Banner dismissal is client-only (no backend write).
+
+## AUDIT-017
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: `dashboard-needs-attention-row-splitting-finding.md`
+- Area: Dashboard / Needs Attention Today grouping
+- Summary: One logical seeding task was being surfaced as multiple separate dashboard rows because `dashboard_service.py` emitted one signal per `PlantingEvent` with distinct `signalKey`s, so per-cell events inflated the dashboard workload.
+- Expected: When one logical same-day same-plant same-bed task exists, the dashboard should present it as one grouped task or otherwise read as one coherent unit of work.
+- Actual: A `32`-start beet task appeared as `4` separate `8`-plant rows instead of one understandable grouped reminder.
+- Impact: Dashboard workload felt inflated and noisy, making quick triage harder and reducing trust in the `Needs Attention Today` summary.
+- Repro steps:
+  1. Create a multi-cell planting/seeding task that generates several same-day `PlantingEvent` rows for one bed/crop.
+  2. Open the dashboard on the relevant date.
+  3. Observe multiple separate reminder rows instead of one grouped task.
+- Evidence: `dashboard-needs-attention-row-splitting-finding.md`, `dashboard-needs-attention-row-splitting-recommendation.md`, `dashboard-needs-attention-row-splitting-decision.md`, `dashboard-needs-attention-row-splitting-report-back.md`
+- Suspected files / systems: `backend/services/dashboard_service.py`, `frontend/src/components/Dashboard/NeedsAttentionPanel.tsx`
+- Acceptance criteria:
+  - [x] Dashboard builders that emit per-cell planting reminders group by the same composite key philosophy already used on calendar surfaces.
+  - [x] Grouped dashboard rows aggregate quantities sensibly and no longer feel inflated/noisy.
+  - [x] Snooze/dismiss/undo work across grouped `plantingEventIds` without adding a new bulk endpoint.
+  - [x] Existing deep-link target shape remains compatible via representative event id targeting.
+- Notes: Option 1 shipped as the recommended fix. Backend grouped 8 builders; frontend added grouped-row rendering plus snooze/dismiss/undo fan-out over `plantingEventIds`. User re-test on 2026-04-26 reported the dashboard now looks good and no longer feels inflated for these grouped tasks.
+
+## AUDIT-018
+
+- Status: `Partial - monitoring`
+- Priority: `P1`
+- Source: `dashboard-missing-transplant-due-finding.md`
+- Area: Dashboard / Indoor Starts actionable-task consistency
+- Summary: Indoor Starts showed transplant-ready beet starts on the simulation date, but Dashboard `Needs Attention Today` did not surface the corresponding transplant-due task.
+- Expected: If Indoor Starts shows a crop ready or overdue for transplant on the current simulation date, Dashboard should surface the same transplant work in `Needs Attention Today`.
+- Actual: A stale proxy guard in `_build_transplants_due` suppressed transplant-due signals whenever `seed_start_date <= today`, even if the linked `IndoorSeedStart` had legitimately progressed past `planned`.
+- Impact: Dashboard could not be fully trusted as the daily task hub because time-sensitive transplant work shown elsewhere in the app disappeared from the main action list.
+- Repro steps:
+  1. In simulation mode, move to a date where an indoor-started crop is ready/overdue for transplant.
+  2. Confirm Indoor Starts shows the crop ready or overdue.
+  3. Open Dashboard and observe the transplant-due task missing from `Needs Attention Today`.
+- Evidence: `dashboard-missing-transplant-due-finding.md`, `dashboard-missing-transplant-due-recommendation.md`, `dashboard-missing-transplant-due-decision.md`, `dashboard-missing-transplant-due-report-back.md`
+- Suspected files / systems: `backend/services/dashboard_service.py`, Dashboard `transplantsDue` signal generation, Indoor Starts state linkage
+- Acceptance criteria:
+  - [x] The guard checks linked `IndoorSeedStart.status` instead of using the old completion proxy.
+  - [x] PE-only events with no linked `IndoorSeedStart` preserve current guard behavior.
+  - [ ] User-side verification is strong enough to fully close the issue.
+- Notes: Fix shipped in `bb5a082` with docs in `3653295`. User re-test on 2026-04-26 reported the dashboard "looks better" and the transplant reminder appears improved, but the issue remains under observation before full closure.
+
+## AUDIT-019
+
+- Status: `New`
+- Priority: `P2`
+- Source: `user re-test note (2026-04-26)`
+- Area: Indoor Starts / placement-state affordance
+- Summary: After an indoor start has already been placed into the garden, the action/button state still reads `Plan Placement`, which makes it unclear that a location has already been chosen.
+- Expected: Once the user has decided where a plant goes in the garden, the Indoor Starts action/state should reflect that placement has already been chosen (for example `Placed`, `Placement chosen`, or equivalent completed/planned state wording).
+- Actual: After placement, the UI still presents `Plan Placement`, which reads like the placement work has not yet been done.
+- Impact: Users may re-enter the placement flow unnecessarily or lose confidence about whether the exact garden location has already been decided.
+- Repro steps:
+  1. Open an indoor start that is eligible for placement.
+  2. Complete the placement flow and choose the garden cell/location.
+  3. Return to the Indoor Starts card and observe the action still reads `Plan Placement`.
+- Evidence: User re-test note captured during Wave 2A on 2026-04-26.
+- Suspected files / systems: `IndoorSeedStarts.tsx`, Garden Designer / Indoor Starts placement-state mapping, button-label state logic
+- Acceptance criteria:
+  - [ ] After placement, the card/button state clearly indicates a location has already been chosen.
+  - [ ] The UI distinguishes "not placed yet" from "placement chosen / already placed" without implying the wrong lifecycle status.
+  - [ ] Users can tell at a glance whether they still need to choose a location.
+- Notes: This is separate from the already-closed `AUDIT-014` banner-copy safety fix and the broader resolved `AUDIT-013` explicit cell-picker flow. It is a follow-on state-labeling issue after successful placement.
+
+## AUDIT-020
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: `indoor-start-current-location-set-to-bed-finding.md`
+- Area: Indoor Starts / auto-created current-location value
+- Summary: Auto-created indoor starts were incorrectly using the destination garden bed name as the card's `Current location` instead of an indoor starting location.
+- Expected: Auto-created indoor starts should default their current location to a sensible indoor value such as `windowsill`, while preserving destination-bed information separately as `Planned bed`.
+- Actual: The auto-create path in `gardens_bp.py` assigned `IndoorSeedStart.location` from the linked garden bed name, causing cards to show values like `Current location: replica` even though the plant was still in the indoor-start phase.
+- Impact: The Indoor Starts card became logically wrong and users could not trust the `Current location` field to describe where seedlings actually were.
+- Repro steps:
+  1. In Garden Designer, create a future transplant flow that auto-creates an indoor start.
+  2. Open the resulting Indoor Starts card.
+  3. Observe the card showing the outdoor bed name under `Current location`.
+- Evidence: `indoor-start-current-location-set-to-bed-finding.md`, `indoor-start-current-location-set-to-bed-fix-report.md`
+- Suspected files / systems: `backend/blueprints/gardens_bp.py`, auto-created `IndoorSeedStart.location`, Indoor Starts card rendering
+- Acceptance criteria:
+  - [x] The auto-create path no longer uses the garden bed name as `IndoorSeedStart.location`.
+  - [x] New auto-created indoor starts default to `windowsill`, matching the other indoor-start creation paths.
+  - [x] User-side verification confirms new cards no longer show bed names as the current indoor location.
+- Notes: Fix applied at `backend/blueprints/gardens_bp.py:210` by setting `location='windowsill'` and persisting `destination_bed_ids` from `planting_event.garden_bed_id`, so new auto-created cards now show both a correct indoor location and the chosen planned bed. Developer explicitly left legacy bad rows untouched; any one-shot SQL cleanup for existing records is deferred and should be treated as separate data cleanup, not part of the shipped bug fix.
+
+## AUDIT-021
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: `weather-property-zip-propagation-regression-finding.md`, user report 2026-04-28
+- Area: Property Designer / Weather & Alerts / location-aware weather consumers
+- Summary: A ZIP code entered and validated on a newly created property does not reliably propagate to Weather & Alerts and other weather-aware sections.
+- Expected: After a user creates or edits a property with a validated ZIP-bearing address, weather-aware surfaces should use that property ZIP automatically when no explicit weather ZIP override is pinned.
+- Actual: The user created a new property and expected the ZIP to pass through, but Weather & Alerts did not receive/use it. Code inspection also shows multiple weather consumers still read only `localStorage.weatherZipCode`.
+- Impact: Users cannot trust whether weather, frost dates, soil temperature, and planting-readiness calculations are using their actual property location. The app asks for the same location in multiple places instead of treating property setup as the source of truth.
+- Repro steps:
+  1. Use an account with no property and no `weatherZipCode` pinned in localStorage.
+  2. Open a weather-aware screen such as Weather & Alerts before creating a property.
+  3. Create a property in Property Designer.
+  4. Validate and save an address containing a ZIP code.
+  5. Return to Weather & Alerts and observe whether the ZIP field / forecast automatically uses the new property ZIP.
+  6. Check Dashboard weather tile, app header, Garden Designer weather banner, and Planting Calendar weather helpers for the same ZIP behavior.
+- Evidence: `weather-property-zip-propagation-regression-finding.md`, `weather-zip-propagation-fix-plan-review.md`, `weather-zip-propagation-product-decision.md`, `weather-zip-propagation-fix-report.md`, `weather-zip-propagation-tests-report.md`, `weather-zip-propagation-code-review.md`, `weather-zip-propagation-ship-response.md`, `weather-zip-propagation-retest-failure.md`, `weather-zip-propagation-retest-fix-report.md`, `weather-zip-propagation-retest-code-review.md`, `weather-zip-propagation-second-pass-review.md`, `weather-zip-propagation-user-retest-confirmation.md`
+- Suspected files / systems: `frontend/src/hooks/useProperty.ts`, `frontend/src/components/PropertyDesigner/PropertyFormModal.tsx`, `frontend/src/components/WeatherAlerts.tsx`, `frontend/src/components/Dashboard/WeatherSummaryTile.tsx`, `frontend/src/App.tsx`, `frontend/src/components/GardenDesigner.tsx`, `frontend/src/components/PlantingCalendar/index.tsx`, `frontend/src/components/common/PlantPalette.tsx`, `frontend/src/components/GardenDesigner/PlantConfigModal.tsx`
+- Acceptance criteria:
+  - [x] Creating a property after an initial no-property state invalidates stale property ZIP state without requiring a full reload.
+  - [x] Weather & Alerts uses the saved property ZIP when no explicit weather ZIP override is pinned.
+  - [x] Dashboard weather tile and app header use the same property-backed ZIP resolution.
+  - [x] Garden Designer and Planting Calendar weather-aware helpers use the same resolver or receive the same resolved ZIP.
+  - [x] When an existing weather ZIP differs from a newly saved property ZIP, property save wins for this fix and updates the app-wide weather ZIP.
+  - [x] Regression tests cover property-created-after-null-cache and at least Weather & Alerts plus Dashboard weather tile propagation.
+  - [x] ZIP-only validated property setup pins the ZIP even if the displayed formatted address does not include the ZIP.
+  - [x] Freshly registered users do not inherit prior users' weather ZIP state.
+  - [x] A first validation failure followed by a successful retry still pins the ZIP on property save.
+  - [x] User retest confirms the fresh-user/new-property path updates Dashboard and Weather & Alerts without reload.
+- Notes: The likely root cause was split frontend location resolution. `useProperty` memoized `/api/properties` at module scope and could cache `null` before the user created a property; property save did not invalidate that cache or dispatch a weather-location change. Several consumers also bypassed property fallback and read only `localStorage.weatherZipCode`. Product decision on 2026-04-28: proceed with developer option (a). Property create/edit with a ZIP-bearing validated address should seed/update the app-wide weather ZIP and dispatch `weatherZipCodeChanged`; explicit manual override UI is deferred. First implementation reports showed build/test/code-review approval, but user retest on 2026-04-28 found the fresh-user/new-property path still failed. Second-pass fix captured ZIP before validation rewrite and reset/restored weather ZIP state on register; tests and code review passed. User retest after the second-pass fix reported the flow now appears to work, so this is verified closed.
 
 ## Closed / Non-Developer Action Items
 

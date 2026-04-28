@@ -58,6 +58,7 @@ def check_trellis_overlaps(trellis_id, user_id, start_inches, end_inches,
         PlantingEvent.user_id == user_id,
         PlantingEvent.trellis_position_start_inches.isnot(None),
         PlantingEvent.trellis_position_end_inches.isnot(None),
+        PlantingEvent.cancelled_at.is_(None),  # Cancelled allocations don't occupy space
         # Overlap condition: new_start < existing_end AND new_end > existing_start
         PlantingEvent.trellis_position_start_inches < end_inches,
         PlantingEvent.trellis_position_end_inches > start_inches,

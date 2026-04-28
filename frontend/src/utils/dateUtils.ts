@@ -1,11 +1,15 @@
 /**
- * Parse a date string (YYYY-MM-DD) as a local date, avoiding timezone shifts.
+ * Parse either a civil date (YYYY-MM-DD) or an ISO datetime.
  *
- * JavaScript's `new Date('2026-03-23')` parses as UTC midnight, which can shift
- * to the previous day in western timezones. Appending 'T00:00:00' forces local
- * interpretation.
+ * For date-only strings, JavaScript parses `YYYY-MM-DD` as UTC midnight, which
+ * can shift to the previous day in western timezones. Appending `T00:00:00`
+ * forces local interpretation.
+ *
+ * For full ISO datetimes (already containing a time component), preserve the
+ * original timestamp and let the built-in parser handle it as-is.
  */
-export const parseLocalDate = (dateStr: string): Date => new Date(dateStr + 'T00:00:00');
+export const parseLocalDate = (dateStr: string): Date =>
+  new Date(dateStr.includes('T') ? dateStr : `${dateStr}T00:00:00`);
 
 /**
  * Format a Date as a YYYY-MM-DD string using local time components.

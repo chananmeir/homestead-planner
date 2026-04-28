@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Icon Diagnostic Tool - Homestead Planner</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(to bottom right, #f0fdf4, #dbeafe);
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #15803d;
+            margin-top: 0;
+        }
+        h2 {
+            color: #166534;
+            border-bottom: 2px solid #15803d;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+        .warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #f59e0b;
+        }
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #ef4444;
+        }
+        .button {
+            background: #15803d;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .button:hover {
+            background: #166534;
+        }
+        .button-danger {
+            background: #dc2626;
+        }
+        .button-danger:hover {
+            background: #b91c1c;
+        }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        #imageTest {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        .test-image {
+            text-align: center;
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+        }
+        .test-image img {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔧 Icon Diagnostic Tool</h1>
+        <p>This tool will help diagnose why plant icons are showing as emojis instead of PNG images.</p>
+
+        <h2>Step 1: Check localStorage</h2>
+        <div id="localStorageStatus"></div>
+        <button class="button" onclick="clearLocalStorage()">Clear Icon Preference</button>
+
+        <h2>Step 2: Test Image Loading</h2>
+        <p>Testing if PNG files can be loaded:</p>
+        <div id="imageTest"></div>
+
+        <h2>Step 3: Clear Browser Cache</h2>
+        <div class="status warning">
+            <strong>⚠️ Action Required:</strong> Your browser may have cached the old JavaScript code.
+        </div>
+        <p><strong>Do a Hard Refresh:</strong></p>
+        <ul>
+            <li><strong>Windows/Linux:</strong> Press <code>Ctrl + Shift + R</code> or <code>Ctrl + F5</code></li>
+            <li><strong>Mac:</strong> Press <code>Cmd + Shift + R</code></li>
+        </ul>
+        <p>Or manually:</p>
+        <ol>
+            <li>Open DevTools (F12)</li>
+            <li>Right-click the refresh button</li>
+            <li>Select "Empty Cache and Hard Reload"</li>
+        </ol>
+
+        <h2>Step 4: Complete Fix Procedure</h2>
+        <div class="status warning">
+            <strong>📋 Follow these steps in order:</strong>
+        </div>
+        <ol style="line-height: 1.8">
+            <li>Click "Clear Icon Preference" button above ✓</li>
+            <li>Close this tab</li>
+            <li>Go back to your Homestead Planner tab (http://localhost:3000)</li>
+            <li>Do a hard refresh: <code>Ctrl + Shift + R</code></li>
+            <li>Wait for page to reload completely</li>
+            <li>Navigate to Garden Designer</li>
+            <li>Check if icons are now PNG images</li>
+        </ol>
+
+        <button class="button button-danger" onclick="nuclearOption()">Nuclear Option: Clear Everything</button>
+        <p style="font-size: 14px; color: #666;">⚠️ This will clear ALL localStorage including other settings</p>
+    </div>
+
+    <script>
+        // Test plant IDs that should have PNG files
+        const testPlants = ['arugula-1', 'basil-1', 'amaranth-1', 'bean-1', 'beet-1'];
+
+        function checkLocalStorage() {
+            const statusDiv = document.getElementById('localStorageStatus');
+            const value = localStorage.getItem('plantIcon_displayMode');
+
+            if (value === null) {
+                statusDiv.innerHTML = '<div class="status success">✅ No icon preference stored (good!)</div>';
+            } else if (value === 'emoji') {
+                statusDiv.innerHTML = `<div class="status error">❌ Found problem! Icon preference is set to "emoji". Click the button below to fix.</div>`;
+            } else if (value === 'png') {
+                statusDiv.innerHTML = `<div class="status warning">⚠️ Icon preference is set to "png". This should work, but you may need to clear cache.</div>`;
+            } else {
+                statusDiv.innerHTML = `<div class="status warning">⚠️ Unexpected value: "${value}"</div>`;
+            }
+        }
+
+        function clearLocalStorage() {
+            try {
+                localStorage.removeItem('plantIcon_displayMode');
+                alert('✅ Icon preference cleared! Now do a hard refresh (Ctrl+Shift+R) on your main tab.');
+                checkLocalStorage();
+            } catch (error) {
+                alert('❌ Error: ' + error.message);
+            }
+        }
+
+        function nuclearOption() {
+            if (confirm('This will clear ALL localStorage data. Are you sure?')) {
+                localStorage.clear();
+                alert('✅ All localStorage cleared! Now do a hard refresh (Ctrl+Shift+R) on your main tab.');
+                checkLocalStorage();
+            }
+        }
+
+        function testImageLoading() {
+            const testDiv = document.getElementById('imageTest');
+            testDiv.innerHTML = '';
+
+            testPlants.forEach(plantId => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'test-image';
+
+                const img = document.createElement('img');
+                img.src = `/plant-icons/${plantId}.png`;
+
+                const label = document.createElement('div');
+                label.textContent = plantId;
+                label.style.fontSize = '12px';
+                label.style.marginTop = '5px';
+
+                const status = document.createElement('div');
+                status.style.fontSize = '10px';
+                status.textContent = 'Loading...';
+
+                img.onload = () => {
+                    status.textContent = '✅ Loaded';
+                    status.style.color = '#059669';
+                };
+
+                img.onerror = () => {
+                    status.textContent = '❌ Failed';
+                    status.style.color = '#dc2626';
+                    img.style.display = 'none';
+                };
+
+                wrapper.appendChild(img);
+                wrapper.appendChild(label);
+                wrapper.appendChild(status);
+                testDiv.appendChild(wrapper);
+            });
+        }
+
+        // Run diagnostics on load
+        window.addEventListener('load', () => {
+            checkLocalStorage();
+            testImageLoading();
+        });
+    </script>
+</body>
+</html>

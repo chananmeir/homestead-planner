@@ -4,6 +4,7 @@ import { Plant, ValidationWarning, SeedInventoryItem, GardenBed } from '../../ty
 import { API_BASE_URL } from '../../config';
 import { extractCropName, groupPlantsByCrop, getRepresentativePlant } from '../../utils/plantUtils';
 import PlantIcon from './PlantIcon';
+import { useWeatherZipCode } from '../../hooks/useWeatherZipCode';
 
 interface PlantPaletteProps {
   plants: Plant[];
@@ -32,6 +33,7 @@ type CategoryFilter = 'all' | 'vegetable' | 'herb' | 'flower' | 'fruit';
 type LifecycleFilter = 'all' | 'annual' | 'biennial' | 'perennial';
 
 const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPlantSelect, onQuickHarvestChange }) => {
+  const { zipCode: weatherZipCode } = useWeatherZipCode();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
   const [selectedLifecycle, setSelectedLifecycle] = useState<LifecycleFilter>('all');
@@ -157,10 +159,10 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
       setValidating(true);
 
       try {
-        const zipcode = localStorage.getItem('weatherZipCode');
+        const zipcode = weatherZipCode || null;
 
         if (!zipcode) {
-          console.warn('[PlantPalette] No zipcode set - validation skipped. Set location in Weather Dashboard.');
+          console.warn('[PlantPalette] No zipcode resolved - validation skipped. Set a property address or pin a ZIP in Weather & Alerts.');
           setValidationStatus({});
           setValidating(false);
           return;
@@ -219,7 +221,7 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
 
     validatePlants();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plantingDate, deduplicatedPlants, selectedBedId, plantingMethod]);
+  }, [plantingDate, deduplicatedPlants, selectedBedId, plantingMethod, weatherZipCode]);
 
   // Fetch user's seed inventory + global catalog on mount
   useEffect(() => {

@@ -237,6 +237,7 @@ class PlantingEvent(db.Model):
         return bool(self.completed)
     export_key = db.Column(db.String(100), nullable=True, index=True)  # Idempotency key for preventing duplicate exports
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    cancelled_at = db.Column(db.DateTime, nullable=True, index=True)  # Soft-delete: set when task is cancelled, NULL = active
 
     __table_args__ = (
         CheckConstraint(
@@ -1099,6 +1100,7 @@ class IndoorSeedStart(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    cancelled_at = db.Column(db.DateTime, nullable=True, index=True)  # Soft-delete: set when task is cancelled, NULL = active
 
     def get_current_garden_plan_count(self):
         """
@@ -1126,7 +1128,8 @@ class IndoorSeedStart(db.Model):
             PlantingEvent.user_id == self.user_id,
             PlantingEvent.plant_id == self.plant_id,
             variety_filter,
-            PlantingEvent.transplant_date.between(date_min, date_max)
+            PlantingEvent.transplant_date.between(date_min, date_max),
+            PlantingEvent.cancelled_at.is_(None)
         )
 
         # Exclude the self-linked timeline PlantingEvent — it's a placeholder,

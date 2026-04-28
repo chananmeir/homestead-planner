@@ -5,7 +5,7 @@ import { SoilConfig, SoilTempResponse } from './types';
 import { PlantingCalendar, GardenBed } from '../../../types';
 import SoilConfigForm from './SoilConfigForm';
 import ReadinessIndicator from './ReadinessIndicator';
-import { useProperty } from '../../../hooks/useProperty';
+import { useWeatherZipCode } from '../../../hooks/useWeatherZipCode';
 
 interface SoilTemperatureCardProps {
   plantingEvents: PlantingCalendar[];
@@ -15,7 +15,9 @@ interface SoilTemperatureCardProps {
 }
 
 const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvents, onDataLoaded, gardenBeds = [], calendarBedId }) => {
-  const property = useProperty();
+  // Canonical resolver: pinned weatherZipCode (kept in sync with property
+  // save) > primary property ZIP > ''.
+  const { zipCode: weatherZipCode } = useWeatherZipCode();
 
   // Expanded/collapsed state (persisted in localStorage)
   const [expanded, setExpanded] = useState(() => {
@@ -63,8 +65,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
   useEffect(() => {
     const fetchSoilTemperature = async () => {
       try {
-        // Precedence: pinned weatherZipCode > primary property ZIP > empty (skip fetch)
-        const zipCode = localStorage.getItem('weatherZipCode') || property?.zipCode || '';
+        const zipCode = weatherZipCode;
         if (!zipCode) {
           // No location available yet (loading property) or user has no property
           // and no pinned ZIP — skip fetch rather than 500 the backend.
@@ -109,7 +110,7 @@ const SoilTemperatureCard: React.FC<SoilTemperatureCardProps> = ({ plantingEvent
     };
 
     fetchSoilTemperature();
-  }, [config, onDataLoaded, property]);
+  }, [config, onDataLoaded, weatherZipCode]);
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden">

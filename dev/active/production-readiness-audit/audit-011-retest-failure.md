@@ -4,7 +4,7 @@
 
 - **Tracking ID**: `AUDIT-011`
 - **Priority**: `P1`
-- **Status**: `Re-test failed`
+- **Status**: `Resolved and verified closed`
 
 ## Area
 
@@ -53,3 +53,13 @@ Investigate whether:
 2. the active-plan change is not invalidating/reloading the modal data
 3. stale client state is persisting rows from the prior active plan
 4. backend plan attribution is correct per row, but frontend filtering/rendering is still wrong
+
+## Resolution
+
+Resolved later on 2026-04-23.
+
+- Backend fix `a33b921` added optional `?planId=` scoping to the import-events endpoint.
+- Frontend was updated to append `?planId=${activePlan.id}` and re-fetch when `activePlan?.id` changes.
+- User re-test afterward reported that the modal now appears to show the correct rows for the active plan, resolving the original trust issue.
+
+This file should be treated as historical context for the failure that led to the final AUDIT-011 fix, not as the current issue state.

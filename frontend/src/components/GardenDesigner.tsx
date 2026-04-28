@@ -6,7 +6,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 import { API_BASE_URL } from '../config';
 import PlantPalette from './common/PlantPalette';
 import PlantIcon, { PlantIconSVG } from './common/PlantIcon';
-import { Plant, PlantedItem, PlantingEvent, GardenBed } from '../types';
+import { Plant, PlantedItem, GardenBed } from '../types';
 import { ConfirmDialog } from './common/ConfirmDialog';
 import { useToast } from './common/Toast';
 import BedFormModal from './GardenDesigner/BedFormModal';
@@ -28,6 +28,7 @@ import BedOverviewGrid from './GardenDesigner/BedOverviewGrid';
 import { parseLocalDate } from '../utils/dateUtils';
 import { useNow, useToday, useSimulation } from '../contexts/SimulationContext';
 import { usePlantingEvents } from './GardenDesigner/hooks/usePlantingEvents';
+import { useWeatherZipCode } from '../hooks/useWeatherZipCode';
 import { GuildSelector } from './GardenDesigner/GuildSelector';
 import { GuildPreview } from './GardenDesigner/GuildPreview';
 import {
@@ -46,6 +47,7 @@ import {
 
 const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDate, transplantSeedStartId, onTransplantComplete, plantingEventId, onPlantingComplete }) => {
   const { activePlanId, planRefreshKey, bumpPlanRefresh, ensureActivePlan } = useActivePlan();
+  const { zipCode: weatherZipCode } = useWeatherZipCode();
   const now = useNow();
   const today = useToday();
   const { isSimulating, simulatedDate } = useSimulation();
@@ -1982,7 +1984,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     const gridMatch = over.id.toString().match(/^garden-grid-(\d+)$/);
     if (gridMatch) {
       const bedId = parseInt(gridMatch[1]);
-      const targetBed = visibleBeds.find(b => b.id === bedId);
+      const targetBed = beds.find(b => b.id === bedId);
 
       if (!targetBed) {
         console.error(`Target bed ${bedId} not found`);
@@ -2821,7 +2823,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             plantingEvents={plantingEvents}
             plants={plants}
             beds={beds}
-            zipCode={localStorage.getItem('weatherZipCode') || ''}
+            zipCode={weatherZipCode}
           />
           </>)}
 
@@ -3018,7 +3020,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                   Create Your First Bed
                 </button>
               </div>
-            ) : activeBed ? (
+            ) : activeBed && visibleBeds.length > 0 ? (
               <div className="flex-1 min-h-0 overflow-auto" onClick={() => { setSelectedPlant(null); setSelectedPlantedCell(null); setShowMoveInput(false); setMoveTargetLabel(''); setMoveError(null); }}>
                 {/* Two-Column Detail Layout: Grid + Plant List */}
                 <div className="grid gap-4 lg:grid-cols-[1fr,0.95fr] h-full">

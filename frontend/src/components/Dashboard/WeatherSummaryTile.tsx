@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../../config';
+import { useWeatherZipCode } from '../../hooks/useWeatherZipCode';
 
 interface WeatherSummaryTileProps {
   onOpenWeather: () => void;
@@ -19,7 +20,9 @@ interface CurrentWeather {
 }
 
 const WeatherSummaryTile: React.FC<WeatherSummaryTileProps> = ({ onOpenWeather }) => {
-  const [zipCode] = useState<string>(() => localStorage.getItem('weatherZipCode') || '');
+  // Canonical resolver: pinned weatherZipCode (kept in sync with property
+  // ZIP by the property save flow) > primary property ZIP > ''.
+  const { zipCode } = useWeatherZipCode();
   const [current, setCurrent] = useState<CurrentWeather | null>(null);
   const [forecast, setForecast] = useState<ForecastDay[]>([]);
   const [loading, setLoading] = useState(true);

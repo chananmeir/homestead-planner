@@ -55,7 +55,7 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
       });
       setErrors({});
     }
-  }, [isOpen, fetchPlants]);
+  }, [isOpen, fetchPlants, today]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};

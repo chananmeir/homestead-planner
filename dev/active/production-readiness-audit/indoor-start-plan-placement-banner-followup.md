@@ -3,7 +3,7 @@
 ## Status
 
 - **Priority**: `P2`
-- **Status**: `Follow-up after partial fix`
+- **Status**: `Verified closed`
 
 ## Context
 
@@ -45,3 +45,13 @@ Possible follow-up directions:
 - branch the banner copy by entry status
 - use planning language for pre-ready flows
 - reserve `Transplanting ...` / `Mark Transplanted` for truly transplant-ready states
+
+## Resolution
+
+Resolved on 2026-04-23.
+
+- pre-ready states now use planning-oriented copy
+- a confirm dialog appears before the real transplant-status write for pre-ready states
+- `hardening` keeps the direct transplant wording/path
+
+User re-test confirmed the dialog appears as expected. This closes the smaller banner/write-path safety issue, but does not replace the broader specific-placement workflow follow-up tracked in `indoor-start-specific-placement-followup.md` / `AUDIT-013`.

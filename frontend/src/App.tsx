@@ -25,6 +25,7 @@ import { LoginModal } from './components/Auth/LoginModal';
 import { RegisterModal } from './components/Auth/RegisterModal';
 import { LoginRequiredMessage } from './components/Auth/LoginRequiredMessage';
 import { API_BASE_URL } from './config';
+import { useWeatherZipCode } from './hooks/useWeatherZipCode';
 import type { NeedsAttentionTarget } from './components/Dashboard/types';
 
 // Preserved internal tab keys — each represents an existing module.
@@ -158,27 +159,36 @@ function AppContent() {
     ...(user?.isAdmin ? [{ id: 'admin' as NavGroupId, name: 'Admin', icon: '⚙️', description: 'User administration' }] : []),
   ];
 
-  // Location info effect — preserved from previous App.tsx
+  // Header location effect — uses the canonical weather ZIP resolver.
+  // The resolver internally listens for `weatherZipCodeChanged` (same-tab,
+  // dispatched on property save and on the Weather & Alerts manual save)
+  // and the cross-tab `storage` event for `weatherZipCode`, so this effect
+  // only needs to react to the resolved zipCode value changing.
+  const { zipCode: headerZipCode } = useWeatherZipCode();
   useEffect(() => {
     if (!user) {
       setLocationInfo(null);
       return;
     }
-    const zipCode = localStorage.getItem('weatherZipCode');
-    if (!zipCode) {
+    if (!headerZipCode) {
       setLocationInfo(null);
       return;
     }
+    let cancelled = false;
+    // Show the ZIP immediately; weather + zone fill in once the fetch resolves.
+    setLocationInfo({ zipCode: headerZipCode, zone: '', city: '' });
     const fetchZone = async () => {
       try {
         const response = await fetch(
-          `${API_BASE_URL}/api/weather/current?zipcode=${zipCode}`,
+          `${API_BASE_URL}/api/weather/current?zipcode=${headerZipCode}`,
           { credentials: 'include' }
         );
+        if (cancelled) return;
         if (response.ok) {
           const data = await response.json();
+          if (cancelled) return;
           setLocationInfo({
-            zipCode,
+            zipCode: headerZipCode,
             zone: data.location?.zone || '',
             city: data.location?.city || '',
             weatherTemp: data.weather?.temperature,
@@ -187,46 +197,16 @@ function AppContent() {
           });
         }
       } catch {
-        setLocationInfo({ zipCode, zone: '', city: '' });
+        if (!cancelled) {
+          setLocationInfo({ zipCode: headerZipCode, zone: '', city: '' });
+        }
       }
     };
     fetchZone();
-
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'weatherZipCode' && e.newValue) {
-        setLocationInfo(prev => prev ? { ...prev, zipCode: e.newValue! } : null);
-      }
-    };
-    const handleZipChanged = async (e: Event) => {
-      const newZip = (e as CustomEvent).detail;
-      if (newZip) {
-        setLocationInfo({ zipCode: newZip, zone: '', city: '' });
-        try {
-          const resp = await fetch(
-            `${API_BASE_URL}/api/weather/current?zipcode=${newZip}`,
-            { credentials: 'include' }
-          );
-          if (resp.ok) {
-            const data = await resp.json();
-            setLocationInfo({
-              zipCode: newZip,
-              zone: data.location?.zone || '',
-              city: data.location?.city || '',
-              weatherTemp: data.weather?.temperature,
-              weatherConditions: data.weather?.conditions,
-              weatherIcon: data.weather?.icon,
-            });
-          }
-        } catch { /* zip already shown */ }
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    window.addEventListener('weatherZipCodeChanged', handleZipChanged);
     return () => {
-      window.removeEventListener('storage', handleStorage);
-      window.removeEventListener('weatherZipCodeChanged', handleZipChanged);
+      cancelled = true;
     };
-  }, [user]);
+  }, [user, headerZipCode]);
 
   // When activeTab changes, clear transient designer navigation state unless staying in designer.
   const goToTab = (tab: Tab, group?: NavGroupId) => {

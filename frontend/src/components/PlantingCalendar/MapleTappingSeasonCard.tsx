@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiGet } from '../../utils/api';
-import { useProperty } from '../../hooks/useProperty';
+import { useWeatherZipCode } from '../../hooks/useWeatherZipCode';
 
 interface SeasonData {
   in_season: boolean;
@@ -20,23 +20,21 @@ interface SeasonData {
 }
 
 const MapleTappingSeasonCard: React.FC = () => {
-  const property = useProperty();
+  // Canonical resolver: pinned weatherZipCode (kept in sync with property
+  // save) > primary property ZIP > ''.
+  const { zipCode: weatherZipCode } = useWeatherZipCode();
   const [seasonData, setSeasonData] = useState<SeasonData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSeasonData();
-    // fetchSeasonData closes over `property` via the resolution chain below;
-    // re-run when it changes so a property-ZIP fallback takes effect once
-    // the async fetch resolves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [property]);
+  }, [weatherZipCode]);
 
   const fetchSeasonData = async () => {
     try {
-      // Precedence: pinned weatherZipCode > primary property ZIP > empty (skip fetch)
-      const zipCode = localStorage.getItem('weatherZipCode') || property?.zipCode || '';
+      const zipCode = weatherZipCode;
       if (!zipCode) {
         // No location available — hide card (render path already returns null
         // when seasonData stays null).

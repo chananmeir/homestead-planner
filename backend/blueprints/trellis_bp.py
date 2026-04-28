@@ -82,7 +82,7 @@ def trellis_structure_detail(trellis_id):
         # Check if any plants are allocated to this trellis
         allocated_plants = PlantingEvent.query.filter_by(
             trellis_structure_id=trellis_id
-        ).count()
+        ).filter(PlantingEvent.cancelled_at.is_(None)).count()
 
         if allocated_plants > 0:
             return jsonify({
@@ -125,10 +125,12 @@ def trellis_capacity(trellis_id):
     if trellis.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
 
-    # Get all plants allocated to this trellis
+    # Get all plants allocated to this trellis (exclude soft-cancelled)
     allocated_plants = PlantingEvent.query.filter_by(
         trellis_structure_id=trellis_id,
         user_id=current_user.id
+    ).filter(
+        PlantingEvent.cancelled_at.is_(None)
     ).order_by(PlantingEvent.trellis_position_start_inches).all()
 
     # Calculate total allocated space

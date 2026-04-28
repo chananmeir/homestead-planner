@@ -20,12 +20,19 @@ describe('WeatherSummaryTile', () => {
   });
 
   test('renders "Open →" prompt when no zip code is configured', () => {
-    const fetchMock = installFetchMock();
+    // After AUDIT-021, the tile uses `useWeatherZipCode`, which calls
+    // `useProperty` -> `/api/properties`. That property fetch is allowed.
+    // The contract this test guards is: no WEATHER fetch fires when the
+    // resolved ZIP is empty.
+    const fetchMock = installFetchMock([
+      { match: '/api/properties', response: [] },
+    ]);
     render(<WeatherSummaryTile onOpenWeather={jest.fn()} />);
     expect(screen.getByText(/Open Weather to view the forecast/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Open/i })).toBeInTheDocument();
-    // No fetch should fire without a zip code
-    expect(fetchMock).not.toHaveBeenCalled();
+    // No WEATHER fetch should fire without a zip code (property fetch is fine).
+    const calls = fetchMock.mock.calls.map(c => String(c[0]));
+    expect(calls.some(u => u.includes('/api/weather/'))).toBe(false);
   });
 
   test('clicking "Open →" calls onOpenWeather', async () => {

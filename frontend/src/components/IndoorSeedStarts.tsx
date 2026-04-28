@@ -205,13 +205,13 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
 
   const formatDate = (dateString?: string): string => {
     if (!dateString) return '-';
-    const date = new Date(dateString);
+    const date = parseLocalDate(dateString);
     return date.toLocaleDateString();
   };
 
   const getDaysUntil = (dateString?: string): number | null => {
     if (!dateString) return null;
-    const date = new Date(dateString);
+    const date = parseLocalDate(dateString);
     const diffTime = date.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;

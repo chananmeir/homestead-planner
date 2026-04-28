@@ -15,6 +15,7 @@ import { determineRowContinuity, getRowContinuityMessage } from './utils/rowCont
 import { getIntensiveSpacing, HEX_ROW_OFFSET } from '../../utils/intensiveSpacing';
 import { getEffectivePlantingStyle, PlantingStyle, PLANTING_STYLES, requiresSeedDensity, getQuantityTerminology } from '../../utils/plantingStyles';
 import { getSFGPlantsPerCell } from '../../utils/sfgSpacing';
+import { useWeatherZipCode } from '../../hooks/useWeatherZipCode';
 
 /**
  * Determine if plant should use dense planting (multiple plants in one cell)
@@ -130,6 +131,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   onCancel
 }) => {
   const { showSuccess, showError, showWarning } = useToast();
+  const { zipCode: weatherZipCode } = useWeatherZipCode();
   const now = useNow();
   // Stable string for today's date — used in effect deps to avoid infinite re-renders
   // (useNow() returns a new Date object each render, causing identity changes)
@@ -640,13 +642,14 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       setSuggestion(undefined);
 
       try {
-        // Get user's zipcode from localStorage (set by Weather Dashboard)
-        const zipcode = localStorage.getItem('weatherZipCode');
+        // Canonical resolver: pinned weatherZipCode (kept in sync with the
+        // saved property ZIP) > primary property ZIP > ''.
+        const zipcode = weatherZipCode || null;
 
         if (!zipcode) {
           setWarnings([{
             type: 'no_location',
-            message: 'Set your location in Weather Dashboard for planting validation',
+            message: 'Set your location in Weather Dashboard or add a property address for planting validation',
             severity: 'info'
           }]);
           setValidating(false);
@@ -797,7 +800,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
     validatePlanting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [representativePlant, plantingDate, plantingMethod, isOpen, bedId, variety, todayStr]);
+  }, [representativePlant, plantingDate, plantingMethod, isOpen, bedId, variety, todayStr, weatherZipCode]);
 
   // Calculate grid dimensions from bed
   const gridDimensions = useMemo(() => {
@@ -2016,7 +2019,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
         {/* Frost date source notice - warn when using default Zone 5b */}
         {!validating && frostDateSource === 'default' && warnings.some(w => w.type === 'frost_risk' || w.type === 'frost_risk_protected') && (() => {
-          const currentZipcode = localStorage.getItem('weatherZipCode');
+          const currentZipcode = weatherZipCode;
           return (
             <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
               <p className="text-amber-800 font-medium">Frost dates may be inaccurate</p>

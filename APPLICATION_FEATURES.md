@@ -519,7 +519,7 @@ Photos can be tagged to:
 
 **Frost Alerts** (≤ 32°F)
 - Severity: watch (frost) / warning (freeze)
-- Protection recommendations
+- Protection recommendations for plants in the garden
 
 **Heat Alerts** (≥ 85°F)
 - Advisory (85-89°F) / watch (90-94°F) / warning (95°F+)

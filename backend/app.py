@@ -58,12 +58,13 @@ def get_mulch_type_on_date(garden_bed_id, user_id, query_date):
     # (PlantingEvent uses db which is initialized after app)
     from models import PlantingEvent, GardenBed
 
-    # Find most recent mulch event as of query_date
+    # Find most recent mulch event as of query_date (exclude soft-cancelled)
     recent_event = PlantingEvent.query.filter(
         PlantingEvent.garden_bed_id == garden_bed_id,
         PlantingEvent.event_type == 'mulch',
         PlantingEvent.user_id == user_id,
-        PlantingEvent.expected_harvest_date <= query_date
+        PlantingEvent.expected_harvest_date <= query_date,
+        PlantingEvent.cancelled_at.is_(None)
     ).order_by(
         PlantingEvent.expected_harvest_date.desc()
     ).first()

@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Button, FormInput, FormNumber, FormSelect, FormTextarea, useToast } from '../common';
 import { apiPost, apiPut } from '../../utils/api';
+import { invalidatePrimaryPropertyCache, extractZipFromAddress } from '../../hooks/useProperty';
+import { pinWeatherZip } from '../../hooks/useWeatherZipCode';
+import { useAuth } from '../../contexts/AuthContext';
 interface Property {
   id?: number;
   name: string;
@@ -31,6 +34,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
   propertyData,
 }) => {
   const { showSuccess, showError } = useToast();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<Property>({
     name: '',
@@ -55,6 +59,20 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
     error: null,
   });
 
+  // AUDIT-021 retest fix: ZIP captured from the user-entered address at the
+  // moment Validate is clicked, BEFORE the backend response can rewrite the
+  // form's address (e.g. ZIP-only fallback returning "Chicago, IL" without
+  // the ZIP). Persisted across renders so the save handler can read it as
+  // the highest-priority source in the resolution chain. Cleared when the
+  // user edits the address afterward (a stale capture from a prior attempt
+  // would otherwise pin the wrong ZIP for a now-different address) or when
+  // the modal opens/closes/changes mode.
+  const lastValidationZipRef = useRef<string | null>(null);
+  // ZIP echoed back by the backend validate-address response (4th source —
+  // only used if the backend ever exposes a `zipcode` field; today it does
+  // not, so this is null in practice).
+  const validationResponseZipRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       if (mode === 'edit' && propertyData) {
@@ -75,6 +93,10 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
         });
       }
       setErrors({});
+      // Reset captured-ZIP refs whenever the modal (re)opens — a fresh form
+      // session must not carry over a previous validation attempt.
+      lastValidationZipRef.current = null;
+      validationResponseZipRef.current = null;
     }
   }, [isOpen, mode, propertyData]);
 
@@ -130,7 +152,35 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
         throw new Error(errorData.error || `Failed to ${mode} property`);
       }
 
-      await response.json();
+      const savedProperty = await response.json();
+
+      // AUDIT-021: property save is the source of truth for weather location.
+      // 1) Invalidate the module-scoped useProperty cache so all mounted
+      //    consumers re-fetch and pick up the new/edited property.
+      // 2) Resolve the ZIP to pin from an ordered chain so a ZIP-only fallback
+      //    address (where the backend's formatted_address may not echo the
+      //    ZIP) still propagates to the app-wide weather surfaces. Overwrites
+      //    any stale pinned ZIP per the product decision; manual-override UI
+      //    is out of scope for this fix.
+      //
+      // Resolution chain (highest to lowest priority):
+      //   1. ZIP captured from the user-entered address at Validate-time
+      //      (cleared if the user edits the address afterwards).
+      //   2. ZIP extracted from the saved property address.
+      //   3. ZIP extracted from the current form address.
+      //   4. ZIP from the validate-address backend response (if exposed).
+      invalidatePrimaryPropertyCache();
+      const savedAddress = (savedProperty && (savedProperty.address ?? savedProperty.formatted_address)) || null;
+      const newZip =
+        lastValidationZipRef.current
+        || extractZipFromAddress(savedAddress)
+        || extractZipFromAddress(formData.address)
+        || validationResponseZipRef.current
+        || null;
+      if (newZip) {
+        pinWeatherZip(newZip, user?.id ?? null);
+      }
+
       showSuccess(mode === 'edit' ? 'Property updated successfully!' : 'Property created successfully!');
       onSuccess();
     } catch (error) {
@@ -154,6 +204,14 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
     // Reset validation when address changes
     if (field === 'address') {
       setAddressValidation({ validated: false, loading: false, error: null });
+      // AUDIT-021 retest fix: clear any captured ZIP from a prior validation
+      // attempt — once the user edits the address, the previous ZIP no longer
+      // describes the current input. The validate handler intentionally uses
+      // `setFormData` directly (not `handleChange`) when copying the
+      // formatted_address back into the form so this clear does not wipe the
+      // ZIP that was just captured.
+      lastValidationZipRef.current = null;
+      validationResponseZipRef.current = null;
     }
   };
 
@@ -161,6 +219,16 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
     if (!formData.address || formData.address.trim() === '') {
       showError('Please enter an address first');
       return;
+    }
+
+    // AUDIT-021 retest fix: capture the ZIP from the user-entered address
+    // BEFORE awaiting the backend. ZIP-only fallback responses (e.g. typing
+    // just `60601`) can return a `formatted_address` like "Chicago, IL" that
+    // does not contain the original ZIP — without this capture, the save
+    // handler later has no ZIP to extract.
+    const capturedZip = extractZipFromAddress(formData.address);
+    if (capturedZip) {
+      lastValidationZipRef.current = capturedZip;
     }
 
     setAddressValidation({ validated: false, loading: true, error: null });
@@ -179,9 +247,20 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
         return;
       }
 
-      // Auto-populate fields from validation
+      // 4th-source ZIP from backend response (if exposed). Backend currently
+      // returns `formatted_address` only — guard for both a future explicit
+      // `zipcode` field and a ZIP embedded in the formatted address.
+      const responseZip =
+        (typeof (data as any).zipcode === 'string' && (data as any).zipcode.trim()) ||
+        extractZipFromAddress(data.formatted_address) ||
+        null;
+      validationResponseZipRef.current = responseZip || null;
+
+      // Auto-populate fields from validation. Use `setFormData` directly here
+      // (not `handleChange`) so the on-change side effect does not clear the
+      // captured ZIP we just stored above.
       if (data.formatted_address) {
-        handleChange('address', data.formatted_address);
+        setFormData(prev => ({ ...prev, address: data.formatted_address }));
       }
       if (data.latitude) {
         setFormData(prev => ({ ...prev, latitude: data.latitude }));
@@ -190,7 +269,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({
         setFormData(prev => ({ ...prev, longitude: data.longitude }));
       }
       if (data.zone && !formData.zone) {
-        handleChange('zone', data.zone);
+        setFormData(prev => ({ ...prev, zone: data.zone }));
       }
 
       setAddressValidation({

@@ -198,12 +198,13 @@ def get_mulch_type_on_date(garden_bed_id, user_id, query_date):
     Returns:
         str: Mulch type ('none', 'straw', 'wood-chips', etc.)
     """
-    # Find most recent mulch event as of query_date
+    # Find most recent mulch event as of query_date (exclude soft-cancelled)
     recent_event = PlantingEvent.query.filter(
         PlantingEvent.garden_bed_id == garden_bed_id,
         PlantingEvent.event_type == 'mulch',
         PlantingEvent.user_id == user_id,
-        PlantingEvent.expected_harvest_date <= query_date
+        PlantingEvent.expected_harvest_date <= query_date,
+        PlantingEvent.cancelled_at.is_(None)
     ).order_by(
         PlantingEvent.expected_harvest_date.desc()
     ).first()
@@ -866,7 +867,10 @@ def indoor_seed_starts():
 
     # GET request
     try:
-        query = IndoorSeedStart.query.filter_by(user_id=current_user.id)
+        # Exclude soft-cancelled seed starts from the list view
+        query = IndoorSeedStart.query.filter_by(user_id=current_user.id).filter(
+            IndoorSeedStart.cancelled_at.is_(None)
+        )
 
         # Filter by status
         status = request.args.get('status')
@@ -1057,6 +1061,47 @@ def indoor_seed_start_detail(id):
 
     # GET request
     return jsonify(seed_start.to_dict())
+
+
+@utilities_bp.route('/indoor-seed-starts/<int:id>/cancel', methods=['POST'])
+@login_required
+def cancel_indoor_seed_start(id):
+    """Soft-cancel an indoor seed start ("I changed my mind").
+
+    Sets cancelled_at to now, hiding the seed start from the Indoor Seed
+    Starts list and the dashboard while preserving the row for undo.
+    Idempotent: repeated calls overwrite the timestamp without error.
+    """
+    seed_start = IndoorSeedStart.query.get_or_404(id)
+    if seed_start.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    seed_start.cancelled_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({
+        'id': seed_start.id,
+        'cancelledAt': seed_start.cancelled_at.isoformat()
+    }), 200
+
+
+@utilities_bp.route('/indoor-seed-starts/<int:id>/uncancel', methods=['POST'])
+@login_required
+def uncancel_indoor_seed_start(id):
+    """Un-cancel a previously soft-cancelled indoor seed start (undo window).
+
+    Clears cancelled_at, restoring the seed start to all actionable views.
+    Idempotent: calling on a non-cancelled record is a no-op.
+    """
+    seed_start = IndoorSeedStart.query.get_or_404(id)
+    if seed_start.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    seed_start.cancelled_at = None
+    db.session.commit()
+    return jsonify({
+        'id': seed_start.id,
+        'cancelledAt': None
+    }), 200
 
 
 @utilities_bp.route('/indoor-seed-starts/<int:id>/mark-failed', methods=['POST'])

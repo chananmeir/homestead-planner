@@ -1,0 +1,18 @@
+Read it. The reviewer approves the technical direction but rejects silent Option A.
+
+  Key changes to the plan:
+
+  1. Drop Option A as the silent default. The reviewer's argument is exactly the failure mode in the original report: a stale localStorage.weatherZipCode from prior testing masks the newly-saved property ZIP, which is the user-reported    symptom. Option A would ship the bug.
+  2. On property save with a validated ZIP-bearing address: write that ZIP into both localStorage.weatherZipCode and weatherZipCode__user_${user.id}, then dispatch weatherZipCodeChanged. Effectively Option B for the save flow.             3. If product later wants a real manual override, do it explicitly in Weather & Alerts UI with copy like Weather location override active plus a Use property ZIP reset — separate scope from this fix.
+  4. Acceptance criteria additions for AUDIT-021 (4 checkboxes in the review).
+  5. Minor implementation note: after seeding, the resolver's source will report pinned even though the value came from property. Acceptable for this fix; if later needed, add weatherZipCodeSource: 'property' | 'manual'.
+
+  The technical scaffolding (resolver hook, invalidatable useProperty cache, single notification event, file migration list, test list) is unchanged.
+
+  Before I update the plan and dispatch the implementer, confirm:
+
+  - (a) Adopt reviewer's recommendation as-is — property save seeds the weather ZIP and dispatches; no override UI in this fix. (My recommendation — matches the user-reported symptom and the reviewer's verdict.)
+  - (b) Adopt it AND add the explicit override UI in Weather & Alerts in the same fix.
+  - (c) Stay strict Option A and ship the override UI to make it acceptable.
+
+  Which do you want?

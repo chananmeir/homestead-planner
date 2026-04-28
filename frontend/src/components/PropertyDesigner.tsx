@@ -6,6 +6,7 @@ import { TrellisManager } from './PropertyDesigner/TrellisManager';
 import { ConfirmDialog, useToast } from './common';
 import StructureIcon, { StructureIconSVG } from './common/StructureIcon';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
+import { invalidatePrimaryPropertyCache } from '../hooks/useProperty';
 import { Plant, TrellisStructure } from '../types';
 import { useNow, useToday } from '../contexts/SimulationContext';
 interface Property {
@@ -576,6 +577,13 @@ const PropertyDesigner: React.FC = () => {
         if (selectedProperty?.id === deleteConfirm.propertyId) {
           setSelectedProperty(null);
         }
+
+        // AUDIT-021: invalidate the module-scoped useProperty cache so that
+        // weather-aware consumers (resolver hook) drop the property fallback.
+        // Per the product decision, we do NOT auto-clear the pinned
+        // weatherZipCode here — it survives until a new property is saved
+        // (which will overwrite it) or the user logs out.
+        invalidatePrimaryPropertyCache();
 
         // Reload properties list
         loadData();

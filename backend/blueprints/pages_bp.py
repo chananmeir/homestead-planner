@@ -36,7 +36,9 @@ def visual_designer():
 @pages_bp.route('/planting-calendar')
 def planting_calendar():
     """Planting calendar page"""
-    events = PlantingEvent.query.order_by(PlantingEvent.seed_start_date).all()
+    events = PlantingEvent.query.filter(
+        PlantingEvent.cancelled_at.is_(None)
+    ).order_by(PlantingEvent.seed_start_date).all()
     # Get frost dates from property/zone lookup if user is logged in, else use default
     if current_user and current_user.is_authenticated:
         frost = get_frost_dates_for_user(current_user.id)

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { apiGet, apiPost } from '../../utils/api';
-import { useProperty } from '../../hooks/useProperty';
+import { useWeatherZipCode } from '../../hooks/useWeatherZipCode';
 
 interface PlacedStructure {
   id: number;
@@ -57,7 +57,9 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
   onClose,
   onEventAdded
 }) => {
-  const property = useProperty();
+  // Canonical resolver: pinned weatherZipCode (kept in sync with property
+  // save) > primary property ZIP > ''.
+  const { zipCode: weatherZipCode } = useWeatherZipCode();
 
   // Basic fields
   const [mapleTrees, setMapleTrees] = useState<PlacedStructure[]>([]);
@@ -96,20 +98,19 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
   } | null>(null);
 
   // Fetch maple trees and season data on mount.
-  // Re-run when `property` resolves so the season banner picks up the
-  // property-ZIP fallback once useProperty finishes loading.
+  // Re-run when `weatherZipCode` resolves so the season banner picks up the
+  // resolver value once it finishes loading or after property save.
   useEffect(() => {
     if (isOpen) {
       fetchMapleTrees();
       fetchSeasonConditions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, property]);
+  }, [isOpen, weatherZipCode]);
 
   const fetchSeasonConditions = async () => {
     try {
-      // Precedence: pinned weatherZipCode > primary property ZIP > empty (skip fetch)
-      const zipCode = localStorage.getItem('weatherZipCode') || property?.zipCode || '';
+      const zipCode = weatherZipCode;
       if (!zipCode) {
         // No location — skip the banner fetch silently (this is the non-critical path).
         return;

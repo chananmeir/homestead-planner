@@ -993,7 +993,7 @@ const GardenPlanner: React.FC = () => {
       clearTimeout(timeoutId);
       abortController.abort();
     };
-  }, [manualQuantities, seedInventory, perSeedSuccession]);
+  }, [manualQuantities, seedInventory, perSeedSuccession, now]);
 
   const toggleSeedSelection = (seedId: number) => {
     const newSelection = new Set(selectedSeeds);
@@ -1613,18 +1613,18 @@ const GardenPlanner: React.FC = () => {
     return getPlantInfo(plantId)?.name || plantId;
   }, [getPlantInfo]);
 
-  const isExpired = (expirationDate: string | null | undefined): boolean => {
+  const isExpired = useCallback((expirationDate: string | null | undefined): boolean => {
     if (!expirationDate) return false;
     return new Date(expirationDate) < now;
-  };
+  }, [now]);
 
-  const isExpiringSoon = (expirationDate: string | null | undefined): boolean => {
+  const isExpiringSoon = useCallback((expirationDate: string | null | undefined): boolean => {
     if (!expirationDate) return false;
     const threeMonthsFromNow = new Date(now.getTime());
     threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
     const expDate = new Date(expirationDate);
     return expDate < threeMonthsFromNow && expDate >= now;
-  };
+  }, [now]);
 
   // Phase 1: Base filtered (search only)
   const baseFilteredSeeds = useMemo(() => {
@@ -1712,7 +1712,7 @@ const GardenPlanner: React.FC = () => {
         })),
       },
     ].filter(group => group.options.length > 0); // Only show groups with options
-  }, [baseFilteredSeeds, getPlantInfo]);
+  }, [baseFilteredSeeds, getPlantInfo, isExpired, isExpiringSoon]);
 
   // Phase 3: Final filtered and sorted
   const filteredAndSortedSeeds = useMemo(() => {
@@ -1786,7 +1786,7 @@ const GardenPlanner: React.FC = () => {
     });
 
     return result;
-  }, [baseFilteredSeeds, activeFilters, sortBy, sortDirection, getPlantInfo, getPlantName]);
+  }, [baseFilteredSeeds, activeFilters, sortBy, sortDirection, getPlantInfo, getPlantName, isExpired, isExpiringSoon]);
 
   // Handler functions
   const handleFilterChange = (groupId: string, values: string[]) => {

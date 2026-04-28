@@ -43,6 +43,7 @@ def get_bed_rotation_history(bed_id, user_id, years_back=3):
         PlantingEvent.garden_bed_id == bed_id,
         PlantingEvent.user_id == user_id,
         PlantingEvent.event_type == 'planting',  # Only planting events, not mulch/etc
+        PlantingEvent.cancelled_at.is_(None),  # Exclude soft-cancelled (never actually planted)
         or_(
             extract('year', PlantingEvent.direct_seed_date) >= start_year,
             extract('year', PlantingEvent.transplant_date) >= start_year

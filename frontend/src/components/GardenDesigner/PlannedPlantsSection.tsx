@@ -723,7 +723,7 @@ const PlannedPlantsSection: React.FC<PlannedPlantsSectionProps> = ({
     };
 
     fetchProgress();
-  }, [planId, dateFilter?.date, refreshKey]);
+  }, [planId, dateFilter?.date, refreshKey, now]);
 
   // Fetch ALL planting events for the bed (no date range filtering).
   // This ensures succession status matching sees events whose harvest window

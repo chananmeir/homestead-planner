@@ -19,6 +19,7 @@ import TimelineView from './TimelineView';
 import EventDetailModal from './CalendarGrid/EventDetailModal';
 import DayDetailModal from './CalendarGrid/DayDetailModal';
 import { useFocusHighlight } from '../Dashboard/hooks/useFocusHighlight';
+import { useWeatherZipCode } from '../../hooks/useWeatherZipCode';
 
 type CalendarViewMode = 'list' | 'grid' | 'timeline';
 
@@ -88,6 +89,12 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [firstFrostDate, setFirstFrostDate] = useState<Date>(new Date(new Date().getFullYear() + '-10-15'));
   const [frostDateSource, setFrostDateSource] = useState<'property' | 'zone' | 'zipcode' | 'default' | null>(null);
+
+  // Canonical resolver: pinned weatherZipCode (kept in sync with property
+  // ZIP) > primary property ZIP > ''. Backend `/api/frost-dates` already
+  // prioritizes property zone > zipcode-derived zone, so passing a property
+  // ZIP via this resolver is at worst equivalent and at best strictly better.
+  const { zipCode: weatherZipCode } = useWeatherZipCode();
 
   useEffect(() => {
     if (!preferredViewMode) return;
@@ -205,8 +212,9 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
   useEffect(() => {
     const fetchFrostDates = async () => {
       try {
-        const weatherZip = localStorage.getItem('weatherZipCode');
-        const frostUrl = weatherZip ? `/api/frost-dates?zipcode=${encodeURIComponent(weatherZip)}` : '/api/frost-dates';
+        const frostUrl = weatherZipCode
+          ? `/api/frost-dates?zipcode=${encodeURIComponent(weatherZipCode)}`
+          : '/api/frost-dates';
         const response = await apiGet(frostUrl);
         if (response.ok) {
           const data = await response.json();
@@ -227,7 +235,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
     };
 
     fetchFrostDates();
-  }, []);
+  }, [weatherZipCode]);
 
   // Soil temp forecast for cold warnings on calendar events
   const [soilTempForecast, setSoilTempForecast] = useState<Record<string, number>>({});

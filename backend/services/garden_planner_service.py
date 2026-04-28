@@ -746,6 +746,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     PlantingEvent.user_id == user_id,
                     PlantingEvent.trellis_position_start_inches.isnot(None),
                     PlantingEvent.trellis_position_end_inches.isnot(None),
+                    PlantingEvent.cancelled_at.is_(None),
                 ).order_by(PlantingEvent.trellis_position_start_inches).all()
 
                 # Find first available position after all existing allocations
@@ -792,7 +793,10 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     if pos_end is not None:
                         next_available_position = pos_end
 
-                    existing_event = PlantingEvent.query.filter_by(export_key=export_key, user_id=user_id).first()
+                    # Skip soft-cancelled events so re-export creates a fresh event
+                    existing_event = PlantingEvent.query.filter_by(
+                        export_key=export_key, user_id=user_id
+                    ).filter(PlantingEvent.cancelled_at.is_(None)).first()
 
                     plant_date_dt = datetime.combine(plant_date, datetime.min.time())
 
@@ -868,8 +872,10 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
 
                     plant_date_dt = datetime.combine(plant_date, datetime.min.time())
 
-                    # Check if event already exists
-                    existing_event = PlantingEvent.query.filter_by(export_key=export_key, user_id=user_id).first()
+                    # Check if event already exists (skip soft-cancelled so re-export creates fresh)
+                    existing_event = PlantingEvent.query.filter_by(
+                        export_key=export_key, user_id=user_id
+                    ).filter(PlantingEvent.cancelled_at.is_(None)).first()
 
                     if existing_event:
                         # Update existing event
@@ -927,8 +933,10 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
 
                 plant_date_dt = datetime.combine(plant_date, datetime.min.time())
 
-                # Check if event already exists
-                existing_event = PlantingEvent.query.filter_by(export_key=export_key, user_id=user_id).first()
+                # Check if event already exists (skip soft-cancelled so re-export creates fresh)
+                existing_event = PlantingEvent.query.filter_by(
+                    export_key=export_key, user_id=user_id
+                ).filter(PlantingEvent.cancelled_at.is_(None)).first()
 
                 if existing_event:
                     # Update existing event
@@ -1127,6 +1135,7 @@ def preview_export_conflicts(plan_id: int, user_id: int) -> Dict:
             PlantingEvent.event_type == 'planting',
             PlantingEvent.direct_seed_date.isnot(None),
             PlantingEvent.expected_harvest_date.isnot(None),
+            PlantingEvent.cancelled_at.is_(None),
         ).all()
 
         for existing in existing_events:

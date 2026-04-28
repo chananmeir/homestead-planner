@@ -1754,6 +1754,9 @@ def planting_events():
         ~and_(PlantingEvent.completed == True, PlantingEvent.quantity_completed == 0)
     )
 
+    # Exclude soft-cancelled events (user chose "I changed my mind")
+    query = query.filter(PlantingEvent.cancelled_at.is_(None))
+
     # Filter by date range if provided
     # Lifecycle filtering: show events that are ACTIVE during the date range
     # An event is active if: plant_date <= end_date AND harvest_date >= start_date
@@ -2201,6 +2204,48 @@ def switch_to_direct_seed(event_id):
 
     db.session.commit()
     return jsonify(event.to_dict())
+
+
+@gardens_bp.route('/planting-events/<int:event_id>/cancel', methods=['POST'])
+@login_required
+def cancel_planting_event(event_id):
+    """Soft-cancel a planting event ("I changed my mind").
+
+    Sets cancelled_at to now, hiding the event from all actionable views
+    (dashboard, calendar, indoor seed starts list, etc.) while preserving
+    the row for undo/audit. Idempotent: repeated calls overwrite the
+    timestamp without error.
+    """
+    event = PlantingEvent.query.get_or_404(event_id)
+    if event.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    event.cancelled_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({
+        'id': event.id,
+        'cancelledAt': event.cancelled_at.isoformat()
+    }), 200
+
+
+@gardens_bp.route('/planting-events/<int:event_id>/uncancel', methods=['POST'])
+@login_required
+def uncancel_planting_event(event_id):
+    """Un-cancel a previously soft-cancelled planting event (undo window).
+
+    Clears cancelled_at, restoring the event to all actionable views.
+    Idempotent: calling on a non-cancelled event is a no-op.
+    """
+    event = PlantingEvent.query.get_or_404(event_id)
+    if event.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    event.cancelled_at = None
+    db.session.commit()
+    return jsonify({
+        'id': event.id,
+        'cancelledAt': None
+    }), 200
 
 
 @gardens_bp.route('/planting-events/bulk-switch-to-direct-seed', methods=['PATCH'])

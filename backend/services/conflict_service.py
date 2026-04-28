@@ -42,11 +42,11 @@ def find_conflicts_in_bed(bed_id, user_id):
     Returns:
         list[dict]: List of conflict objects with details
     """
-    # Get all planting events in the bed
+    # Get all planting events in the bed (exclude soft-cancelled)
     events = PlantingEvent.query.filter_by(
         garden_bed_id=bed_id,
         user_id=user_id
-    ).all()
+    ).filter(PlantingEvent.cancelled_at.is_(None)).all()
 
     conflicts = []
 
