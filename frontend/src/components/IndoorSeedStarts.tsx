@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiDelete } from '../utils/api';
 import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
 import { useToast } from './common/Toast';
@@ -117,6 +117,7 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
   const [bannerExpanded, setBannerExpanded] = useState<boolean>(false);
   const [dismissedIds, setDismissedIds] = useState<Set<number>>(new Set());
   const [bannerActionInFlight, setBannerActionInFlight] = useState<Set<number>>(new Set());
+  const autoFilterFocusHandledRef = useRef<number | null>(null);
   const { showSuccess, showError } = useToast();
 
   // Two-phase focus resolution: first renders resolve against whatever seedStarts
@@ -132,13 +133,22 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
 
   const { registerRef, highlightedId } = useFocusHighlight<number>(resolvedFocusId, onFocusConsumed);
 
-  // Force filter to include the focused row so scrolling can find it
+  // Force filter to include the focused row once per navigation focus request.
+  // After that, manual filter clicks should not be bounced back to "All".
   useEffect(() => {
-    if (focusIndoorStartId == null) return;
+    if (focusIndoorStartId == null) {
+      autoFilterFocusHandledRef.current = null;
+      return;
+    }
+    if (autoFilterFocusHandledRef.current === focusIndoorStartId) return;
+
     const target = seedStarts.find(
       s => s.id === focusIndoorStartId || s.plantingEventId === focusIndoorStartId
     );
-    if (target != null && filterStatus !== 'all' && target.status !== filterStatus) {
+    if (target == null) return;
+
+    autoFilterFocusHandledRef.current = focusIndoorStartId;
+    if (filterStatus !== 'all' && target.status !== filterStatus) {
       setFilterStatus('all');
     }
   }, [focusIndoorStartId, seedStarts, filterStatus]);

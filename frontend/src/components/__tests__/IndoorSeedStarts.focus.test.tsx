@@ -9,7 +9,7 @@
  *    here — the fallback resolution is covered by integration at the App level.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 jest.mock('../../contexts/SimulationContext', () => ({
   useNow: () => new Date('2026-04-14T12:00:00'),
@@ -154,5 +154,41 @@ describe('IndoorSeedStarts focus integration', () => {
     });
     const highlighted = screen.getByTestId('iss-card-55');
     expect(highlighted.className).toMatch(/ring-amber-400/);
+  });
+
+  test('manual status filter is not reset after focus request has been handled', async () => {
+    installFetchMock([
+      {
+        match: '/api/indoor-seed-starts',
+        response: [
+          {
+            id: 55,
+            plantId: 'tomato',
+            variety: 'Cherokee Purple',
+            startDate: '2026-04-01',
+            seedsStarted: 6,
+            status: 'growing',
+          },
+        ],
+      },
+      { match: '/api/plants', response: [{ id: 'tomato', name: 'Tomato' }] },
+      { match: '/api/seeds', response: [] },
+    ]);
+
+    renderComponent(55);
+
+    await screen.findByTestId('iss-card-55');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Failed' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('button', { name: 'Failed' }).className).toMatch(/bg-green-600/);
+    expect(screen.getByText('No failed seed starts')).toBeInTheDocument();
+    expect(screen.queryByTestId('iss-card-55')).not.toBeInTheDocument();
   });
 });
