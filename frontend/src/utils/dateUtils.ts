@@ -5,7 +5,15 @@
  * to the previous day in western timezones. Appending 'T00:00:00' forces local
  * interpretation.
  */
-export const parseLocalDate = (dateStr: string): Date => new Date(dateStr + 'T00:00:00');
+export const parseLocalDate = (dateStr: string): Date => {
+  if (!dateStr) return new Date(NaN);
+
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return new Date(dateStr);
+
+  const [, year, month, day] = match;
+  return new Date(Number(year), Number(month) - 1, Number(day));
+};
 
 /**
  * Format a Date as a YYYY-MM-DD string using local time components.
