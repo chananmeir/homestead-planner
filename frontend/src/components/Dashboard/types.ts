@@ -199,6 +199,7 @@ export interface DashboardToday {
 
 export type NeedsAttentionTarget =
   | { kind: 'harvest'; plantingEventId: number }
+  | { kind: 'harvestBed'; plantingEventId: number; bedId: number }
   | { kind: 'indoorStart'; indoorSeedStartId?: number | null; plantingEventId?: number | null }
   | { kind: 'transplant'; plantingEventId: number; bedId?: number | null }
   | { kind: 'directSeed'; plantingEventId: number; bedId?: number | null }

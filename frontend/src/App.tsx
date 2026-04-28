@@ -279,6 +279,12 @@ function AppContent() {
         setHarvestFocusId(target.plantingEventId);
         goToTab('harvests', 'track');
         return;
+      case 'harvestBed':
+        setDesignerBedId(target.bedId);
+        setPlantingEventId(target.plantingEventId);
+        setTransplantSeedStartId(null);
+        goToTab('designer', 'design');
+        return;
       case 'indoorStart':
       case 'indoorGerminationCheck': {
         const focus = target.indoorSeedStartId ?? target.plantingEventId ?? null;

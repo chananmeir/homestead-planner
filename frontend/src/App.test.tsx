@@ -72,10 +72,28 @@ jest.mock('./contexts/SimulationContext', () => ({
 // ---------------------------------------------------------------------------
 // Component mocks — lightweight stand-ins, each renders a distinct marker
 // ---------------------------------------------------------------------------
-jest.mock('./components/Dashboard', () => () => <div>MOCK_DASHBOARD</div>);
+jest.mock('./components/Dashboard', () => (props: any) => (
+  <div>
+    <div>MOCK_DASHBOARD</div>
+    <button
+      type="button"
+      onClick={() => props.onNavigate({ kind: 'harvestBed', plantingEventId: 7, bedId: 3 })}
+    >
+      MOCK_HARVEST_BED_NAV
+    </button>
+  </div>
+));
 jest.mock('./components/GardenPlanner', () => () => <div>MOCK_GARDEN_PLANNER</div>);
 jest.mock('./components/GardenPlanner/GardenSnapshot', () => () => <div>MOCK_GARDEN_SNAPSHOT</div>);
-jest.mock('./components/GardenDesigner', () => () => <div>MOCK_GARDEN_DESIGNER</div>);
+jest.mock('./components/GardenDesigner', () => (props: any) => (
+  <div
+    data-testid="mock-garden-designer"
+    data-initial-bed-id={props.initialBedId ?? ''}
+    data-planting-event-id={props.plantingEventId ?? ''}
+  >
+    MOCK_GARDEN_DESIGNER
+  </div>
+));
 jest.mock('./components/PropertyDesigner', () => () => <div>MOCK_PROPERTY_DESIGNER</div>);
 jest.mock('./components/PlantingCalendar', () => (props: any) => (
   <div data-testid="mock-planting-calendar" data-preferred-view-mode={props.preferredViewMode || ''}>
@@ -161,6 +179,17 @@ describe('App.tsx nav restructure', () => {
     const designBtn = Array.from(nav.querySelectorAll('button')).find(b => /Design/.test(b.textContent || ''));
     await userEvent.click(designBtn!);
     expect(await screen.findByText('MOCK_GARDEN_DESIGNER')).toBeInTheDocument();
+  });
+
+  test('Needs Attention harvest bed target opens Garden Designer with bed focus', async () => {
+    render(<App />);
+    expect(await screen.findByText('MOCK_DASHBOARD')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /MOCK_HARVEST_BED_NAV/ }));
+
+    const designer = await screen.findByTestId('mock-garden-designer');
+    expect(designer).toHaveAttribute('data-initial-bed-id', '3');
+    expect(designer).toHaveAttribute('data-planting-event-id', '7');
   });
 
   test('clicking "Grow" opens Planting Calendar (first sub-item of Grow)', async () => {

@@ -123,6 +123,27 @@ describe('NeedsAttentionPanel', () => {
     expect(nav.onNavigate).toHaveBeenCalledTimes(1);
   });
 
+  test('harvest row View bed action navigates to the crop bed', async () => {
+    const payload = emptyPayload();
+    payload.signals.harvestReady = [
+      { signalKey: 'harvest:7', plantingEventId: 7, plantName: 'Lettuce', variety: null, bedId: 3, bedName: 'Bed Alpha', quantity: 12, daysPastExpected: 4 },
+    ];
+    installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+
+    const nav = makeNav();
+    render(<NeedsAttentionPanel {...nav} />);
+
+    const viewBed = await screen.findByRole('button', { name: /View Lettuce in Bed Alpha/i });
+    fireEvent.click(viewBed);
+
+    expect(nav.onNavigate).toHaveBeenCalledTimes(1);
+    expect(nav.onNavigate).toHaveBeenCalledWith({
+      kind: 'harvestBed',
+      plantingEventId: 7,
+      bedId: 3,
+    });
+  });
+
   test('fetch URL respects API_BASE_URL and passes the simulated date param', async () => {
     const fetchMock = installFetchMock([{ match: '/api/dashboard/today', response: emptyPayload() }]);
     render(<NeedsAttentionPanel {...makeNav()} />);

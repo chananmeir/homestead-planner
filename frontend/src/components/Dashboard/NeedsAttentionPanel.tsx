@@ -43,6 +43,12 @@ interface SignalRow {
   title: string;
   subtitle?: string;
   onClick: (() => void) | null;
+  secondaryAction?: {
+    label: string;
+    ariaLabel: string;
+    title: string;
+    onClick: () => void;
+  };
   // True when the row was promoted from `data.missed.*` into the collapsed
   // Missed bucket. Forces tone='gray', drops the `Skip 3d` chip (pointless
   // after aging out), and adds `opacity-60` to the row chrome. Cancel task /
@@ -643,6 +649,26 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
             Skip 3d
           </div>
         )}
+        {row.secondaryAction && (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label={row.secondaryAction.ariaLabel}
+            title={row.secondaryAction.title}
+            onClick={(e) => {
+              e.stopPropagation();
+              row.secondaryAction?.onClick();
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.stopPropagation();
+              row.secondaryAction?.onClick();
+            }}
+            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-green-100 hover:bg-green-200 text-green-800 font-medium transition-colors flex-shrink-0"
+          >
+            {row.secondaryAction.label}
+          </div>
+        )}
         {row.signalKey && cancellable && (
           // Cancel task: destructive — soft-deletes the underlying
           // PlantingEvent or IndoorSeedStart. More prominent styling
@@ -812,6 +838,7 @@ function countSuffix(count: number): string {
 function harvestRow(row: HarvestReadyRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
   const hasId = row.plantingEventId != null;
+  const hasBedTarget = hasId && row.bedId != null;
   if (!hasId) warnMissingId('harvest', row);
   // Stale harvests are demoted visually but NEVER hidden — see
   // dashboard-stale-needs-attention-plan.md §2.2 "harvest" row. The backend
@@ -834,6 +861,16 @@ function harvestRow(row: HarvestReadyRow, idx: number, onNavigate: NavigateFn): 
       row.daysPastExpected > 0 ? `${row.daysPastExpected}d past due` : null,
     ]),
     onClick: hasId ? () => onNavigate({ kind: 'harvest', plantingEventId: row.plantingEventId }) : null,
+    secondaryAction: hasBedTarget ? {
+      label: 'View bed',
+      ariaLabel: `View ${label} in ${row.bedName || 'garden bed'}`,
+      title: row.bedName ? `Open ${row.bedName} in Garden Designer` : 'Open garden bed in Garden Designer',
+      onClick: () => onNavigate({
+        kind: 'harvestBed',
+        plantingEventId: row.plantingEventId,
+        bedId: row.bedId!,
+      }),
+    } : undefined,
   };
 }
 
