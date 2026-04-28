@@ -77,7 +77,11 @@ jest.mock('./components/GardenPlanner', () => () => <div>MOCK_GARDEN_PLANNER</di
 jest.mock('./components/GardenPlanner/GardenSnapshot', () => () => <div>MOCK_GARDEN_SNAPSHOT</div>);
 jest.mock('./components/GardenDesigner', () => () => <div>MOCK_GARDEN_DESIGNER</div>);
 jest.mock('./components/PropertyDesigner', () => () => <div>MOCK_PROPERTY_DESIGNER</div>);
-jest.mock('./components/PlantingCalendar', () => () => <div>MOCK_PLANTING_CALENDAR</div>);
+jest.mock('./components/PlantingCalendar', () => (props: any) => (
+  <div data-testid="mock-planting-calendar" data-preferred-view-mode={props.preferredViewMode || ''}>
+    MOCK_PLANTING_CALENDAR
+  </div>
+));
 jest.mock('./components/IndoorSeedStarts', () => () => <div>MOCK_INDOOR_STARTS</div>);
 jest.mock('./components/WeatherAlerts', () => () => <div>MOCK_WEATHER</div>);
 jest.mock('./components/HarvestTracker', () => () => <div>MOCK_HARVESTS</div>);
@@ -131,6 +135,15 @@ describe('App.tsx nav restructure', () => {
   test('default active view is Dashboard', async () => {
     render(<App />);
     expect(await screen.findByText('MOCK_DASHBOARD')).toBeInTheDocument();
+  });
+
+  test('clicking the header date opens Planting Calendar', async () => {
+    render(<App />);
+    expect(await screen.findByText('MOCK_DASHBOARD')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Open Planting Calendar for Tue, Apr 14, 2026/ }));
+    expect(await screen.findByText('MOCK_PLANTING_CALENDAR')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-planting-calendar')).toHaveAttribute('data-preferred-view-mode', 'grid');
   });
 
   test('clicking "Plan" opens Garden Plans (first sub-item of the Plan group)', async () => {

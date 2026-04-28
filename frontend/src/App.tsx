@@ -150,6 +150,7 @@ function AppContent() {
   const [indoorStartFocusId, setIndoorStartFocusId] = useState<number | null>(null);
   const [livestockFocusType, setLivestockFocusType] = useState<string | null>(null);
   const [calendarFocusEventId, setCalendarFocusEventId] = useState<number | null>(null);
+  const [calendarViewModeRequest, setCalendarViewModeRequest] = useState<{ mode: 'grid'; requestId: number } | null>(null);
 
   // Build nav groups including conditional Admin.
   const navGroups: NavGroup[] = [
@@ -244,6 +245,14 @@ function AppContent() {
     if (tab !== 'planting-calendar' && tab !== 'soil-temp') setCalendarFocusEventId(null);
     setActiveTab(tab);
     if (group) setActiveGroup(group);
+  };
+
+  const openPlantingCalendarGrid = () => {
+    setCalendarViewModeRequest(prev => ({
+      mode: 'grid',
+      requestId: (prev?.requestId ?? 0) + 1,
+    }));
+    goToTab('planting-calendar', 'grow');
   };
 
   // Navigate directly to a group, selecting first sub-item (or dashboard/admin for direct groups).
@@ -383,15 +392,18 @@ function AppContent() {
             <div className="flex items-center gap-4">
               {isAuthenticated ? (
                 <>
-                  <div
-                    className={`hidden sm:flex items-center gap-1.5 text-sm text-green-100 px-3 py-1 rounded-full ${
-                      isSimulating ? 'bg-amber-500/20 ring-1 ring-amber-300/40' : 'bg-green-800/40'
+                  <button
+                    type="button"
+                    onClick={openPlantingCalendarGrid}
+                    className={`hidden sm:flex items-center gap-1.5 text-sm text-green-100 px-3 py-1 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white/70 ${
+                      isSimulating ? 'bg-amber-500/20 ring-1 ring-amber-300/40 hover:bg-amber-500/30' : 'bg-green-800/40 hover:bg-green-800/60'
                     }`}
-                    title={isSimulating ? 'Simulated date' : "Today's date"}
+                    title={isSimulating ? 'Simulated date - open Planting Calendar' : "Today's date - open Planting Calendar"}
+                    aria-label={`Open Planting Calendar for ${headerDateLabel}`}
                   >
                     <span aria-hidden>📅</span>
                     <span>{headerDateLabel}</span>
-                  </div>
+                  </button>
                   <div className="text-right">
                     <span className="text-green-100">Welcome, {user?.username}</span>
                     {locationInfo && (
@@ -515,6 +527,9 @@ function AppContent() {
               {/* Grow group */}
               {activeTab === 'planting-calendar' && (
                 <PlantingCalendar
+                  preferredViewMode={calendarViewModeRequest?.mode}
+                  preferredViewModeRequestId={calendarViewModeRequest?.requestId}
+                  onPreferredViewModeConsumed={() => setCalendarViewModeRequest(null)}
                   focusPlantingEventId={calendarFocusEventId}
                   onNavigateToBed={(bedId, date, seedStartId, eventId) => {
                     setDesignerBedId(bedId);

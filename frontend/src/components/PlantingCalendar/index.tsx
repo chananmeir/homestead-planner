@@ -20,17 +20,36 @@ import EventDetailModal from './CalendarGrid/EventDetailModal';
 import DayDetailModal from './CalendarGrid/DayDetailModal';
 import { useFocusHighlight } from '../Dashboard/hooks/useFocusHighlight';
 
+type CalendarViewMode = 'list' | 'grid' | 'timeline';
+
 interface PlantingCalendarProps {
   onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number, plantingEventId?: number) => void;
   // When set to 'soil-temp', scrolls the Soil Temperature card into view on mount.
   initialView?: 'soil-temp';
+  preferredViewMode?: CalendarViewMode;
+  preferredViewModeRequestId?: number;
+  onPreferredViewModeConsumed?: () => void;
   focusPlantingEventId?: number | null;
   onFocusConsumed?: () => void;
 }
 
-const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, initialView, focusPlantingEventId, onFocusConsumed }) => {
+const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
+  onNavigateToBed,
+  initialView,
+  preferredViewMode,
+  preferredViewModeRequestId,
+  onPreferredViewModeConsumed,
+  focusPlantingEventId,
+  onFocusConsumed,
+}) => {
   const now = useNow();
-  const [viewMode, setViewMode] = useState<'list' | 'grid' | 'timeline'>('list');
+  const [viewMode, setViewMode] = useState<CalendarViewMode>(() => {
+    if (preferredViewMode) return preferredViewMode;
+    const savedViewMode = localStorage.getItem('plantingCalendar.viewMode');
+    return savedViewMode === 'list' || savedViewMode === 'grid' || savedViewMode === 'timeline'
+      ? savedViewMode
+      : 'list';
+  });
   const [currentDate, setCurrentDate] = useState<Date>(now);
   // Shared state for both views - lifted up from ListView
   const [plantingEvents, setPlantingEvents] = useState<PlantingCalendarType[]>([]);
@@ -70,13 +89,11 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({ onNavigateToBed, in
   const [firstFrostDate, setFirstFrostDate] = useState<Date>(new Date(new Date().getFullYear() + '-10-15'));
   const [frostDateSource, setFrostDateSource] = useState<'property' | 'zone' | 'zipcode' | 'default' | null>(null);
 
-  // Load view preference from localStorage on mount
   useEffect(() => {
-    const savedViewMode = localStorage.getItem('plantingCalendar.viewMode');
-    if (savedViewMode === 'list' || savedViewMode === 'grid' || savedViewMode === 'timeline') {
-      setViewMode(savedViewMode);
-    }
-  }, []);
+    if (!preferredViewMode) return;
+    setViewMode(preferredViewMode);
+    onPreferredViewModeConsumed?.();
+  }, [preferredViewMode, preferredViewModeRequestId, onPreferredViewModeConsumed]);
 
   // Save view preference to localStorage when it changes
   useEffect(() => {
