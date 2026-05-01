@@ -34,9 +34,8 @@ interface SignalRow {
   // exactly as before — single POST against `signalKey`.
   //
   // The representative `signalKey` above is always the FIRST element of this
-  // array when populated. Click target / cancel / undo continue to use the
-  // representative — only snooze + dismiss fan out (per D2 + D3 in
-  // dashboard-needs-attention-row-splitting-decision.md).
+  // array when populated. Click target continues to use the representative;
+  // snooze, dismiss, cancel, and undo fan out across grouped keys.
   groupSignalKeys?: string[];
   icon: string;
   tone: Tone;
@@ -118,6 +117,20 @@ function cancelUrl(action: CancellableAction): string {
   return `${API_BASE_URL}/api/${base}/${action.entityId}/cancel`;
 }
 
+function getCancellableActions(signalKeys: string[]): CancellableAction[] {
+  const actions: CancellableAction[] = [];
+  const seen = new Set<string>();
+  for (const key of signalKeys) {
+    const action = getCancellableAction(key);
+    if (!action) continue;
+    const stableKey = `${action.kind}:${action.entityId}`;
+    if (seen.has(stableKey)) continue;
+    seen.add(stableKey);
+    actions.push(action);
+  }
+  return actions;
+}
+
 /**
  * Build the full set of signalKeys covered by a grouped row, using the
  * backend's `f'{prefix}-{id}'` template. The representative `signalKey` on
@@ -180,7 +193,7 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
   // action so the Undo button can POST to the matching /uncancel endpoint.
   // Keyed by signalKey. Presence here means the strip should render as
   // "Cancelled · Undo" instead of "Dismissed · Undo".
-  const pendingCancelsRef = useRef<Map<string, CancellableAction>>(new Map());
+  const pendingCancelsRef = useRef<Map<string, CancellableAction[]>>(new Map());
   // For grouped-row dismissals we capture the full set of signalKeys at
   // dismiss-time so Undo can fan out a DELETE across each member. Keyed by
   // the representative signalKey (= keys[0]). Singletons store a length-1
@@ -338,7 +351,7 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
   };
 
   /**
-   * Soft-cancel the underlying entity (PlantingEvent or IndoorSeedStart).
+   * Soft-cancel the underlying entity/entities (PlantingEvent or IndoorSeedStart).
    * Mirrors {@link handleDismiss}: on success, enter the 5-second "Cancelled
    * · Undo" window; on failure, leave the row untouched. 404 is treated as
    * success (entity already gone) to keep the UI consistent with backend
@@ -348,27 +361,33 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
    */
   const handleCancelTask = async (
     signalKey: string,
-    action: CancellableAction,
+    actions: CancellableAction[],
     e: React.MouseEvent | React.KeyboardEvent
   ) => {
     e.stopPropagation();
     if (dismissTimersRef.current.has(signalKey)) return;
+    if (actions.length === 0) return;
     try {
-      const resp = await fetch(cancelUrl(action), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      });
-      if (!resp.ok && resp.status !== 404) {
+      const responses = await Promise.all(
+        actions.map(action =>
+          fetch(cancelUrl(action), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+          })
+        )
+      );
+      const anySuccess = responses.some(resp => resp.ok || resp.status === 404);
+      if (!anySuccess) {
         // 403 or 5xx: don't enter pending state, just refetch so UI stays in
         // sync with whatever the server thinks is true.
-        if (resp.status === 403) {
-          console.error('[NeedsAttentionPanel] cancel forbidden', signalKey);
-          setReloadKey(k => k + 1);
-        }
+        if (responses.some(resp => resp.status === 403)) setReloadKey(k => k + 1);
         return;
       }
-      pendingCancelsRef.current.set(signalKey, action);
+      if (responses.some(resp => resp.status === 403)) {
+        console.error('[NeedsAttentionPanel] cancel forbidden', signalKey);
+      }
+      pendingCancelsRef.current.set(signalKey, actions);
       const timerId = window.setTimeout(() => {
         dismissTimersRef.current.delete(signalKey);
         pendingCancelsRef.current.delete(signalKey);
@@ -397,7 +416,7 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
    */
   const handleUncancelTask = async (
     signalKey: string,
-    action: CancellableAction,
+    actions: CancellableAction[],
     e: React.MouseEvent | React.KeyboardEvent
   ) => {
     e.stopPropagation();
@@ -413,11 +432,15 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
       return next;
     });
     try {
-      await fetch(uncancelUrl(action), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      });
+      await Promise.all(
+        actions.map(action =>
+          fetch(uncancelUrl(action), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+          })
+        )
+      );
     } catch (err) {
       console.error('[NeedsAttentionPanel] uncancel failed:', err);
     } finally {
@@ -559,7 +582,10 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
   // closes over the snooze/dismiss/cancel handlers and pending state.
   function renderSignalRow(row: SignalRow) {
     const clickable = row.onClick != null;
-    const cancellable = row.signalKey != null ? getCancellableAction(row.signalKey) : null;
+    const cancelActions = row.signalKey != null
+      ? getCancellableActions(row.groupSignalKeys ?? [row.signalKey])
+      : [];
+    const cancellable = cancelActions.length > 0;
     const isPendingDismiss = row.signalKey != null && pendingDismissals.has(row.signalKey);
     if (isPendingDismiss && row.signalKey) {
       // Replacement "Dismissed · Undo" (or "Cancelled · Undo") strip —
@@ -679,8 +705,8 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
             tabIndex={0}
             aria-label="Cancel this task"
             title="Cancel task (removes the planting from your schedule)"
-            onClick={(e) => handleCancelTask(row.signalKey!, cancellable, e)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleCancelTask(row.signalKey!, cancellable, e); }}
+            onClick={(e) => handleCancelTask(row.signalKey!, cancelActions, e)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleCancelTask(row.signalKey!, cancelActions, e); }}
             className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 hover:!opacity-100 bg-red-100 hover:bg-red-200 text-red-800 font-medium transition-all flex-shrink-0"
           >
             <span aria-hidden="true">×</span>

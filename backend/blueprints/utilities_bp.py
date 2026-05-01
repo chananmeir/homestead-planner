@@ -867,6 +867,7 @@ def indoor_seed_starts():
     # GET request
     try:
         query = IndoorSeedStart.query.filter_by(user_id=current_user.id)
+        query = query.filter(IndoorSeedStart.cancelled_at.is_(None))
 
         # Filter by status
         status = request.args.get('status')
@@ -1058,6 +1059,43 @@ def indoor_seed_start_detail(id):
     # GET request
     return jsonify(seed_start.to_dict())
 
+
+@utilities_bp.route('/indoor-seed-starts/<int:id>/cancel', methods=['POST'])
+@login_required
+def cancel_indoor_seed_start(id):
+    """Soft-cancel an indoor seed start so dashboard/list reads hide it."""
+    seed_start = IndoorSeedStart.query.filter_by(
+        id=id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if seed_start.cancelled_at is None:
+        seed_start.cancelled_at = get_utc_now()
+        db.session.commit()
+
+    return jsonify({
+        'id': seed_start.id,
+        'cancelledAt': seed_start.cancelled_at.isoformat() if seed_start.cancelled_at else None,
+    }), 200
+
+
+@utilities_bp.route('/indoor-seed-starts/<int:id>/uncancel', methods=['POST'])
+@login_required
+def uncancel_indoor_seed_start(id):
+    """Restore a soft-cancelled indoor seed start."""
+    seed_start = IndoorSeedStart.query.filter_by(
+        id=id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if seed_start.cancelled_at is not None:
+        seed_start.cancelled_at = None
+        db.session.commit()
+
+    return jsonify({
+        'id': seed_start.id,
+        'cancelledAt': None,
+    }), 200
 
 @utilities_bp.route('/indoor-seed-starts/<int:id>/mark-failed', methods=['POST'])
 @login_required

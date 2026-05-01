@@ -1748,6 +1748,7 @@ def planting_events():
     # GET with optional date-range filtering for timeline view
     # Filter by current user
     query = PlantingEvent.query.filter_by(user_id=current_user.id)
+    query = query.filter(PlantingEvent.cancelled_at.is_(None))
 
     # Exclude abandoned events (completed with 0 quantity — never planted)
     query = query.filter(
@@ -1873,6 +1874,43 @@ def planting_events():
         result.append(event_dict)
     return jsonify(result)
 
+
+@gardens_bp.route('/planting-events/<int:event_id>/cancel', methods=['POST'])
+@login_required
+def cancel_planting_event(event_id):
+    """Soft-cancel a planting event so schedule/dashboard reads hide it."""
+    event = PlantingEvent.query.filter_by(
+        id=event_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if event.cancelled_at is None:
+        event.cancelled_at = get_utc_now()
+        db.session.commit()
+
+    return jsonify({
+        'id': event.id,
+        'cancelledAt': event.cancelled_at.isoformat() if event.cancelled_at else None,
+    }), 200
+
+
+@gardens_bp.route('/planting-events/<int:event_id>/uncancel', methods=['POST'])
+@login_required
+def uncancel_planting_event(event_id):
+    """Restore a soft-cancelled planting event."""
+    event = PlantingEvent.query.filter_by(
+        id=event_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if event.cancelled_at is not None:
+        event.cancelled_at = None
+        db.session.commit()
+
+    return jsonify({
+        'id': event.id,
+        'cancelledAt': None,
+    }), 200
 
 @gardens_bp.route('/planting-events/orphaned', methods=['GET', 'DELETE'])
 @login_required

@@ -1012,7 +1012,7 @@ describe('NeedsAttentionPanel', () => {
   // into a single row with `plantingEventIds: [id, id, ...]`. Frontend must:
   //   - render `(N)` badge in title when N > 1
   //   - display the SUMMED quantity (backend already sums, frontend passes through)
-  //   - fan out N parallel POSTs on Skip-3d / Dismiss
+  //   - fan out N parallel POSTs on Skip-3d / Dismiss / Cancel task / Undo
   //   - leave singletons (length 1 or undefined) bit-identical to the
   //     pre-grouping path (no badge, single POST)
   //
@@ -1102,6 +1102,63 @@ describe('NeedsAttentionPanel', () => {
         expect(body.days).toBe(3);
       }
       expect(sentKeys).toEqual(new Set(['indoor-101', 'indoor-102', 'indoor-103', 'indoor-104']));
+    });
+
+
+    test('cancel and undo on grouped row fan out once per id', async () => {
+      const payload = emptyPayload();
+      payload.signals.indoorStartsDue = [
+        {
+          signalKey: 'indoor-101',
+          plantingEventId: 101,
+          indoorSeedStartId: null,
+          plantingEventIds: [101, 102, 103, 104],
+          plantName: 'Beet',
+          variety: 'Detroit Dark Red',
+          seedStartDate: '2026-04-01',
+          quantity: 32,
+        },
+      ];
+      const fetchMock = installFetchMock([
+        { match: '/api/dashboard/today', response: payload },
+        { match: '/api/planting-events/', response: { ok: true }, status: 200 },
+      ]);
+      render(<NeedsAttentionPanel {...makeNav()} />);
+
+      const title = await screen.findByText(/Indoor start due .* Beet/i);
+      const btn = title.closest('button') as HTMLButtonElement;
+      const cancelChip = Array.from(btn.querySelectorAll('[role="button"]'))
+        .find((el) => /Cancel this task/i.test(el.getAttribute('aria-label') || ''));
+      expect(cancelChip).not.toBeUndefined();
+
+      fetchMock.mockClear();
+      fireEvent.click(cancelChip!);
+      await flushPromises();
+
+      const cancelCalls = fetchMock.mock.calls.filter((args: any[]) =>
+        /\/cancel$/.test(String(args[0]))
+      );
+      expect(cancelCalls.map((args: any[]) => String(args[0]).replace(/^https?:\/\/[^/]+/, ''))).toEqual([
+        '/api/planting-events/101/cancel',
+        '/api/planting-events/102/cancel',
+        '/api/planting-events/103/cancel',
+        '/api/planting-events/104/cancel',
+      ]);
+
+      const undo = await screen.findByText('Undo');
+      fetchMock.mockClear();
+      fireEvent.click(undo);
+      await flushPromises();
+
+      const uncancelCalls = fetchMock.mock.calls.filter((args: any[]) =>
+        /\/uncancel$/.test(String(args[0]))
+      );
+      expect(uncancelCalls.map((args: any[]) => String(args[0]).replace(/^https?:\/\/[^/]+/, ''))).toEqual([
+        '/api/planting-events/101/uncancel',
+        '/api/planting-events/102/uncancel',
+        '/api/planting-events/103/uncancel',
+        '/api/planting-events/104/uncancel',
+      ]);
     });
 
     test('dismiss on grouped row fans out one POST per id with forever=true', async () => {
