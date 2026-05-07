@@ -37,7 +37,7 @@ import {
 import {
   BADGE_POSITION, BADGE_DIMENSIONS, BADGE_COLORS,
   formatConflictError, formatDateSafe,
-  calculateHarvestDate, calculateTooltipPosition,
+  calculateHarvestDate, calculateTooltipPosition, isPlantedItemActiveOnDate,
   getFuturePlantingsAtPosition as getFuturePlantingsAtPositionHelper,
 } from './GardenDesigner/utils/designerHelpers';
 
@@ -619,62 +619,13 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     updateDateFilterUrl(newFilter);
   };
 
-  // Filter planted items based on their own date fields (plantedDate, harvestDate)
-  // instead of requiring a matching PlantingEvent. This prevents "ghost" plants —
-  // items that exist (and block placement) but are invisible due to missing events.
+  // Filter planted items based on the actual bed lifecycle. Expected harvest
+  // dates make plants harvest-ready, but only a logged harvest/removal hides
+  // them from the real bed state.
   const getActivePlantedItems = (bed: GardenBed): PlantedItem[] => {
     if (!dateFilter.date) return bed.plantedItems || [];
-    // Append T00:00:00 so date-only strings parse as local time, not UTC.
-    // Without this, "2026-02-23" → UTC midnight → previous day in UTC-negative timezones.
     const viewDate = parseLocalDate(dateFilter.date);
-    viewDate.setHours(0, 0, 0, 0);
-
-    return (bed.plantedItems || []).filter(item => {
-      // Must have a planted date
-      if (!item.plantedDate) return false;
-      const planted = new Date(item.plantedDate);
-      if (isNaN(planted.getTime())) return false;
-
-      // Not yet planted on view date
-      planted.setHours(0, 0, 0, 0);
-      if (planted > viewDate) return false;
-
-      // Already harvested before view date
-      if (item.status === 'harvested') {
-        if (item.harvestDate) {
-          const harvest = new Date(item.harvestDate);
-          harvest.setHours(0, 0, 0, 0);
-          return harvest >= viewDate;
-        }
-        return false; // Harvested but no date → hide
-      }
-
-      // Saving for seed: keep visible on the grid regardless of DTM/harvestDate,
-      // since seed maturity can extend well beyond normal harvest. Hide only once
-      // seeds have been collected (status then advances to 'harvested' via collect-seeds).
-      if (item.status === 'saving-seed') {
-        return !item.seedsCollected;
-      }
-
-      // For non-harvested items: check harvestDate or estimate from DTM
-      if (item.harvestDate) {
-        const harvest = new Date(item.harvestDate);
-        harvest.setHours(0, 0, 0, 0);
-        if (harvest < viewDate) return false;
-      } else {
-        // No harvest date stored — estimate from days to maturity
-        const plant = getPlant(item.plantId);
-        if (plant?.daysToMaturity) {
-          const estHarvest = new Date(planted);
-          estHarvest.setDate(estHarvest.getDate() + plant.daysToMaturity);
-          estHarvest.setHours(0, 0, 0, 0);
-          if (estHarvest < viewDate) return false;
-        }
-        // No DTM data → show (safe: assume still growing)
-      }
-
-      return true;
-    });
+    return (bed.plantedItems || []).filter(item => isPlantedItemActiveOnDate(item, viewDate));
   };
 
   // Get future-dated PlantedItems as FuturePlantingPosition[] for the overlay.

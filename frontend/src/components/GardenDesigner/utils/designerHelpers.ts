@@ -82,6 +82,34 @@ export const calculateHarvestDate = (item: PlantedItem, plant: Plant | undefined
   return harvestDate;
 };
 
+/** True when a placed item should be visible in the actual bed state. */
+export const isPlantedItemActiveOnDate = (item: PlantedItem, viewDate: Date): boolean => {
+  if (!item.plantedDate) return false;
+
+  const planted = new Date(item.plantedDate);
+  if (isNaN(planted.getTime())) return false;
+
+  const viewDay = new Date(viewDate);
+  viewDay.setHours(0, 0, 0, 0);
+  planted.setHours(0, 0, 0, 0);
+
+  if (planted > viewDay) return false;
+
+  if (item.status === 'harvested') {
+    if (!item.harvestDate) return false;
+    const harvest = new Date(item.harvestDate);
+    if (isNaN(harvest.getTime())) return false;
+    harvest.setHours(0, 0, 0, 0);
+    return harvest >= viewDay;
+  }
+
+  if (item.status === 'saving-seed') {
+    return !item.seedsCollected;
+  }
+
+  return true;
+};
+
 /** Get future planting events at a specific grid position */
 export const getFuturePlantingsAtPosition = (
   plantingEvents: PlantingEvent[],

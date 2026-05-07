@@ -7,7 +7,7 @@ Phase 2 tests assert corrected behavior after normalization.
 Uses full_app/auth_client fixtures from conftest.py for HTTP-level tests.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from models import db, PlantingEvent, PlantedItem, GardenBed, IndoorSeedStart
@@ -630,3 +630,79 @@ class TestFutureDatedPlacementCompletion:
                 'for future transplants. Layer 2 (opt-out) is a separate concern.'
             )
             assert seed_starts[0].planting_event_id == ev.id
+
+
+class TestPlantingEventTrackingVisibility:
+    """Tracking mode reflects actual garden state, not expected harvest dates."""
+
+    def test_tracking_mode_keeps_unharvested_overdue_event_active(
+        self, full_app, full_db, user_a, auth_client_a
+    ):
+        with full_app.app_context():
+            bed = _create_bed(full_db.session, user_a)
+            event = _create_event(
+                full_db.session,
+                user_a,
+                bed,
+                transplant_date=datetime(2026, 5, 1),
+                expected_harvest_date=datetime(2026, 5, 6),
+                actual_harvest_date=None,
+                position_x=0,
+                position_y=0,
+            )
+
+            response = auth_client_a.get(
+                '/api/planting-events?start_date=2026-05-07&end_date=2026-05-07'
+            )
+
+            assert response.status_code == 200
+            event_ids = {item['id'] for item in response.get_json()}
+            assert event.id in event_ids
+
+    def test_planning_mode_still_uses_expected_harvest_projection(
+        self, full_app, full_db, user_a, auth_client_a
+    ):
+        with full_app.app_context():
+            bed = _create_bed(full_db.session, user_a)
+            event = _create_event(
+                full_db.session,
+                user_a,
+                bed,
+                transplant_date=datetime(2026, 5, 1),
+                expected_harvest_date=datetime(2026, 5, 6),
+                actual_harvest_date=None,
+                position_x=0,
+                position_y=0,
+            )
+
+            response = auth_client_a.get(
+                '/api/planting-events?start_date=2026-05-07&end_date=2026-05-07&planning_mode=true'
+            )
+
+            assert response.status_code == 200
+            event_ids = {item['id'] for item in response.get_json()}
+            assert event.id not in event_ids
+
+    def test_tracking_mode_hides_event_after_actual_harvest(
+        self, full_app, full_db, user_a, auth_client_a
+    ):
+        with full_app.app_context():
+            bed = _create_bed(full_db.session, user_a)
+            event = _create_event(
+                full_db.session,
+                user_a,
+                bed,
+                transplant_date=datetime(2026, 5, 1),
+                expected_harvest_date=datetime(2026, 5, 10),
+                actual_harvest_date=datetime(2026, 5, 6),
+                position_x=0,
+                position_y=0,
+            )
+
+            response = auth_client_a.get(
+                '/api/planting-events?start_date=2026-05-07&end_date=2026-05-07'
+            )
+
+            assert response.status_code == 200
+            event_ids = {item['id'] for item in response.get_json()}
+            assert event.id not in event_ids

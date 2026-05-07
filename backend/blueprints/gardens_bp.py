@@ -1788,9 +1788,10 @@ def planting_events():
             )
         )
 
-        # Apply harvest date filter based on mode
-        # Planning mode: use expected_harvest_date for space availability
-        # Tracking mode: use actual_harvest_date, falling back to expected_harvest_date
+        # Apply harvest date filter based on mode.
+        # Planning mode uses expected_harvest_date for projected space availability.
+        # Tracking mode only uses actual_harvest_date so overdue crops stay visible
+        # until the user logs harvest/removal.
         if planning_mode:
             query = query.filter(
                 or_(
@@ -1799,18 +1800,10 @@ def planting_events():
                 )
             )
         else:
-            # Tracking mode: plant is visible if:
-            # 1. Both harvest dates null (still growing, no harvest planned)
-            # 2. OR actual harvest date is set and is >= start_date
-            # 3. OR no actual harvest yet, but expected harvest is >= start_date
             query = query.filter(
                 or_(
-                    # Both null - still in ground with no harvest date
-                    and_(PlantingEvent.actual_harvest_date.is_(None), PlantingEvent.expected_harvest_date.is_(None)),
-                    # Actually harvested after the view date
-                    and_(PlantingEvent.actual_harvest_date.isnot(None), PlantingEvent.actual_harvest_date >= start_dt),
-                    # Not yet harvested, but expected to still be in ground
-                    and_(PlantingEvent.actual_harvest_date.is_(None), PlantingEvent.expected_harvest_date.isnot(None), PlantingEvent.expected_harvest_date >= start_dt)
+                    PlantingEvent.actual_harvest_date.is_(None),
+                    PlantingEvent.actual_harvest_date >= start_dt
                 )
             )
     elif start_date:
@@ -1830,15 +1823,12 @@ def planting_events():
                 )
             )
         else:
-            # Tracking mode: use actual_harvest_date, falling back to expected_harvest_date
+            # Tracking mode: use only actual_harvest_date. Expected harvest
+            # creates readiness signals, not physical removal from the garden.
             query = query.filter(
                 or_(
-                    # Both null - still in ground with no harvest date
-                    and_(PlantingEvent.actual_harvest_date.is_(None), PlantingEvent.expected_harvest_date.is_(None)),
-                    # Actually harvested after the view date
-                    and_(PlantingEvent.actual_harvest_date.isnot(None), PlantingEvent.actual_harvest_date >= start_dt),
-                    # Not yet harvested, but expected to still be in ground
-                    and_(PlantingEvent.actual_harvest_date.is_(None), PlantingEvent.expected_harvest_date.isnot(None), PlantingEvent.expected_harvest_date >= start_dt)
+                    PlantingEvent.actual_harvest_date.is_(None),
+                    PlantingEvent.actual_harvest_date >= start_dt
                 )
             )
     elif end_date:
