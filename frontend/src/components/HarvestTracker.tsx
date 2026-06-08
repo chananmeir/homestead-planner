@@ -8,11 +8,16 @@ import { API_BASE_URL } from '../config';
 interface HarvestRecord {
   id: number;
   plantId: string;
+  plantedItemId?: number;
   harvestDate: string;
   quantity: number;
   unit: string;
   quality: string;
   notes?: string;
+  // Maturity-learning signal (populated for bed-linked harvests)
+  maturityFeedback?: string | null;
+  outcomeReason?: string | null;
+  daysInGround?: number | null;
 }
 
 interface Plant {

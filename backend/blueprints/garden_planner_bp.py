@@ -28,9 +28,10 @@ import logging
 import json
 import math
 
-from models import db, GardenPlan, GardenPlanItem, SeedInventory, PlantedItem, GardenBed
+from models import db, GardenPlan, GardenPlanItem, SeedInventory, PlantedItem, GardenBed, VarietyMaturityModel
 from sqlalchemy import func, or_, and_
 from plant_database import get_plant_by_id
+from services.maturity_learning import resolve_dtm_optional, bed_is_covered, bed_sun_exposure
 from services.space_calculator import calculate_space_requirement
 from services.garden_planner_service import (
     calculate_plant_quantities,
@@ -863,6 +864,11 @@ def api_get_planned_items_for_bed(plan_id, bed_id):
     try:
         result = []
 
+        # Bed environmental traits drive the learned-DTM lookup (same for every item).
+        bed = GardenBed.query.get(bed_id)
+        bed_sun = bed_sun_exposure(bed)
+        bed_covered = bed_is_covered(bed)
+
         for item in plan.items:
             # Get quantity for this specific bed from bed_assignments
             quantity_for_bed = _parse_bed_assignments_for_bed(item.bed_assignments, bed_id)
@@ -882,16 +888,20 @@ def api_get_planned_items_for_bed(plan_id, bed_id):
                 base_name = plant_name.rsplit('-', 1)[0]
                 plant_name = base_name.replace('-', ' ').title()
 
-            # Resolve days-to-maturity: seed override → plant database → None
-            dtm = None
-            if item.seed_inventory_id:
-                seed = SeedInventory.query.get(item.seed_inventory_id)
-                if seed and seed.days_to_maturity is not None:
-                    dtm = seed.days_to_maturity
-            if dtm is None:
-                plant_data = get_plant_by_id(item.plant_id)
-                if plant_data:
-                    dtm = plant_data.get('daysToMaturity')
+            # Resolve days-to-maturity through the shared precedence chain:
+            # seed override → learned (bed traits) → variety aggregate → plant DB → 60.
+            seed = SeedInventory.query.get(item.seed_inventory_id) if item.seed_inventory_id else None
+            dtm = resolve_dtm_optional(
+                current_user.id, item.plant_id, item.variety,
+                bed_sun, bed_covered, seed_inventory=seed,
+            )
+            # Surface the learned bucket (if any) so the UI can show provenance.
+            learned = VarietyMaturityModel.query.filter_by(
+                user_id=current_user.id, plant_id=item.plant_id, variety=item.variety,
+                sun_exposure=bed_sun, covered=bed_covered,
+            ).first()
+            learned_dtm = learned.learned_dtm if learned is not None else None
+            learned_sample_count = learned.sample_count if learned is not None else None
 
             result.append({
                 'planItemId': item.id,
@@ -910,6 +920,8 @@ def api_get_planned_items_for_bed(plan_id, bed_id):
                 'harvestWindowStart': item.harvest_window_start.isoformat() if item.harvest_window_start else None,
                 'harvestWindowEnd': item.harvest_window_end.isoformat() if item.harvest_window_end else None,
                 'daysToMaturity': dtm,
+                'learnedDtm': learned_dtm,
+                'learnedSampleCount': learned_sample_count,
             })
 
         return jsonify(result), 200
