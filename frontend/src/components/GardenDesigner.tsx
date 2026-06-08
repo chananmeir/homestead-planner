@@ -22,6 +22,7 @@ import { useActivePlan } from '../contexts/ActivePlanContext';
 import { getMIGardenerSpacing } from '../utils/migardenerSpacing';
 import { calculateSpacingBuffer } from './GardenDesigner/utils/footprintCalculator';
 import CollectSeedsModal from './GardenDesigner/CollectSeedsModal';
+import HarvestFromBedModal from './GardenDesigner/HarvestFromBedModal';
 import SetSeedDateModal from './GardenDesigner/SetSeedDateModal';
 import WeatherAlertBanner from './GardenDesigner/WeatherAlertBanner';
 import BedOverviewGrid from './GardenDesigner/BedOverviewGrid';
@@ -116,6 +117,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
   // Seed saving modal state
   const [collectSeedsItem, setCollectSeedsItem] = useState<PlantedItem | null>(null);
+  const [harvestItem, setHarvestItem] = useState<PlantedItem | null>(null);
   const [seedDateItem, setSeedDateItem] = useState<PlantedItem | null>(null);
 
   // Guild modal state
@@ -3338,6 +3340,17 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                 </div>
               </div>
 
+              {/* Harvest Section — logs a bed-linked harvest that teaches the maturity model */}
+              {!item.seedsCollected && (
+                <button
+                  data-testid="harvest-from-bed-btn"
+                  onClick={() => setHarvestItem(item)}
+                  className="w-full text-sm px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                >
+                  {item.status === 'harvested' ? 'Log another harvest' : 'Harvest'}
+                </button>
+              )}
+
               {/* Save for Seed Section */}
               {(() => {
                 const isSaving = item.saveForSeed && !item.seedsCollected;
@@ -3962,6 +3975,20 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           plantedItem={seedDateItem}
           plant={plants.find(p => p.id === seedDateItem.plantId)}
           onSuccess={handleSeedDateSuccess}
+        />
+      )}
+      {harvestItem && (
+        <HarvestFromBedModal
+          isOpen={true}
+          onClose={() => setHarvestItem(null)}
+          plantedItem={harvestItem}
+          plant={plants.find(p => p.id === harvestItem.plantId)}
+          onSuccess={async () => {
+            showSuccess('Harvest logged');
+            setHarvestItem(null);
+            setSelectedPlantedCell(null);
+            await loadData();
+          }}
         />
       )}
 

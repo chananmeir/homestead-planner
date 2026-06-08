@@ -196,6 +196,13 @@ export interface PlantedItem {
 
   // Link to season plan item for progress tracking
   sourcePlanItemId?: number;
+
+  // Maturity-learning (server-resolved on the read path). resolvedDaysToMaturity follows
+  // the precedence chain (override → learned → plant DB → null); learnedDtm/sampleCount
+  // are the learned-bucket provenance for display. null when nothing is known.
+  resolvedDaysToMaturity?: number | null;
+  learnedDtm?: number | null;
+  learnedSampleCount?: number | null;
 }
 
 export interface SeasonExtension {

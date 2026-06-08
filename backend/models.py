@@ -446,6 +446,18 @@ class HarvestRecord(db.Model):
     notes = db.Column(db.Text)
     quality = db.Column(db.String(20))  # excellent, good, fair, poor
 
+    # Maturity-learning signal (only populated for bed-linked harvests). These are
+    # snapshots taken at log time so the learned-DTM signal survives even if the
+    # PlantedItem or its bed is later edited/deleted.
+    maturity_feedback = db.Column(db.String(20))  # 'on_time' | 'too_early' | 'too_late' | None
+    outcome_reason = db.Column(db.String(30))     # informational ('immature'/'bolted'/'pest'/...), DTM-irrelevant
+    days_in_ground = db.Column(db.Integer)        # (harvest_date - base_date).days at log time
+    planted_date_snapshot = db.Column(db.DateTime)   # base date used (audit/recompute)
+    variety_snapshot = db.Column(db.String(100))
+    sun_exposure_snapshot = db.Column(db.String(20))  # bed.sun_exposure at log time
+    covered_snapshot = db.Column(db.Boolean)          # bool(bed.season_extension) at log time
+    garden_bed_id_snapshot = db.Column(db.Integer)    # plain Int (not FK) for durability/audit
+
     # Relationships
     user = db.relationship('User', backref=db.backref('harvest_records', cascade='all, delete-orphan'))
 
@@ -458,7 +470,57 @@ class HarvestRecord(db.Model):
             'quantity': self.quantity,
             'unit': self.unit,
             'notes': self.notes,
-            'quality': self.quality
+            'quality': self.quality,
+            'maturityFeedback': self.maturity_feedback,
+            'outcomeReason': self.outcome_reason,
+            'daysInGround': self.days_in_ground,
+            'plantedDateSnapshot': self.planted_date_snapshot.isoformat() if self.planted_date_snapshot else None,
+            'varietySnapshot': self.variety_snapshot,
+            'sunExposureSnapshot': self.sun_exposure_snapshot,
+            'coveredSnapshot': self.covered_snapshot,
+            'gardenBedIdSnapshot': self.garden_bed_id_snapshot,
+        }
+
+
+class VarietyMaturityModel(db.Model):
+    """
+    Materialized, recency-weighted learned days-to-maturity per
+    (user, plant, variety, sun_exposure, covered).
+
+    Recomputed only on the rare harvest write (POST/PUT/DELETE); read on hot
+    prediction paths via services.maturity_learning.resolve_dtm. A row with
+    sun_exposure IS NULL and covered IS NULL is the variety-wide aggregate
+    fallback used when an exact (sun, covered) combo has no samples yet.
+    """
+    __tablename__ = 'variety_maturity_model'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    plant_id = db.Column(db.String(50), nullable=False, index=True)
+    variety = db.Column(db.String(100))          # nullable
+    sun_exposure = db.Column(db.String(20))      # nullable; NULL = aggregate row
+    covered = db.Column(db.Boolean)              # nullable; NULL = aggregate row
+    learned_dtm = db.Column(db.Integer, nullable=False)
+    sample_count = db.Column(db.Integer, nullable=False, default=0)
+    last_recomputed = db.Column(db.DateTime, default=get_utc_now)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'user_id', 'plant_id', 'variety', 'sun_exposure', 'covered',
+            name='_variety_maturity_key_uc'
+        ),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'plantId': self.plant_id,
+            'variety': self.variety,
+            'sunExposure': self.sun_exposure,
+            'covered': self.covered,
+            'learnedDtm': self.learned_dtm,
+            'sampleCount': self.sample_count,
+            'lastRecomputed': self.last_recomputed.isoformat() if self.last_recomputed else None,
         }
 
 class SeedInventory(db.Model):

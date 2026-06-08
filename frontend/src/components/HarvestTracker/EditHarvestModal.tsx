@@ -11,11 +11,16 @@ interface Plant {
 interface HarvestRecord {
   id: number;
   plantId: string;
+  plantedItemId?: number;
   harvestDate: string;
   quantity: number;
   unit: string;
   quality: string;
   notes?: string;
+  // Maturity-learning signal (populated for bed-linked harvests)
+  maturityFeedback?: string | null;
+  outcomeReason?: string | null;
+  daysInGround?: number | null;
 }
 
 interface EditHarvestModalProps {

@@ -66,20 +66,34 @@ export const formatDateSafe = (dateValue: Date | string | null | undefined): str
   }
 };
 
-/** Calculate expected harvest date for a planted item */
+/** Calculate expected harvest date for a planted item.
+ *
+ * DTM precedence: the server-resolved (learning-aware) value wins so the badge reflects
+ * what the maturity model knows, then the stored harvestDate, then the plant-DB default.
+ * Uses `!= null` / `== null` so a legitimate DTM of 0 is respected, not treated as falsy.
+ */
 export const calculateHarvestDate = (item: PlantedItem, plant: Plant | undefined): Date | null => {
+  const fromDtm = (dtm: number): Date | null => {
+    const baseDateStr = item.transplantDate || item.plantedDate;
+    if (!baseDateStr) return null;
+    const baseDate = new Date(baseDateStr);
+    if (isNaN(baseDate.getTime())) return null;
+    const harvestDate = new Date(baseDate);
+    harvestDate.setDate(harvestDate.getDate() + dtm);
+    return harvestDate;
+  };
+
+  // Prefer the server-resolved DTM (override → learned → plant DB) when present.
+  if (item.resolvedDaysToMaturity != null) {
+    const resolved = fromDtm(item.resolvedDaysToMaturity);
+    if (resolved) return resolved;
+  }
   if (item.harvestDate) {
     const harvest = new Date(item.harvestDate);
     return isNaN(harvest.getTime()) ? null : harvest;
   }
-  if (!plant?.daysToMaturity) return null;
-  const baseDateStr = item.transplantDate || item.plantedDate;
-  if (!baseDateStr) return null;
-  const baseDate = new Date(baseDateStr);
-  if (isNaN(baseDate.getTime())) return null;
-  const harvestDate = new Date(baseDate);
-  harvestDate.setDate(harvestDate.getDate() + plant.daysToMaturity);
-  return harvestDate;
+  if (plant?.daysToMaturity == null) return null;
+  return fromDtm(plant.daysToMaturity);
 };
 
 /** Get future planting events at a specific grid position */

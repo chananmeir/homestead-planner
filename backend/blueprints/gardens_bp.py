@@ -12,14 +12,40 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, cast
 
-from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, GardenPlanItem, GardenPlan, SeedInventory
+from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, GardenPlanItem, GardenPlan, SeedInventory, VarietyMaturityModel
 from sqlalchemy import func as sa_func
 from plant_database import get_plant_by_id
+from services.maturity_learning import resolve_dtm, resolve_dtm_optional, bed_is_covered, bed_sun_exposure
 from blueprints.garden_planner_bp import _adjust_auto_plan_item
 from garden_methods import GARDEN_METHODS
 from conflict_checker import has_conflict, validate_planting_conflict, get_primary_planting_date, query_candidate_items
 from services.space_calculator import calculate_space_requirement
 from simulation_clock import get_now, get_utc_now
+
+
+def _enrich_bed_dict(bed):
+    """Serialize a bed and annotate each placed item with learning-aware DTM.
+
+    Adds ``resolvedDaysToMaturity`` (override → learned → plant DB → None) plus
+    ``learnedDtm``/``learnedSampleCount`` provenance so the designer badge and the
+    harvest-from-bed modal reflect what the maturity model knows. None is preserved for
+    DTM-less plants so the badge stays absent for them.
+    """
+    bed_dict = bed.to_dict()
+    bed_sun = bed_sun_exposure(bed)
+    bed_covered = bed_is_covered(bed)
+    for item_dict in bed_dict.get('plantedItems', []):
+        variety = item_dict.get('variety')
+        item_dict['resolvedDaysToMaturity'] = resolve_dtm_optional(
+            bed.user_id, item_dict['plantId'], variety, bed_sun, bed_covered,
+        )
+        learned = VarietyMaturityModel.query.filter_by(
+            user_id=bed.user_id, plant_id=item_dict['plantId'], variety=variety,
+            sun_exposure=bed_sun, covered=bed_covered,
+        ).first()
+        item_dict['learnedDtm'] = learned.learned_dtm if learned is not None else None
+        item_dict['learnedSampleCount'] = learned.sample_count if learned is not None else None
+    return bed_dict
 
 
 def _sync_indoor_start_on_completion(event):
@@ -359,7 +385,7 @@ def garden_beds():
 
     # GET: Filter by current user
     beds = GardenBed.query.filter_by(user_id=current_user.id).all()
-    return jsonify([bed.to_dict() for bed in beds])
+    return jsonify([_enrich_bed_dict(bed) for bed in beds])
 
 
 @gardens_bp.route('/garden-beds/<int:bed_id>', methods=['GET', 'PUT', 'DELETE'])
@@ -403,7 +429,7 @@ def garden_bed(bed_id):
 
         db.session.commit()
 
-    return jsonify(bed.to_dict())
+    return jsonify(_enrich_bed_dict(bed))
 
 
 # ==================== PLANTED ITEMS ROUTES ====================
@@ -488,10 +514,17 @@ def add_planted_item():
                     'error': 'Indoor seed start has been cancelled and cannot be relinked.'
                 }), 400
 
-        # Compute expected harvest date for both PlantedItem and PlantingEvent
+        # Compute expected harvest date for both PlantedItem and PlantingEvent.
+        # DTM goes through the learning chain (override → learned → plant DB); the optional
+        # variant returns None for DTM-less plants so harvest_date stays unset as before.
+        _bed = GardenBed.query.get(data['gardenBedId'])
+        _dtm = resolve_dtm_optional(
+            current_user.id, data['plantId'], data.get('variety'),
+            bed_sun_exposure(_bed), bed_is_covered(_bed),
+        )
         expected_harvest = planted_date
-        if plant and plant.get('daysToMaturity') is not None:
-            expected_harvest = planted_date + timedelta(days=plant['daysToMaturity'])
+        if _dtm is not None:
+            expected_harvest = planted_date + timedelta(days=_dtm)
 
         item = PlantedItem(
             user_id=current_user.id,  # Set owner
@@ -704,10 +737,16 @@ def batch_add_planted_items():
         # DEBUG: Log what dates are being used
         print(f"[DEBUG] PLANTING METHOD: {planting_method}, plantedDate from request: {data.get('plantedDate')}, parsed: {planted_date}")
 
-        # Calculate expected harvest date
+        # Calculate expected harvest date. Resolve DTM once (same plant/variety/bed for the
+        # whole batch) through the learning chain; None for DTM-less plants leaves harvest unset.
+        _bed = GardenBed.query.get(data['gardenBedId'])
+        _dtm = resolve_dtm_optional(
+            current_user.id, data['plantId'], data.get('variety'),
+            bed_sun_exposure(_bed), bed_is_covered(_bed),
+        )
         expected_harvest = planted_date
-        if plant and plant.get('daysToMaturity') is not None:
-            expected_harvest = planted_date + timedelta(days=plant['daysToMaturity'])
+        if _dtm is not None:
+            expected_harvest = planted_date + timedelta(days=_dtm)
 
         # Compute "today" once per request so per-position completion checks
         # are consistent across all positions in the batch.
@@ -744,10 +783,10 @@ def batch_add_planted_items():
             if pos.get('plantedDate'):
                 pos_planted_date = parse_iso_date(pos['plantedDate']) or planted_date
 
-            # Per-position harvest date
+            # Per-position harvest date (reuses the batch-resolved DTM)
             pos_expected_harvest = pos_planted_date
-            if plant and plant.get('daysToMaturity') is not None:
-                pos_expected_harvest = pos_planted_date + timedelta(days=plant['daysToMaturity'])
+            if _dtm is not None:
+                pos_expected_harvest = pos_planted_date + timedelta(days=_dtm)
 
             # Create PlantedItem
             print(f"Creating PlantedItem {i+1}/{len(data['positions'])} at ({pos['x']}, {pos['y']}) with quantity={pos.get('quantity', 1)}, date={pos_planted_date}")
@@ -2209,26 +2248,21 @@ def switch_to_direct_seed(event_id):
     event.seed_start_date = None
     event.transplant_date = None
 
-    # Recalculate expected harvest date: direct_seed_date + DTM + indoor head start
+    # Recalculate expected harvest date: direct_seed_date + DTM + indoor head start.
+    # DTM goes through the shared precedence chain (seed override → learned → plant DB → 60).
     if event.direct_seed_date:
-        dtm = None
-        # Check seed inventory for variety-specific DTM override
+        seed = None
         if event.plant_id and event.variety:
             seed = SeedInventory.query.filter_by(
                 user_id=current_user.id,
                 plant_id=event.plant_id,
                 variety=event.variety
             ).first()
-            if seed and seed.days_to_maturity is not None:
-                dtm = seed.days_to_maturity
-        # Fall back to plant database DTM
-        if dtm is None and event.plant_id:
-            plant = get_plant_by_id(event.plant_id)
-            if plant and plant.get('daysToMaturity') is not None:
-                dtm = plant['daysToMaturity']
-        # Final fallback
-        if dtm is None:
-            dtm = 60
+        bed = GardenBed.query.get(event.garden_bed_id) if event.garden_bed_id else None
+        dtm = resolve_dtm(
+            current_user.id, event.plant_id, event.variety,
+            bed_sun_exposure(bed), bed_is_covered(bed), seed_inventory=seed,
+        )
         event.expected_harvest_date = event.direct_seed_date + timedelta(days=dtm + indoor_days)
 
     # Delete linked IndoorSeedStart record
@@ -2278,23 +2312,20 @@ def bulk_switch_to_direct_seed():
         event.seed_start_date = None
         event.transplant_date = None
 
-        # Recalculate expected harvest date
+        # Recalculate expected harvest date through the shared DTM precedence chain.
         if event.direct_seed_date:
-            dtm = None
+            seed = None
             if event.plant_id and event.variety:
                 seed = SeedInventory.query.filter_by(
                     user_id=current_user.id,
                     plant_id=event.plant_id,
                     variety=event.variety
                 ).first()
-                if seed and seed.days_to_maturity is not None:
-                    dtm = seed.days_to_maturity
-            if dtm is None and event.plant_id:
-                plant = get_plant_by_id(event.plant_id)
-                if plant and plant.get('daysToMaturity') is not None:
-                    dtm = plant['daysToMaturity']
-            if dtm is None:
-                dtm = 60
+            bed = GardenBed.query.get(event.garden_bed_id) if event.garden_bed_id else None
+            dtm = resolve_dtm(
+                current_user.id, event.plant_id, event.variety,
+                bed_sun_exposure(bed), bed_is_covered(bed), seed_inventory=seed,
+            )
             event.expected_harvest_date = event.direct_seed_date + timedelta(days=dtm + indoor_days)
 
         # Delete linked IndoorSeedStart record
