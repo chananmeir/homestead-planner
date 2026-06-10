@@ -83,6 +83,9 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
   // Bed filter state
   const [selectedBedId, setSelectedBedId] = useState<number | 'all'>('all');
 
+  // Grid view: include soft-cancelled ("skipped") events, rendered greyed-out with undo
+  const [showSkipped, setShowSkipped] = useState(false);
+
   // Frost dates - fetched from API (defaults are placeholders until API responds)
   const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date(new Date().getFullYear() + '-04-15'));
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -365,11 +368,16 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
   }, []);
 
   // Fetch planting events from API
-  const fetchPlantingEvents = async () => {
+  const fetchPlantingEvents = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await apiGet('/api/planting-events');
+      // Soft-cancelled ("skipped") events are server-filtered unless requested;
+      // the grid's "Show skipped" toggle opts in so they render greyed-out with undo.
+      const url = showSkipped
+        ? '/api/planting-events?includeCancelled=true'
+        : '/api/planting-events';
+      const response = await apiGet(url);
       if (response.ok) {
         const data = await response.json();
         setPlantingEvents(data);
@@ -382,18 +390,31 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSkipped]);
 
   useEffect(() => {
     fetchPlantingEvents();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchPlantingEvents]);
 
   // Filter events by selected bed
   const filteredEvents = useMemo(() => {
+    const base = selectedBedId === 'all'
+      ? plantingEvents
+      : plantingEvents.filter(e => e.gardenBedId === selectedBedId);
+    // List/timeline never show skipped events; only the grid opts in below.
+    return base.filter(e => e.cancelledAt == null);
+  }, [plantingEvents, selectedBedId]);
+
+  // Grid view events: optionally include skipped (cancelled) events.
+  const gridEvents = useMemo(() => {
+    if (!showSkipped) return filteredEvents;
     if (selectedBedId === 'all') return plantingEvents;
     return plantingEvents.filter(e => e.gardenBedId === selectedBedId);
-  }, [plantingEvents, selectedBedId]);
+  }, [showSkipped, filteredEvents, plantingEvents, selectedBedId]);
+
+  // Simulation-aware "today" for the month grid (highlight + overdue styling).
+  const todayStr = format(now, 'yyyy-MM-dd');
 
   return (
     <>
@@ -623,10 +644,28 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
                 currentDate={currentDate}
                 onMonthChange={handleMonthChange}
               />
+
+              {/* Grid options + interaction hint */}
+              <div className="flex items-center justify-between mb-2 text-sm">
+                <span className="text-gray-400 text-xs hidden md:inline">
+                  Drag a marker to another day to reschedule · hover for quick actions
+                </span>
+                <label className="flex items-center gap-1.5 text-gray-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showSkipped}
+                    onChange={(e) => setShowSkipped(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  Show skipped
+                </label>
+              </div>
+
               <CalendarGrid
                 currentDate={currentDate}
-                events={filteredEvents}
+                events={gridEvents}
                 coldWarnings={coldWarnings}
+                todayStr={todayStr}
                 onDateClick={handleDateClick}
                 onEventClick={(event) => {
                   setDetailEvent(event);
@@ -635,7 +674,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
               />
 
               {/* Legend */}
-              {filteredEvents.length > 0 && (
+              {gridEvents.length > 0 && (
                 <div className="mt-6 pt-4 border-t border-gray-200">
                   <div className="flex flex-wrap items-center gap-4 text-sm">
                     <div className="font-medium text-gray-700">Event Types:</div>
@@ -660,7 +699,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
               )}
 
               {/* Empty state for grid view */}
-              {filteredEvents.length === 0 && (
+              {gridEvents.length === 0 && (
                 <div className="text-center py-12">
                   <div className="text-6xl mb-4">🌱</div>
                   <p className="text-xl font-semibold text-gray-700 mb-2">
@@ -689,9 +728,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
                   setModalInitialPlant(plant);
                   setModalOpen(true);
                 }}
-                onEditEvent={(event) => {
-                  // TODO: Implement edit functionality
-                }}
+                onEditEvent={(event) => setDetailEvent(event)}
                 onRefresh={() => {
                   // Timeline manages its own data loading
                 }}
@@ -720,21 +757,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
       <AddGardenEventModal
         isOpen={gardenEventModalOpen}
         onClose={() => setGardenEventModalOpen(false)}
-        onEventAdded={() => {
-          // Refresh planting events to show new garden event
-          const fetchPlantingEvents = async () => {
-            try {
-              const response = await apiGet('/api/planting-events');
-              if (response.ok) {
-                const data = await response.json();
-                setPlantingEvents(data);
-              }
-            } catch (err) {
-              console.error('Failed to reload events:', err);
-            }
-          };
-          fetchPlantingEvents();
-        }}
+        onEventAdded={fetchPlantingEvents}
         gardenBeds={gardenBeds}
       />
 
@@ -742,21 +765,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
       <AddMapleTappingModal
         isOpen={mapleTappingModalOpen}
         onClose={() => setMapleTappingModalOpen(false)}
-        onEventAdded={() => {
-          // Refresh planting events to show new tapping event
-          const fetchPlantingEvents = async () => {
-            try {
-              const response = await apiGet('/api/planting-events');
-              if (response.ok) {
-                const data = await response.json();
-                setPlantingEvents(data);
-              }
-            } catch (err) {
-              console.error('Failed to reload events:', err);
-            }
-          };
-          fetchPlantingEvents();
-        }}
+        onEventAdded={fetchPlantingEvents}
       />
 
       {/* Day Detail Modal */}

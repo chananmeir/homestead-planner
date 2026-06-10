@@ -232,6 +232,7 @@ export interface PlantingCalendar {
   isComplete?: boolean;  // Canonical completion check from backend
   indoorSeedStartStatus?: string;  // IndoorSeedStart.status for seed-start phase completion
   quantityCompleted?: number;  // How many actually planted (null = not started)
+  cancelledAt?: string | null;  // Soft-delete timestamp ("skipped"); null/undefined = active
 
   // Date fields
   seedStartDate?: Date;

@@ -2648,7 +2648,11 @@ def planting_events():
     # GET with optional date-range filtering for timeline view
     # Filter by current user
     query = PlantingEvent.query.filter_by(user_id=current_user.id)
-    query = query.filter(PlantingEvent.cancelled_at.is_(None))
+    # Soft-cancelled ("skipped") events are hidden unless explicitly requested
+    # (calendar "Show skipped" toggle sends includeCancelled=true).
+    include_cancelled = request.args.get('includeCancelled', 'false').lower() == 'true'
+    if not include_cancelled:
+        query = query.filter(PlantingEvent.cancelled_at.is_(None))
 
     # Exclude abandoned events (completed with 0 quantity — never planted)
     query = query.filter(

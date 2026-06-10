@@ -212,6 +212,49 @@ export const getEventIcon = (type: EventMarkerType): string => {
 };
 
 /**
+ * Maps a marker type to the PlantingEvent date field that marker represents.
+ * Used by drag-to-reschedule and the quick-reschedule popover so that moving a
+ * marker updates the correct date (e.g. dragging a harvest marker moves
+ * expectedHarvestDate, not the planting date). Mulch/maple events store their
+ * application date in expectedHarvestDate by convention.
+ */
+export type ReschedulableDateField =
+  | 'seedStartDate'
+  | 'transplantDate'
+  | 'directSeedDate'
+  | 'expectedHarvestDate';
+
+export const getDateFieldForMarkerType = (type: EventMarkerType): ReschedulableDateField => {
+  switch (type) {
+    case 'seed-start':
+      return 'seedStartDate';
+    case 'transplant':
+      return 'transplantDate';
+    case 'direct-seed':
+      return 'directSeedDate';
+    case 'harvest':
+    case 'mulch-application':
+    case 'maple-tapping':
+      return 'expectedHarvestDate';
+  }
+};
+
+/**
+ * Returns the events represented by a marker (1 for a single marker, N for a group).
+ */
+export const getMarkerEvents = (marker: DateMarkerOrGroup): PlantingCalendar[] => {
+  return isGroupedMarker(marker) ? marker.events : [marker.event];
+};
+
+/**
+ * True when every event behind the marker is soft-cancelled ("skipped").
+ */
+export const isMarkerSkipped = (marker: DateMarkerOrGroup): boolean => {
+  const events = getMarkerEvents(marker);
+  return events.length > 0 && events.every(e => e.cancelledAt != null);
+};
+
+/**
  * Gets a human-readable label for an event marker type.
  */
 export const getEventLabel = (type: EventMarkerType): string => {

@@ -208,3 +208,30 @@ def test_cancel_planted_item_hidden_from_garden_snapshot(auth_client_a, user_a):
     response = auth_client_a.get('/api/garden-planner/garden-snapshot?date=2026-06-01')
     assert response.status_code == 200
     assert response.get_json()['summary']['totalPlants'] == 0
+
+
+def test_cancelled_events_returned_with_include_cancelled_param(auth_client_a, user_a):
+    """GET /api/planting-events hides skipped events by default but returns
+    them (with cancelledAt set) when includeCancelled=true — the calendar's
+    "Show skipped" toggle contract."""
+    active = _make_event(user_a)
+    skipped = _make_event(user_a)
+
+    cancel_response = auth_client_a.post(f'/api/planting-events/{skipped.id}/cancel')
+    assert cancel_response.status_code == 200
+
+    # Default: skipped event hidden
+    default_response = auth_client_a.get('/api/planting-events')
+    assert default_response.status_code == 200
+    default_ids = {e['id'] for e in default_response.get_json()}
+    assert active.id in default_ids
+    assert skipped.id not in default_ids
+
+    # Opt-in: skipped event included, flagged via cancelledAt
+    include_response = auth_client_a.get('/api/planting-events?includeCancelled=true')
+    assert include_response.status_code == 200
+    events_by_id = {e['id']: e for e in include_response.get_json()}
+    assert active.id in events_by_id
+    assert skipped.id in events_by_id
+    assert events_by_id[skipped.id]['cancelledAt'] is not None
+    assert events_by_id[active.id]['cancelledAt'] is None

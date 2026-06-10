@@ -1,14 +1,19 @@
 import React from 'react';
+import { format } from 'date-fns';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
-import { DateMarkerOrGroup, isGroupedMarker, getEventIcon, getEventLabel, getCategoryColor } from './utils';
+import { DateMarkerOrGroup, isGroupedMarker, isMarkerSkipped, getEventIcon, getEventLabel, getCategoryColor } from './utils';
 
 interface EventMarkerProps {
   marker: DateMarkerOrGroup;
   coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
+  /** Simulation-aware "today" as yyyy-MM-dd; enables overdue styling when provided. */
+  todayStr?: string;
 }
 
-const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
+const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todayStr }) => {
   const isGrouped = isGroupedMarker(marker);
+  const isSkipped = isMarkerSkipped(marker);
+  const markerDateStr = format(marker.date, 'yyyy-MM-dd');
 
   // Determine event type
   const eventType = isGrouped
@@ -49,15 +54,15 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
     };
 
     const mulchLabel = mulchLabels[mulchType] || mulchType;
-    const tooltipText = `Mulch Application: ${mulchLabel}${count > 1 ? ` (${count} events)` : ''}`;
+    const tooltipText = `${isSkipped ? '[Skipped] ' : ''}Mulch Application: ${mulchLabel}${count > 1 ? ` (${count} events)` : ''}`;
 
     return (
       <div
-        className="bg-amber-600 text-white text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+        className={`bg-amber-600 text-white text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity ${isSkipped ? 'opacity-40 grayscale' : ''}`}
         title={tooltipText}
       >
         <span className="flex-shrink-0">🛡️</span>
-        <span className="truncate flex-1 min-w-0">
+        <span className={`truncate flex-1 min-w-0 ${isSkipped ? 'line-through' : ''}`}>
           {mulchLabel}
           {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}
         </span>
@@ -97,15 +102,15 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
     };
 
     const label = `${treeLabels[treeType]} (${tapCount} tap${tapCount > 1 ? 's' : ''})`;
-    const tooltipText = `Maple Tapping: ${label}${count > 1 ? ` (${count} trees)` : ''}`;
+    const tooltipText = `${isSkipped ? '[Skipped] ' : ''}Maple Tapping: ${label}${count > 1 ? ` (${count} trees)` : ''}`;
 
     return (
       <div
-        className="bg-orange-600 text-white text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+        className={`bg-orange-600 text-white text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity ${isSkipped ? 'opacity-40 grayscale' : ''}`}
         title={tooltipText}
       >
         <span className="flex-shrink-0">🍁</span>
-        <span className="truncate flex-1 min-w-0">
+        <span className={`truncate flex-1 min-w-0 ${isSkipped ? 'line-through' : ''}`}>
           {label}
           {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}
         </span>
@@ -158,12 +163,18 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
   // Check cold warning for this event
   const eventId = isGrouped ? marker.events[0].id : marker.event.id;
   const coldStatus = coldWarnings?.[`${eventId}`];
-  const hasWeatherWarning = !isCompleted && !!coldStatus;
+  const hasWeatherWarning = !isCompleted && !isSkipped && !!coldStatus;
   const isHot = coldStatus === 'too_hot';
+
+  // Overdue: the marker's date has passed (vs. simulation-aware today) and this
+  // phase isn't complete. Weather warnings keep ring precedence over overdue.
+  const isOverdue = !!todayStr && !isCompleted && !isSkipped && markerDateStr < todayStr;
 
   // Build tooltip text with variety if available
   const tooltipText = [
+    isSkipped ? '[Skipped]' : null,
     isCompleted ? '[Done]' : null,
+    !hasWeatherWarning && isOverdue ? '[OVERDUE]' : null,
     hasWeatherWarning ? (coldStatus === 'too_cold' ? '[TOO COLD]' : coldStatus === 'too_hot' ? '[TOO HOT]' : '[MARGINAL SOIL TEMP]') : null,
     isPlanOnlySeedStart ? '[Plan only]' : null,
     label,
@@ -175,21 +186,23 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings }) => {
   return (
     <div
       className={`
-        ${isCompleted ? 'bg-gray-400' : colorClass} text-white text-xs px-2 py-1 rounded
+        ${isCompleted || isSkipped ? 'bg-gray-400' : colorClass} text-white text-xs px-2 py-1 rounded
         flex items-center gap-1 cursor-pointer
         hover:opacity-80 transition-opacity
-        ${isPlanOnlySeedStart && !isCompleted && !hasWeatherWarning ? 'border border-dashed border-amber-300' : ''}
+        ${isSkipped ? 'opacity-40 grayscale' : ''}
+        ${isPlanOnlySeedStart && !isCompleted && !hasWeatherWarning && !isSkipped ? 'border border-dashed border-amber-300' : ''}
         ${hasWeatherWarning ? 'ring-2 ring-offset-1 ' + (coldStatus === 'too_cold' ? 'ring-red-500' : coldStatus === 'too_hot' ? 'ring-orange-500' : 'ring-yellow-400') : ''}
+        ${!hasWeatherWarning && isOverdue ? 'ring-2 ring-offset-1 ring-red-400' : ''}
       `}
       title={tooltipText}
     >
       {/* Weather warning icon, completion checkmark, or event type icon */}
       <span className="flex-shrink-0">
-        {isCompleted ? '\u2713' : hasWeatherWarning ? (isHot ? '\uD83C\uDF21\uFE0F' : '\u2744\uFE0F') : icon}
+        {isCompleted ? '\u2713' : hasWeatherWarning ? (isHot ? '\uD83C\uDF21\uFE0F' : '\u2744\uFE0F') : isOverdue ? '\u26A0\uFE0F' : icon}
       </span>
 
-      {/* Plant name - strikethrough if completed */}
-      <span className={`truncate flex-1 min-w-0 ${isCompleted ? 'line-through' : ''}`}>
+      {/* Plant name - strikethrough if completed or skipped */}
+      <span className={`truncate flex-1 min-w-0 ${isCompleted || isSkipped ? 'line-through' : ''}`}>
         {plant.name}
         {variety && <span className="text-[10px] ml-1">({variety})</span>}
         {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}

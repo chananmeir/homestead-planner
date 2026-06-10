@@ -77,3 +77,100 @@ describe('EventMarker — Plan only vs Tracked visual treatment', () => {
     expect(chip.className).not.toMatch(/border-dashed/);
   });
 });
+
+// Build a minimal transplant single-marker (transplant phase completion lives
+// on event.completed, which keeps the overdue assertions unambiguous).
+function makeTransplantMarker(
+  overrides: Partial<PlantingCalendar> = {}
+): DateMarker {
+  const event: PlantingCalendar = {
+    id: 2001,
+    plantId: 'tomato-1',
+    variety: 'Roma',
+    transplantDate: new Date('2026-05-10'),
+    expectedHarvestDate: new Date('2026-07-25'),
+    completed: false,
+    eventType: 'planting',
+    ...overrides,
+  } as PlantingCalendar;
+
+  return {
+    date: new Date('2026-05-10'),
+    type: 'transplant',
+    event,
+  };
+}
+
+describe('EventMarker — overdue styling (simulation-aware today)', () => {
+  test('past-date incomplete marker renders red overdue ring + tooltip flag', () => {
+    const marker = makeTransplantMarker({ completed: false });
+    const { container } = render(<EventMarker marker={marker} todayStr="2026-05-20" />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).toMatch(/ring-red-400/);
+    expect(chip.getAttribute('title')).toMatch(/\[OVERDUE\]/);
+  });
+
+  test('past-date COMPLETED marker is not flagged overdue', () => {
+    const marker = makeTransplantMarker({ completed: true });
+    const { container } = render(<EventMarker marker={marker} todayStr="2026-05-20" />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).not.toMatch(/ring-red-400/);
+    expect(chip.getAttribute('title') || '').not.toMatch(/OVERDUE/);
+  });
+
+  test('future-date marker is not flagged overdue', () => {
+    const marker = makeTransplantMarker({ completed: false });
+    const { container } = render(<EventMarker marker={marker} todayStr="2026-05-01" />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).not.toMatch(/ring-red-400/);
+  });
+
+  test('without todayStr no overdue styling is applied (back-compat)', () => {
+    const marker = makeTransplantMarker({ completed: false });
+    const { container } = render(<EventMarker marker={marker} />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).not.toMatch(/ring-red-400/);
+  });
+
+  test('weather warning ring takes precedence over the overdue ring', () => {
+    const marker = makeTransplantMarker({ completed: false });
+    const { container } = render(
+      <EventMarker
+        marker={marker}
+        todayStr="2026-05-20"
+        coldWarnings={{ '2001': 'too_cold' }}
+      />
+    );
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).toMatch(/ring-red-500/); // weather ring
+    expect(chip.className).not.toMatch(/ring-red-400/); // overdue ring suppressed
+  });
+});
+
+describe('EventMarker — skipped (soft-cancelled) styling', () => {
+  test('skipped marker renders greyed out with strikethrough and [Skipped] tooltip', () => {
+    const marker = makeTransplantMarker({ cancelledAt: '2026-05-12T10:00:00' });
+    const { container } = render(<EventMarker marker={marker} todayStr="2026-05-20" />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).toMatch(/opacity-40/);
+    expect(chip.className).toMatch(/grayscale/);
+    expect(chip.getAttribute('title')).toMatch(/\[Skipped\]/);
+    // Skipped rows are excluded from overdue nagging.
+    expect(chip.getAttribute('title') || '').not.toMatch(/OVERDUE/);
+  });
+
+  test('active marker (cancelledAt null) renders normally', () => {
+    const marker = makeTransplantMarker({ cancelledAt: null });
+    const { container } = render(<EventMarker marker={marker} todayStr="2026-05-01" />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).not.toMatch(/opacity-40/);
+    expect(chip.getAttribute('title') || '').not.toMatch(/Skipped/);
+  });
+});
