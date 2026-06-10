@@ -52,6 +52,7 @@ from season_validator import validate_planting_for_property
 from forward_planting_validator import validate_planting_date, check_future_cold_danger
 from simulation_clock import get_now, get_utc_now
 from utils.helpers import parse_iso_date
+from utils.constants import DEFAULT_LATITUDE, DEFAULT_LONGITUDE
 from frost_date_lookup import get_frost_dates_for_user
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -64,10 +65,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 utilities_bp = Blueprint('utilities', __name__, url_prefix='/api')
-
-# Default coordinates (Milwaukee, WI - 53209)
-DEFAULT_LATITUDE = 43.1361
-DEFAULT_LONGITUDE = -87.9456
 
 
 def _get_predicted_germination_days(user_id, plant_id, location=None):

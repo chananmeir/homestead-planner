@@ -20,7 +20,7 @@ interface PlacementPreviewProps {
  * - Position number badges (1, 2, 3, etc.)
  * - Only renders when showPreview is true
  */
-export const PlacementPreview: React.FC<PlacementPreviewProps> = ({
+const PlacementPreview: React.FC<PlacementPreviewProps> = ({
   positions,
   plantId,
   plantIcon,

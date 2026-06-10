@@ -10,28 +10,28 @@ import { PlantedItem } from '../../../types';
 /**
  * Generate a unique row group ID
  */
-export function generateRowGroupId(): string {
+function generateRowGroupId(): string {
   return `row-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 /**
  * Check if two positions are horizontally adjacent
  */
-export function areHorizontallyAdjacent(pos1: { x: number; y: number }, pos2: { x: number; y: number }): boolean {
+function areHorizontallyAdjacent(pos1: { x: number; y: number }, pos2: { x: number; y: number }): boolean {
   return pos1.y === pos2.y && Math.abs(pos1.x - pos2.x) === 1;
 }
 
 /**
  * Check if two positions are vertically adjacent
  */
-export function areVerticallyAdjacent(pos1: { x: number; y: number }, pos2: { x: number; y: number }): boolean {
+function areVerticallyAdjacent(pos1: { x: number; y: number }, pos2: { x: number; y: number }): boolean {
   return pos1.x === pos2.x && Math.abs(pos1.y - pos2.y) === 1;
 }
 
 /**
  * Find adjacent plantings that match the current plant
  */
-export function findAdjacentPlantings(
+function findAdjacentPlantings(
   currentPosition: { x: number; y: number },
   plantId: string,
   existingPlantings: PlantedItem[]

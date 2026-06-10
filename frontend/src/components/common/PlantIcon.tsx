@@ -16,7 +16,7 @@ interface PlantIconProps {
  *
  * For SVG contexts (like garden grid), use PlantIconSVG instead
  */
-export const PlantIcon: React.FC<PlantIconProps> = ({
+const PlantIcon: React.FC<PlantIconProps> = ({
   plantId,
   plantIcon,
   size = 40,

@@ -87,7 +87,7 @@ export function calculateSpacingBuffer(
  * @param gridSizeInches - Grid cell size in inches (default 12)
  * @returns Array of all cells within the spacing buffer
  */
-export function calculateFootprint(
+function calculateFootprint(
   originX: number,
   originY: number,
   spaceRequired: number = 1,

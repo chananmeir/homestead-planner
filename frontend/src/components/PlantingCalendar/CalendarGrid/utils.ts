@@ -32,7 +32,7 @@ export function isGroupedMarker(marker: DateMarkerOrGroup): marker is GroupedDat
  * Safely converts a Date, string, or undefined value to a Date object.
  * Returns null for invalid or missing dates.
  */
-export const toSafeDate = (dateValue: Date | string | undefined | null): Date | null => {
+const toSafeDate = (dateValue: Date | string | undefined | null): Date | null => {
   if (!dateValue) return null;
 
   if (dateValue instanceof Date) {

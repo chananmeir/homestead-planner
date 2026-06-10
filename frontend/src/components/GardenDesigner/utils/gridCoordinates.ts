@@ -159,7 +159,7 @@ export function isValidGridLabel(
  * getMaxColumnLabel(26) // "Z"
  * getMaxColumnLabel(27) // "AA"
  */
-export function getMaxColumnLabel(gridWidth: number): string {
+function getMaxColumnLabel(gridWidth: number): string {
   if (gridWidth <= 0) return '';
   return coordinateToGridLabel(gridWidth - 1, 0).replace(/\d+$/, '');
 }

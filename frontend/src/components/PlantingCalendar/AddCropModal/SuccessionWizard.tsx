@@ -27,7 +27,7 @@ interface SuccessionEvent extends Omit<PlantingCalendarType, 'id'> {
   hasPosition: boolean;
 }
 
-export const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
+const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
   isOpen,
   onClose,
   onCreateEvents,

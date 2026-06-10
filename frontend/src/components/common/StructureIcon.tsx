@@ -16,7 +16,7 @@ interface StructureIconProps {
  * For SVG contexts (like property map), renders as <image> element
  * For regular contexts, can render as img or text
  */
-export const StructureIcon: React.FC<StructureIconProps> = ({
+const StructureIcon: React.FC<StructureIconProps> = ({
   structureId,
   structureIcon,
   size = 40,

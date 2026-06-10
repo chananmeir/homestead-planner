@@ -26,6 +26,7 @@ from conflict_checker import has_conflict, validate_planting_conflict, get_prima
 from services.space_calculator import calculate_space_requirement
 from services.garden_planner_service import _calculate_seeds_needed
 from simulation_clock import get_now, get_utc_now
+from utils.constants import VALID_SUN_EXPOSURES
 
 
 def _sync_indoor_start_on_completion(event):
@@ -507,8 +508,7 @@ def _auto_create_indoor_seed_start(user_id, planting_event, plant, quantity):
     return seed_start
 
 
-# Validation constants
-VALID_SUN_EXPOSURES = ['full', 'partial', 'shade']
+# Validation constants (VALID_SUN_EXPOSURES imported from utils.constants)
 BED_DELETE_CONFIRMATION = 'delete'
 
 # Create blueprint

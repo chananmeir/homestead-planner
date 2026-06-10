@@ -53,6 +53,35 @@
 > utils/constants.py instead of local copies), F-8 (export-keyword-only cleanups),
 > F-9 (App.css/logo.svg deletion, tests-only helpers), E-2 footnote (the broken
 > conflict_service is deleted; nothing to fix).
+>
+> **ADDENDUM 4: F-7, F-8, F-9 resolved.** A follow-up commit:
+> - **F-7**: `VALID_SUN_EXPOSURES`, `DEFAULT_LATITUDE`, `DEFAULT_LONGITUDE`
+>   restored to `utils/constants.py` as the single source; `gardens_bp.py` and
+>   `utilities_bp.py` now import them instead of keeping local literal copies.
+> - **F-8**: removed the redundant named-export keyword from the 5 dual
+>   default+named components (PlacementPreview, SuccessionWizard, TimelineView,
+>   PlantIcon, StructureIcon — default exports unchanged; PlantIconSVG /
+>   StructureIconSVG named exports stay); de-exported internal-only helper
+>   FUNCTIONS (`toSafeDate`, `generateRowGroupId`, `areHorizontallyAdjacent`,
+>   `areVerticallyAdjacent`, `findAdjacentPlantings`, `getMaxColumnLabel`,
+>   `calculateFootprint`); deleted the unused `Wrap` helper from
+>   Dashboard/testUtils.tsx. **Deliberately kept exported**: every TYPE that
+>   appears in an exported function/interface signature (GridCoordinate,
+>   GridValidationResult, PlacementRequest/Result, PlantedItemDisplayStatus(Tone),
+>   FootprintCell, DashboardTodayMeta, DateFilterMode, FilterOption, ActiveFilter,
+>   FormFileInputRef, and the types.ts member types) — de-exporting signature
+>   types degrades the API, it is not cleanup.
+> - **F-9**: deleted CRA boilerplate `App.css` (every rule unused; import removed
+>   from App.tsx) and `logo.svg` (never imported); removed the tests-only
+>   `breed_service.calculate_livestock_production` wrapper together with its
+>   dedicated test (the underlying BreedService method keeps its own coverage).
+>   `geocoding_service._geocodio_lookup`/`._google_lookup` stay (dev docs record
+>   they were deliberately retained); `_zip_cache_clear` stays (used by tests).
+>
+> **Final state: every audit finding is resolved except F-5** (six API endpoints
+> with no frontend caller — removing public API surface is a product decision)
+> and the F-10 micro-items (`except ... as e` bindings, side-effectful unused
+> test locals), which are cosmetic and intentionally left.
 
 Full-codebase sweep for unused code (backend + frontend), per request: *find code that is
 not needed and comment it out*. Every commented block carries a greppable

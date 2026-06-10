@@ -7,7 +7,6 @@
  *
  * Placed outside __tests__ so Jest's testMatch does not treat it as a test file.
  */
-import React, { ReactNode } from 'react';
 import type { GardenPlan } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -71,6 +70,3 @@ export function makePlan(overrides: Partial<GardenPlan> = {}): GardenPlan {
     ...overrides,
   } as GardenPlan;
 }
-
-// Harmless wrapper for children prop scenarios
-export const Wrap: React.FC<{ children: ReactNode }> = ({ children }) => <>{children}</>;

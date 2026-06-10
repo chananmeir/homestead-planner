@@ -3,7 +3,7 @@ Unit tests for breed service
 """
 
 import unittest
-from services.breed_service import BreedService, calculate_livestock_production
+from services.breed_service import BreedService
 
 
 class TestBreedService(unittest.TestCase):
@@ -296,18 +296,6 @@ class TestBreedService(unittest.TestCase):
         )
         self.assertIsNone(self.service.normalize_breed_name(None))
         self.assertEqual(self.service.normalize_breed_name(''), None)
-
-    def test_convenience_function(self):
-        """Test convenience function works"""
-        production, metadata = calculate_livestock_production(
-            species='chickens',
-            breed='leghorn',
-            age_weeks=40,
-            quantity=5
-        )
-
-        # 5 × 300 × 1.0 = 1500
-        self.assertEqual(production, 1500.0)
 
 
 if __name__ == '__main__':

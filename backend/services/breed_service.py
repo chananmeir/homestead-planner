@@ -291,22 +291,5 @@ class BreedService:
         return normalized if normalized else None
 
 
-# Convenience function for quick calculations
-def calculate_livestock_production(
-    species: str,
-    breed: Optional[str],
-    age_weeks: Optional[int] = None,
-    age_months: Optional[int] = None,
-    quantity: int = 1,
-    sex: Optional[str] = None,
-    purpose: Optional[str] = None
-) -> Tuple[float, Dict]:
-    """
-    Convenience function for calculating livestock production.
-
-    See BreedService.calculate_age_adjusted_production for details.
-    """
-    service = BreedService()
-    return service.calculate_age_adjusted_production(
-        species, breed, age_weeks, age_months, quantity, sex, purpose
-    )
+# (calculate_livestock_production convenience wrapper removed Jun 2026 — production
+# code uses BreedService.calculate_age_adjusted_production directly.)

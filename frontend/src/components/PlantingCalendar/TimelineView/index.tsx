@@ -17,7 +17,7 @@ interface TimelineViewProps {
   setShowAvailableSpaces: (show: boolean) => void;
 }
 
-export const TimelineView: React.FC<TimelineViewProps> = ({
+const TimelineView: React.FC<TimelineViewProps> = ({
   onAddCrop,
   onEditEvent,
   onRefresh,
