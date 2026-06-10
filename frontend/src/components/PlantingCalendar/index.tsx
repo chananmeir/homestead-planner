@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNow } from '../../contexts/SimulationContext';
-import { List, Calendar, Menu, Clock, PlusCircle, MapPin } from 'lucide-react';
+import { List, Calendar, CalendarRange, Menu, Clock, PlusCircle, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../types';
 import { apiGet, apiPost } from '../../utils/api';
@@ -18,9 +18,10 @@ import MapleTappingSeasonCard from './MapleTappingSeasonCard';
 import TimelineView from './TimelineView';
 import EventDetailModal from './CalendarGrid/EventDetailModal';
 import DayDetailModal from './CalendarGrid/DayDetailModal';
+import { CalendarAttention, DayWeatherFlags, buildWeatherFlags } from './CalendarGrid/utils';
 import { useFocusHighlight } from '../Dashboard/hooks/useFocusHighlight';
 
-type CalendarViewMode = 'list' | 'grid' | 'timeline';
+type CalendarViewMode = 'list' | 'grid' | 'week' | 'timeline';
 
 interface PlantingCalendarProps {
   onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number, plantingEventId?: number) => void;
@@ -46,7 +47,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
   const [viewMode, setViewMode] = useState<CalendarViewMode>(() => {
     if (preferredViewMode) return preferredViewMode;
     const savedViewMode = localStorage.getItem('plantingCalendar.viewMode');
-    return savedViewMode === 'list' || savedViewMode === 'grid' || savedViewMode === 'timeline'
+    return savedViewMode === 'list' || savedViewMode === 'grid' || savedViewMode === 'week' || savedViewMode === 'timeline'
       ? savedViewMode
       : 'list';
   });
@@ -85,6 +86,73 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
 
   // Grid view: include soft-cancelled ("skipped") events, rendered greyed-out with undo
   const [showSkipped, setShowSkipped] = useState(false);
+
+  // Dashboard-parity overlays for grid/week markers (harvest-ready glow, missed flags).
+  const [attention, setAttention] = useState<CalendarAttention | undefined>(undefined);
+
+  // Forecast strip: yyyy-MM-dd → frost/rain flags for upcoming day cells.
+  const [weatherByDate, setWeatherByDate] = useState<Record<string, DayWeatherFlags>>({});
+
+  const fetchAttention = useCallback(async () => {
+    try {
+      const response = await apiGet('/api/dashboard/today');
+      if (!response.ok) return;
+      const data = await response.json();
+      const collect = (rows: any[] | undefined): number[] => {
+        const out: number[] = [];
+        for (const row of rows || []) {
+          if (typeof row?.plantingEventId === 'number') out.push(row.plantingEventId);
+          if (Array.isArray(row?.plantingEventIds)) {
+            for (const id of row.plantingEventIds) {
+              if (typeof id === 'number') out.push(id);
+            }
+          }
+        }
+        return out;
+      };
+      const signals = data?.signals || {};
+      const missed = data?.missed || {};
+      setAttention({
+        harvestReady: new Set(collect(signals.harvestReady)),
+        missed: {
+          'seed-start': new Set(collect(missed.indoorStartsDue)),
+          'transplant': new Set(collect(missed.transplantsDue)),
+          'direct-seed': new Set(collect(missed.directSeedDue)),
+        },
+      });
+    } catch (err) {
+      // Overlay is decorative — the calendar works fine without it.
+      console.warn('Calendar attention overlay unavailable:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAttention();
+  }, [fetchAttention]);
+
+  useEffect(() => {
+    const fetchForecastStrip = async () => {
+      try {
+        const zip = localStorage.getItem('weatherZipCode');
+        const url = zip
+          ? `/api/weather/forecast?zipcode=${encodeURIComponent(zip)}&days=10`
+          : '/api/weather/forecast?days=10';
+        const response = await apiGet(url);
+        if (!response.ok) return;
+        const data = await response.json();
+        const map: Record<string, DayWeatherFlags> = {};
+        for (const day of data?.forecast || []) {
+          if (!day?.date) continue;
+          const flags = buildWeatherFlags(day);
+          if (flags) map[day.date] = flags;
+        }
+        setWeatherByDate(map);
+      } catch (err) {
+        console.warn('Calendar forecast strip unavailable:', err);
+      }
+    };
+    fetchForecastStrip();
+  }, []);
 
   // Frost dates - fetched from API (defaults are placeholders until API responds)
   const [lastFrostDate, setLastFrostDate] = useState<Date>(new Date(new Date().getFullYear() + '-04-15'));
@@ -384,6 +452,9 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
       } else {
         throw new Error('Failed to load planting events');
       }
+      // Keep the dashboard-parity overlays in step with event changes
+      // (completing/skipping/rescheduling can clear or create signals).
+      fetchAttention();
     } catch (err) {
       console.error('Error loading planting events:', err);
       setError('Failed to load planting events. Please try refreshing the page.');
@@ -391,7 +462,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showSkipped]);
+  }, [showSkipped, fetchAttention]);
 
   useEffect(() => {
     fetchPlantingEvents();
@@ -419,8 +490,8 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
   return (
     <>
       <div className="planting-calendar flex flex-col lg:flex-row gap-6">
-        {/* Crops Sidebar - Only show in grid view */}
-        {viewMode === 'grid' && (
+        {/* Crops Sidebar - Only show in grid/week views */}
+        {(viewMode === 'grid' || viewMode === 'week') && (
           <CropsSidebar
             onPlantSelect={handlePlantSelect}
             isOpen={sidebarOpen}
@@ -435,7 +506,7 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 {/* Sidebar toggle for mobile */}
-                {viewMode === 'grid' && (
+                {(viewMode === 'grid' || viewMode === 'week') && (
                   <button
                     onClick={() => setSidebarOpen(!sidebarOpen)}
                     className="lg:hidden p-2 hover:bg-gray-100 rounded-lg"
@@ -475,6 +546,20 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
                 >
                   <Calendar className="w-4 h-4" />
                   <span className="hidden sm:inline">Calendar</span>
+                </button>
+                <button
+                  data-testid="view-toggle-week"
+                  onClick={() => setViewMode('week')}
+                  className={`
+                    flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
+                    ${viewMode === 'week'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }
+                  `}
+                >
+                  <CalendarRange className="w-4 h-4" />
+                  <span className="hidden sm:inline">Week</span>
                 </button>
                 <button
                   data-testid="view-toggle-timeline"
@@ -637,12 +722,14 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
             />
           )}
 
-          {/* Grid View */}
-          {viewMode === 'grid' && (
+          {/* Grid + Week Views (shared month/week calendar surface) */}
+          {(viewMode === 'grid' || viewMode === 'week') && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <CalendarHeader
                 currentDate={currentDate}
                 onMonthChange={handleMonthChange}
+                mode={viewMode === 'week' ? 'week' : 'month'}
+                today={now}
               />
 
               {/* Grid options + interaction hint */}
@@ -666,6 +753,9 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
                 events={gridEvents}
                 coldWarnings={coldWarnings}
                 todayStr={todayStr}
+                mode={viewMode === 'week' ? 'week' : 'month'}
+                weatherByDate={weatherByDate}
+                attention={attention}
                 onDateClick={handleDateClick}
                 onEventClick={(event) => {
                   setDetailEvent(event);
@@ -798,6 +888,11 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
         onNavigateToBed={onNavigateToBed}
         coldWarning={detailEvent ? coldWarnings[`${detailEvent.id}`] : undefined}
         soilTempForecast={soilTempForecast}
+        seriesEvents={
+          detailEvent?.successionGroupId
+            ? plantingEvents.filter(e => e.successionGroupId === detailEvent.successionGroupId)
+            : undefined
+        }
       />
     </>
   );

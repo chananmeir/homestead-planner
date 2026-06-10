@@ -254,6 +254,129 @@ export const isMarkerSkipped = (marker: DateMarkerOrGroup): boolean => {
   return events.length > 0 && events.every(e => e.cancelledAt != null);
 };
 
+// ---------------------------------------------------------------------------
+// Succession-series awareness
+// ---------------------------------------------------------------------------
+
+export interface SuccessionInfo {
+  /** 1-based position of the event within its succession series (by plant date). */
+  index: number;
+  total: number;
+  /** Stable palette index derived from the group id (for the series color bar). */
+  colorIdx: number;
+}
+
+/** Tailwind border-color classes used to visually link a succession series. */
+export const SUCCESSION_PALETTE = [
+  'border-l-cyan-300',
+  'border-l-fuchsia-300',
+  'border-l-lime-300',
+  'border-l-orange-300',
+  'border-l-sky-300',
+  'border-l-rose-300',
+  'border-l-yellow-300',
+  'border-l-violet-300',
+];
+
+/** Deterministic tiny string hash → palette slot (stable across renders/sessions). */
+export const successionColorIdx = (groupId: string): number => {
+  let hash = 0;
+  for (let i = 0; i < groupId.length; i++) {
+    hash = (hash * 31 + groupId.charCodeAt(i)) | 0; // eslint-disable-line no-bitwise
+  }
+  return Math.abs(hash) % SUCCESSION_PALETTE.length;
+};
+
+/**
+ * Builds eventId → SuccessionInfo for every event that belongs to a succession
+ * series (2+ events sharing a successionGroupId). Series order follows the
+ * primary planting date (direct seed → transplant → seed start fallback).
+ */
+export const buildSuccessionIndex = (events: PlantingCalendar[]): Map<number, SuccessionInfo> => {
+  const groups = new Map<string, PlantingCalendar[]>();
+  for (const event of events) {
+    if (!event.successionGroupId) continue;
+    const list = groups.get(event.successionGroupId) || [];
+    list.push(event);
+    groups.set(event.successionGroupId, list);
+  }
+
+  const primaryDate = (e: PlantingCalendar): number => {
+    const d = toSafeDate(e.directSeedDate) || toSafeDate(e.transplantDate)
+      || toSafeDate(e.seedStartDate) || toSafeDate(e.expectedHarvestDate);
+    return d ? d.getTime() : Number.MAX_SAFE_INTEGER;
+  };
+
+  const result = new Map<number, SuccessionInfo>();
+  groups.forEach((list, groupId) => {
+    if (list.length < 2) return; // a "series" of one isn't worth badging
+    const sorted = [...list].sort((a, b) => primaryDate(a) - primaryDate(b));
+    const colorIdx = successionColorIdx(groupId);
+    sorted.forEach((e, i) => {
+      result.set(e.id, { index: i + 1, total: sorted.length, colorIdx });
+    });
+  });
+  return result;
+};
+
+// ---------------------------------------------------------------------------
+// Weather strip (frost / precipitation day flags)
+// ---------------------------------------------------------------------------
+
+export interface DayWeatherFlags {
+  frost?: boolean;   // low ≤ 32°F
+  freeze?: boolean;  // low ≤ 28°F (hard freeze)
+  rain?: boolean;    // precipitation ≥ 0.5"
+  lowTemp?: number;
+  precipitation?: number;
+}
+
+/** Thresholds match WeatherAlerts.tsx (frost/freeze) and the dashboard rain alert. */
+export const buildWeatherFlags = (day: { lowTemp?: number; precipitation?: number }): DayWeatherFlags | null => {
+  const lowTemp = typeof day.lowTemp === 'number' ? day.lowTemp : undefined;
+  const precipitation = typeof day.precipitation === 'number' ? day.precipitation : undefined;
+  const frost = lowTemp !== undefined && lowTemp <= 32;
+  const freeze = lowTemp !== undefined && lowTemp <= 28;
+  const rain = precipitation !== undefined && precipitation >= 0.5;
+  if (!frost && !rain) return null;
+  return { frost, freeze, rain, lowTemp, precipitation };
+};
+
+// ---------------------------------------------------------------------------
+// Dashboard-parity attention overlays
+// ---------------------------------------------------------------------------
+
+export interface CalendarAttention {
+  /** PlantingEvent ids the dashboard reports as ready to harvest. */
+  harvestReady: Set<number>;
+  /** Event ids in the dashboard "missed" buckets, keyed by the marker type they affect. */
+  missed: Partial<Record<'seed-start' | 'transplant' | 'direct-seed', Set<number>>>;
+}
+
+export type MarkerAttention = 'harvest-ready' | 'missed';
+
+/**
+ * Maps a marker to its dashboard attention state, if any. Harvest markers glow
+ * when the dashboard says the planting is ready; start/transplant/seed markers
+ * pick up the dashboard's "missed" classification.
+ */
+export const getMarkerAttention = (
+  marker: DateMarkerOrGroup,
+  attention?: CalendarAttention
+): MarkerAttention | undefined => {
+  if (!attention) return undefined;
+  const events = getMarkerEvents(marker);
+
+  if (marker.type === 'harvest') {
+    return events.some(e => attention.harvestReady.has(e.id)) ? 'harvest-ready' : undefined;
+  }
+  if (marker.type === 'seed-start' || marker.type === 'transplant' || marker.type === 'direct-seed') {
+    const missedSet = attention.missed[marker.type];
+    if (missedSet && events.some(e => missedSet.has(e.id))) return 'missed';
+  }
+  return undefined;
+};
+
 /**
  * Gets a human-readable label for an event marker type.
  */

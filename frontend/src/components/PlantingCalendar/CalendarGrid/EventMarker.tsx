@@ -1,16 +1,30 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
-import { DateMarkerOrGroup, isGroupedMarker, isMarkerSkipped, getEventIcon, getEventLabel, getCategoryColor } from './utils';
+import {
+  DateMarkerOrGroup,
+  isGroupedMarker,
+  isMarkerSkipped,
+  getEventIcon,
+  getEventLabel,
+  getCategoryColor,
+  SuccessionInfo,
+  SUCCESSION_PALETTE,
+  MarkerAttention,
+} from './utils';
 
 interface EventMarkerProps {
   marker: DateMarkerOrGroup;
   coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
   /** Simulation-aware "today" as yyyy-MM-dd; enables overdue styling when provided. */
   todayStr?: string;
+  /** Set when the event belongs to a succession series (renders "k/N" + color bar). */
+  successionInfo?: SuccessionInfo;
+  /** Dashboard-parity state: harvest-ready glow or missed flag. */
+  attention?: MarkerAttention;
 }
 
-const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todayStr }) => {
+const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todayStr, successionInfo, attention }) => {
   const isGrouped = isGroupedMarker(marker);
   const isSkipped = isMarkerSkipped(marker);
   const markerDateStr = format(marker.date, 'yyyy-MM-dd');
@@ -170,13 +184,21 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todaySt
   // phase isn't complete. Weather warnings keep ring precedence over overdue.
   const isOverdue = !!todayStr && !isCompleted && !isSkipped && markerDateStr < todayStr;
 
+  // Dashboard parity: harvest-ready glow outranks the generic overdue ring on
+  // harvest markers; "missed" refines the overdue tooltip on planting markers.
+  const isHarvestReady = !isSkipped && !isCompleted && attention === 'harvest-ready';
+  const isMissed = !isSkipped && !isCompleted && attention === 'missed';
+
   // Build tooltip text with variety if available
   const tooltipText = [
     isSkipped ? '[Skipped]' : null,
     isCompleted ? '[Done]' : null,
-    !hasWeatherWarning && isOverdue ? '[OVERDUE]' : null,
+    isHarvestReady ? '[Ready to harvest]' : null,
+    isMissed ? '[Missed]' : null,
+    !hasWeatherWarning && isOverdue && !isHarvestReady && !isMissed ? '[OVERDUE]' : null,
     hasWeatherWarning ? (coldStatus === 'too_cold' ? '[TOO COLD]' : coldStatus === 'too_hot' ? '[TOO HOT]' : '[MARGINAL SOIL TEMP]') : null,
     isPlanOnlySeedStart ? '[Plan only]' : null,
+    successionInfo ? `[Series ${successionInfo.index}/${successionInfo.total}]` : null,
     label,
     plant.name,
     variety ? `(${variety})` : null,
@@ -190,15 +212,17 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todaySt
         flex items-center gap-1 cursor-pointer
         hover:opacity-80 transition-opacity
         ${isSkipped ? 'opacity-40 grayscale' : ''}
+        ${successionInfo ? `border-l-4 ${SUCCESSION_PALETTE[successionInfo.colorIdx]}` : ''}
         ${isPlanOnlySeedStart && !isCompleted && !hasWeatherWarning && !isSkipped ? 'border border-dashed border-amber-300' : ''}
         ${hasWeatherWarning ? 'ring-2 ring-offset-1 ' + (coldStatus === 'too_cold' ? 'ring-red-500' : coldStatus === 'too_hot' ? 'ring-orange-500' : 'ring-yellow-400') : ''}
-        ${!hasWeatherWarning && isOverdue ? 'ring-2 ring-offset-1 ring-red-400' : ''}
+        ${!hasWeatherWarning && isHarvestReady ? 'ring-2 ring-offset-1 ring-amber-400 animate-pulse' : ''}
+        ${!hasWeatherWarning && !isHarvestReady && isOverdue ? 'ring-2 ring-offset-1 ring-red-400' : ''}
       `}
       title={tooltipText}
     >
       {/* Weather warning icon, completion checkmark, or event type icon */}
       <span className="flex-shrink-0">
-        {isCompleted ? '\u2713' : hasWeatherWarning ? (isHot ? '\uD83C\uDF21\uFE0F' : '\u2744\uFE0F') : isOverdue ? '\u26A0\uFE0F' : icon}
+        {isCompleted ? '\u2713' : hasWeatherWarning ? (isHot ? '\uD83C\uDF21\uFE0F' : '\u2744\uFE0F') : isHarvestReady ? '\uD83E\uDDFA' : isMissed ? '\u23F0' : isOverdue ? '\u26A0\uFE0F' : icon}
       </span>
 
       {/* Plant name - strikethrough if completed or skipped */}
@@ -207,6 +231,13 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todaySt
         {variety && <span className="text-[10px] ml-1">({variety})</span>}
         {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}
       </span>
+
+      {/* Succession position badge */}
+      {successionInfo && (
+        <span className="flex-shrink-0 text-[10px] font-semibold bg-black/20 rounded px-1">
+          {'\u21BB'}{successionInfo.index}/{successionInfo.total}
+        </span>
+      )}
     </div>
   );
 };

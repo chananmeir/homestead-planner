@@ -22,7 +22,10 @@ import {
   getDateFieldForMarkerType,
   getMarkerEvents,
   getEventLabel,
+  buildSuccessionIndex,
   DateMarkerOrGroup,
+  CalendarAttention,
+  DayWeatherFlags,
 } from './utils';
 
 interface CalendarGridProps {
@@ -31,20 +34,30 @@ interface CalendarGridProps {
   coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
   /** Simulation-aware "today" (yyyy-MM-dd). Falls back to the real clock when absent. */
   todayStr?: string;
+  /** 'month' (default) renders the full month; 'week' renders one tall 7-day row. */
+  mode?: 'month' | 'week';
+  /** yyyy-MM-dd → forecast flags for the frost/rain strip on day cells. */
+  weatherByDate?: Record<string, DayWeatherFlags>;
+  /** Dashboard-parity attention sets (harvest-ready / missed). */
+  attention?: CalendarAttention;
   onDateClick?: (date: Date) => void;
   onEventClick?: (event: PlantingCalendar) => void;
   onEventUpdated?: () => void;
 }
 
-const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, coldWarnings, todayStr, onDateClick, onEventClick, onEventUpdated }) => {
+const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, coldWarnings, todayStr, mode = 'month', weatherByDate, attention, onDateClick, onEventClick, onEventUpdated }) => {
   const { showSuccess, showError } = useToast();
+  const isWeek = mode === 'week';
 
-  // Calculate the days to display in the calendar grid
+  // Calculate the days to display: the full month grid, or a single week row.
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
-  const calendarStart = startOfWeek(monthStart);
-  const calendarEnd = endOfWeek(monthEnd);
+  const calendarStart = isWeek ? startOfWeek(currentDate) : startOfWeek(monthStart);
+  const calendarEnd = isWeek ? endOfWeek(currentDate) : endOfWeek(monthEnd);
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+
+  // eventId → succession-series position for "k/N" badges and series color bars.
+  const successionIndex = useMemo(() => buildSuccessionIndex(events), [events]);
 
   // Day names for header
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -196,28 +209,34 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({ currentDate, events, coldWa
 
       {/* Calendar grid — DndContext enables drag-to-reschedule between day cells */}
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-7 gap-1">
+        <div className={`grid grid-cols-7 gap-1 ${isWeek ? 'items-stretch' : ''}`}>
           {days.map((day) => {
-            const isCurrentMonth = isSameMonth(day, currentDate);
+            // Week view shows days from adjacent months at full strength.
+            const isCurrentMonth = isWeek ? true : isSameMonth(day, currentDate);
             const dateKey = format(day, 'yyyy-MM-dd');
             // Simulation-aware today when provided; real clock otherwise.
             const isTodayDate = todayStr ? dateKey === todayStr : isToday(day);
             const dayMarkers = markersByDate[dateKey] || [];
 
             return (
-              <CalendarDayCell
-                key={day.toISOString()}
-                date={day}
-                isCurrentMonth={isCurrentMonth}
-                isToday={isTodayDate}
-                markers={dayMarkers}
-                coldWarnings={coldWarnings}
-                todayStr={todayStr}
-                quickActions={quickActions}
-                onClick={() => handleDayClick(day)}
-                onEventClick={onEventClick}
-                onEventUpdated={onEventUpdated}
-              />
+              <div key={day.toISOString()} className={isWeek ? 'min-h-[320px] flex flex-col [&>div]:flex-1' : ''}>
+                <CalendarDayCell
+                  date={day}
+                  isCurrentMonth={isCurrentMonth}
+                  isToday={isTodayDate}
+                  markers={dayMarkers}
+                  coldWarnings={coldWarnings}
+                  todayStr={todayStr}
+                  quickActions={quickActions}
+                  maxVisible={isWeek ? 14 : 5}
+                  weather={weatherByDate?.[dateKey] ?? null}
+                  successionIndex={successionIndex}
+                  attention={attention}
+                  onClick={() => handleDayClick(day)}
+                  onEventClick={onEventClick}
+                  onEventUpdated={onEventUpdated}
+                />
+              </div>
             );
           })}
         </div>

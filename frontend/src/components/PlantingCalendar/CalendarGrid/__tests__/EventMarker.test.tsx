@@ -174,3 +174,64 @@ describe('EventMarker — skipped (soft-cancelled) styling', () => {
     expect(chip.getAttribute('title') || '').not.toMatch(/Skipped/);
   });
 });
+
+describe('EventMarker — succession series badge (Tier 3)', () => {
+  test('renders the k/N badge, series color bar, and tooltip flag', () => {
+    const marker = makeTransplantMarker();
+    const { container } = render(
+      <EventMarker marker={marker} successionInfo={{ index: 2, total: 4, colorIdx: 0 }} />
+    );
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).toMatch(/border-l-4/);
+    expect(chip.getAttribute('title')).toMatch(/\[Series 2\/4\]/);
+    // The badge text is split across JSX expressions; assert on textContent.
+    expect(chip.textContent).toContain('↻2/4');
+  });
+
+  test('no badge without successionInfo', () => {
+    const marker = makeTransplantMarker();
+    const { container } = render(<EventMarker marker={marker} />);
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).not.toMatch(/border-l-4/);
+    expect(chip.textContent || '').not.toContain('↻');
+  });
+});
+
+describe('EventMarker — dashboard-parity attention (Tier 3)', () => {
+  test('harvest-ready: amber pulsing ring outranks the overdue ring', () => {
+    const marker: DateMarker = {
+      date: new Date('2026-05-10'),
+      type: 'harvest',
+      event: {
+        id: 3001,
+        plantId: 'tomato-1',
+        expectedHarvestDate: new Date('2026-05-10'),
+        completed: false,
+        eventType: 'planting',
+      } as PlantingCalendar,
+    };
+    const { container } = render(
+      <EventMarker marker={marker} todayStr="2026-05-20" attention="harvest-ready" />
+    );
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).toMatch(/ring-amber-400/);
+    expect(chip.className).toMatch(/animate-pulse/);
+    expect(chip.className).not.toMatch(/ring-red-400/); // overdue ring suppressed
+    expect(chip.getAttribute('title')).toMatch(/\[Ready to harvest\]/);
+  });
+
+  test('missed: keeps the red overdue ring but refines icon + tooltip', () => {
+    const marker = makeTransplantMarker({ completed: false });
+    const { container } = render(
+      <EventMarker marker={marker} todayStr="2026-05-20" attention="missed" />
+    );
+
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).toMatch(/ring-red-400/);
+    expect(chip.getAttribute('title')).toMatch(/\[Missed\]/);
+    expect(chip.getAttribute('title') || '').not.toMatch(/OVERDUE/);
+  });
+});

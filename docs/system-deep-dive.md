@@ -1237,11 +1237,17 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
 ## A. Product gaps & open questions
 
 1. **~~Calendar Timeline-view editing is a dead click~~ — RESOLVED Jun 2026.** Timeline bars
-   now open the shared EventDetailModal like the other views. The same change shipped the
-   calendar Tier-2 upgrades: drag-to-reschedule on the month grid (type-aware date fields,
+   now open the shared EventDetailModal like the other views. The same effort shipped the
+   calendar Tier-2 upgrades — drag-to-reschedule on the month grid (type-aware date fields,
    409 conflict toasts), hover quick actions on markers (complete / skip / reschedule
    popover), overdue styling + simulation-aware today highlight, and a "Show skipped"
-   toggle backed by a new `includeCancelled` query param on `GET /api/planting-events`.
+   toggle backed by a new `includeCancelled` query param on `GET /api/planting-events` —
+   and the Tier-3 upgrades: succession-series badges ("↻k/N" + per-series color bar) with
+   a "shift entire series" option in the detail modal's reschedule flow, a **Week view**
+   (same grid surface, 7 tall day columns, week-stepping header), dashboard-parity
+   overlays (harvest-ready amber glow, missed flags from `/api/dashboard/today`), and a
+   frost/rain forecast strip (❄️/🥶/🌧️ icons on upcoming day cells from the 10-day
+   forecast).
 2. **Seed catalog multi-plant mapping** — `SeedCatalog.tsx:226` carries a TODO ("update
    backend to support multiple plant_ids"); catalog rows currently map to exactly one plant.
 3. **Plan export does not create indoor trays** — deliberate Apr 2026 decision: exporting a

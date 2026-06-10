@@ -9,6 +9,11 @@ import {
   isGroupedMarker,
   isMarkerSkipped,
   getMarkerEvents,
+  getMarkerAttention,
+  SuccessionInfo,
+  CalendarAttention,
+  MarkerAttention,
+  DayWeatherFlags,
 } from './utils';
 import { PlantingCalendar } from '../../../types';
 
@@ -27,6 +32,14 @@ interface CalendarDayCellProps {
   coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
   todayStr?: string;
   quickActions?: MarkerQuickActions;
+  /** How many marker rows to show before collapsing into "+X more" (week view raises this). */
+  maxVisible?: number;
+  /** Forecast flags for this day (frost / hard freeze / heavy rain icons by the date number). */
+  weather?: DayWeatherFlags | null;
+  /** eventId → series position, for succession badges. */
+  successionIndex?: Map<number, SuccessionInfo>;
+  /** Dashboard-parity attention sets (harvest-ready / missed). */
+  attention?: CalendarAttention;
   onClick: () => void;
   onEventClick?: (event: PlantingCalendar) => void;
   onEventUpdated?: () => void;
@@ -72,8 +85,10 @@ const DraggableMarker: React.FC<{
   coldWarnings?: Record<string, 'too_cold' | 'marginal' | 'too_hot'>;
   todayStr?: string;
   quickActions?: MarkerQuickActions;
+  successionInfo?: SuccessionInfo;
+  attention?: MarkerAttention;
   onMarkerClick: (e: React.MouseEvent) => void;
-}> = ({ marker, dragId, coldWarnings, todayStr, quickActions, onMarkerClick }) => {
+}> = ({ marker, dragId, coldWarnings, todayStr, quickActions, successionInfo, attention, onMarkerClick }) => {
   const skipped = isMarkerSkipped(marker);
   const phaseComplete = isMarkerPhaseComplete(marker);
   const [showReschedule, setShowReschedule] = useState(false);
@@ -116,7 +131,13 @@ const DraggableMarker: React.FC<{
         {...listeners}
         {...attributes}
       >
-        <EventMarker marker={marker} coldWarnings={coldWarnings} todayStr={todayStr} />
+        <EventMarker
+          marker={marker}
+          coldWarnings={coldWarnings}
+          todayStr={todayStr}
+          successionInfo={successionInfo}
+          attention={attention}
+        />
       </div>
 
       {/* Hover quick-action bar */}
@@ -190,6 +211,10 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
   coldWarnings,
   todayStr,
   quickActions,
+  maxVisible = 5,
+  weather,
+  successionIndex,
+  attention,
   onClick,
   onEventClick,
   onEventUpdated
@@ -210,9 +235,9 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
     return [...markers].sort((a, b) => rank(a) - rank(b));
   }, [markers]);
 
-  // Show up to 5 markers, with "+X more" indicator if there are more
-  const visibleMarkers = sortedMarkers.slice(0, 5);
-  const remainingCount = sortedMarkers.length - 5;
+  // Show up to maxVisible markers, with "+X more" indicator if there are more
+  const visibleMarkers = sortedMarkers.slice(0, maxVisible);
+  const remainingCount = sortedMarkers.length - maxVisible;
 
   const handleMarkerClick = (e: React.MouseEvent, marker: DateMarkerOrGroup) => {
     e.stopPropagation(); // Prevent day click
@@ -238,7 +263,7 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
         ${isOver ? 'ring-2 ring-green-500 bg-green-50' : ''}
       `}
     >
-      {/* Date number */}
+      {/* Date number + forecast strip */}
       <div className="flex justify-between items-start mb-1">
         <span
           className={`
@@ -249,15 +274,38 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
         >
           {format(date, 'd')}
         </span>
-        {isToday && (
-          <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-        )}
+        <span className="flex items-center gap-0.5">
+          {weather?.frost && (
+            <span
+              className="text-[11px] leading-none"
+              title={`${weather.freeze ? 'Hard freeze' : 'Frost'} risk: low ${Math.round(weather.lowTemp ?? 0)}°F`}
+            >
+              {weather.freeze ? '🥶' : '❄️'}
+            </span>
+          )}
+          {weather?.rain && (
+            <span
+              className="text-[11px] leading-none"
+              title={`Heavy rain expected: ${weather.precipitation?.toFixed(1)}"`}
+            >
+              🌧️
+            </span>
+          )}
+          {isToday && (
+            <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+          )}
+        </span>
       </div>
 
       {/* Event markers container */}
       <div className="flex flex-col gap-1">
         {visibleMarkers.map((marker, index) => {
           const ids = getMarkerEvents(marker).map(e => e.id).join('_');
+          // Succession badges apply to single markers only — grouped markers
+          // bundle same-day parallel events, which are never series siblings.
+          const successionInfo = !isGroupedMarker(marker)
+            ? successionIndex?.get(marker.event.id)
+            : undefined;
           return (
             <DraggableMarker
               key={`${marker.type}-${ids}`}
@@ -266,6 +314,8 @@ const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
               coldWarnings={coldWarnings}
               todayStr={todayStr}
               quickActions={quickActions}
+              successionInfo={successionInfo}
+              attention={getMarkerAttention(marker, attention)}
               onMarkerClick={(e) => handleMarkerClick(e, marker)}
             />
           );

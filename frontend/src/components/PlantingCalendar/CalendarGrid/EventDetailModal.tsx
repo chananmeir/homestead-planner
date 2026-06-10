@@ -16,9 +16,11 @@ interface EventDetailModalProps {
   onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number, plantingEventId?: number) => void;
   coldWarning?: 'too_cold' | 'marginal' | 'too_hot';
   soilTempForecast?: Record<string, number>;
+  /** All events sharing this event's successionGroupId (enables "shift entire series"). */
+  seriesEvents?: PlantingCalendar[];
 }
 
-const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onClose, gardenBeds, onEventUpdated, onNavigateToBed, coldWarning, soilTempForecast }) => {
+const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onClose, gardenBeds, onEventUpdated, onNavigateToBed, coldWarning, soilTempForecast, seriesEvents }) => {
   const [seedStart, setSeedStart] = useState<IndoorSeedStart | null>(null);
   const [loadingSeedStart, setLoadingSeedStart] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -37,7 +39,11 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [newDate, setNewDate] = useState('');
   const [savingReschedule, setSavingReschedule] = useState(false);
+  const [shiftSeries, setShiftSeries] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Sibling events in the same succession series (excluding this event).
+  const seriesSiblings = (seriesEvents || []).filter(e => e.id !== event?.id);
 
   const isIndoorStart = !!event?.seedStartDate;
 
@@ -144,6 +150,37 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
 
       const response = await apiPut(`/api/planting-events/${event.id}`, payload);
       if (response.ok) {
+        // Optionally shift every sibling in the succession series by the same
+        // day delta, preserving each sibling's internal date structure.
+        if (shiftSeries && deltaDays !== 0 && seriesSiblings.length > 0) {
+          const shiftSiblingPayload = (sibling: PlantingCalendar): Record<string, string> => {
+            const siblingPayload: Record<string, string> = {};
+            (['seedStartDate', 'transplantDate', 'directSeedDate', 'expectedHarvestDate'] as const).forEach(field => {
+              const normalized = normalizeToMidday(sibling[field]);
+              if (!normalized) return;
+              const shifted = new Date(normalized);
+              shifted.setDate(shifted.getDate() + deltaDays);
+              siblingPayload[field] = shifted.toISOString();
+            });
+            return siblingPayload;
+          };
+
+          const siblingResponses = await Promise.all(
+            seriesSiblings.map(sibling =>
+              apiPut(`/api/planting-events/${sibling.id}`, shiftSiblingPayload(sibling))
+            )
+          );
+          const failures = siblingResponses.filter(r => !r.ok).length;
+          if (failures > 0) {
+            // Keep the modal open so the partial failure is visible.
+            setRescheduleError(
+              `Moved this planting, but ${failures} of ${seriesSiblings.length} other ` +
+              `planting(s) in the series failed to move (possibly date conflicts).`
+            );
+            if (onEventUpdated) onEventUpdated();
+            return;
+          }
+        }
         setIsRescheduling(false);
         if (onEventUpdated) onEventUpdated();
         onClose();
@@ -168,6 +205,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
       setIsEditingBed(false);
       setSelectedBedId(event.gardenBedId ?? null);
       setIsRescheduling(false);
+      setShiftSeries(false);
       setRescheduleError('');
       fetchSeedStart();
       // Fetch varieties from user's personal seed inventory
@@ -614,6 +652,19 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
                     Cancel
                   </button>
                 </div>
+                {/* Shift the whole succession series together */}
+                {event.successionGroupId && seriesSiblings.length > 0 && (
+                  <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={shiftSeries}
+                      onChange={(e) => setShiftSeries(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    Also shift the other {seriesSiblings.length} planting{seriesSiblings.length > 1 ? 's' : ''} in this
+                    succession series by the same amount
+                  </label>
+                )}
                 {rescheduleError && (
                   <p className="text-xs text-red-600 mt-1">{rescheduleError}</p>
                 )}
