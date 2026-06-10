@@ -281,68 +281,6 @@ function calculateTotalCells(beds: GardenBed[]): number {
 }
 
 /**
- * Get per-seed space estimate (for display in UI)
- */
-export function getSpaceEstimateForSeed(
-  seed: SeedInventoryItem,
-  quantity: number,
-  beds: GardenBed[],
-  successionPreference?: SuccessionPreference
-): string {
-  const plant = PLANT_DATABASE.find(p => p.id === seed.plantId);
-  if (!plant || quantity === 0) return '0 cells';
-
-  // Apply succession adjustment
-  let effectiveQuantity = quantity;
-  if (successionPreference && successionPreference !== '0') {
-    const successionCount = getSuccessionCount(successionPreference);
-    effectiveQuantity = quantity / successionCount;
-  }
-
-  // Check if this is a trellis crop
-  if (isTrellisPlanting(plant)) {
-    const linearFeetPerPlant = getLinearFeetPerPlant(plant);
-    const totalLinearFeet = effectiveQuantity * linearFeetPerPlant;
-    const suffix = (successionPreference && successionPreference !== '0') ? '/planting' : '';
-    return `${totalLinearFeet.toFixed(0)} linear ft (${effectiveQuantity} × ${linearFeetPerPlant} ft/plant)${suffix}`;
-  }
-
-  // Calculate average across all bed types
-  const bedsByMethod = groupBedsByMethod(beds);
-  const methods = Object.keys(bedsByMethod);
-
-  if (methods.length === 0) {
-    return '? cells (no beds)';
-  }
-
-  // Use the most common method, or first method if tied
-  const mostCommonMethod = methods.reduce((a, b) =>
-    bedsByMethod[a].length > bedsByMethod[b].length ? a : b
-  );
-
-  const gridSize = 12; // Always use 12 for SFG-cell equivalent calculations
-
-  let totalCells: number;
-  let unitLabel: string;
-
-  if (isSeedDensityPlanting(plant, mostCommonMethod)) {
-    // Seed-density calculation
-    const seedsPerSqFt = calculateSeedsPerSqFt(plant);
-    totalCells = effectiveQuantity / seedsPerSqFt;
-    unitLabel = 'sq ft';
-  } else {
-    // Plant-based calculation
-    const cellsPerPlant = calculateSpaceRequirement(plant, gridSize, mostCommonMethod);
-    totalCells = cellsPerPlant * effectiveQuantity;
-    unitLabel = 'cells';
-  }
-
-  // Add "per planting" label if succession is used
-  const suffix = (successionPreference && successionPreference !== '0') ? '/planting' : '';
-  return `~${Math.ceil(totalCells)} ${unitLabel}${suffix}`;
-}
-
-/**
  * Calculate space requirements per bed (not aggregate by method)
  * This allows tracking which specific beds have been assigned and how full they are
  *

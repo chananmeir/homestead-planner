@@ -26,6 +26,11 @@ cache_session = requests_cache.CachedSession(cache_dir, expire_after=900)  # 15 
 retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
 openmeteo = openmeteo_requests.Client(session=retry_session)
 
+# WeatherAPI.com endpoint for get_current_temperature()'s real-API branch.
+# Only used when WEATHER_API_KEY is set; previously this constant was missing,
+# so that branch raised NameError and silently fell back to mock data.
+WEATHER_API_URL = 'https://api.weatherapi.com/v1/current.json'
+
 
 # Simple in-memory cache for weather data
 _weather_cache = {

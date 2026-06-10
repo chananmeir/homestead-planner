@@ -3200,20 +3200,3 @@ export const PLANT_DATABASE: Plant[] = [
     daysToSeed: 30,
   },
 ];
-
-// Helper function to get winter-hardy plants
-export const getWinterHardyPlants = (): Plant[] => {
-  return PLANT_DATABASE.filter((plant) => plant.winterHardy);
-};
-
-// Helper function to get plants by category
-export const getPlantsByCategory = (category: string): Plant[] => {
-  return PLANT_DATABASE.filter((plant) => plant.category === category);
-};
-
-// Helper function to get companion plants
-export const getCompanionPlants = (plantId: string): Plant[] => {
-  const plant = PLANT_DATABASE.find((p) => p.id === plantId);
-  if (!plant) return [];
-  return PLANT_DATABASE.filter((p) => plant.companionPlants.includes(p.id));
-};

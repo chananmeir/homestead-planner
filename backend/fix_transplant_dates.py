@@ -4,6 +4,9 @@ One-time fix: Sync IndoorSeedStart.expected_transplant_date to linked PlantingEv
 Bug: When indoor seed starts were created via from-planting-event, the recalculated
 transplant date was saved on the IndoorSeedStart but NOT synced back to the PlantingEvent.
 This caused transplant dates to not appear on the calendar when expected.
+
+Run directly: python fix_transplant_dates.py
+(Guarded by __main__ since Jun 2026 — importing this module no longer mutates the DB.)
 """
 import sys
 import os
@@ -14,35 +17,41 @@ from models import db, IndoorSeedStart, PlantingEvent
 from plant_database import get_plant_by_id
 from datetime import timedelta
 
-with app.app_context():
-    # Find all indoor seed starts with linked planting events
-    starts = IndoorSeedStart.query.filter(
-        IndoorSeedStart.planting_event_id.isnot(None),
-        IndoorSeedStart.expected_transplant_date.isnot(None)
-    ).all()
 
-    fixed = 0
-    for start in starts:
-        event = PlantingEvent.query.get(start.planting_event_id)
-        if not event:
-            continue
+def main():
+    with app.app_context():
+        # Find all indoor seed starts with linked planting events
+        starts = IndoorSeedStart.query.filter(
+            IndoorSeedStart.planting_event_id.isnot(None),
+            IndoorSeedStart.expected_transplant_date.isnot(None)
+        ).all()
 
-        # Check if dates are mismatched
-        if event.transplant_date != start.expected_transplant_date:
-            old_date = event.transplant_date
-            event.transplant_date = start.expected_transplant_date
+        fixed = 0
+        for start in starts:
+            event = PlantingEvent.query.get(start.planting_event_id)
+            if not event:
+                continue
 
-            # Also recalculate harvest date
-            plant = get_plant_by_id(start.plant_id)
-            dtm = plant.get('daysToMaturity', 70) if plant else 70
-            event.expected_harvest_date = start.expected_transplant_date + timedelta(days=dtm)
+            # Check if dates are mismatched
+            if event.transplant_date != start.expected_transplant_date:
+                old_date = event.transplant_date
+                event.transplant_date = start.expected_transplant_date
 
-            print(f"  Fixed: {start.plant_id} ({start.variety or 'no variety'}) "
-                  f"- transplant {old_date} -> {start.expected_transplant_date}")
-            fixed += 1
+                # Also recalculate harvest date
+                plant = get_plant_by_id(start.plant_id)
+                dtm = plant.get('daysToMaturity', 70) if plant else 70
+                event.expected_harvest_date = start.expected_transplant_date + timedelta(days=dtm)
 
-    if fixed:
-        db.session.commit()
-        print(f"\nFixed {fixed} mismatched transplant dates.")
-    else:
-        print("No mismatched dates found - all in sync.")
+                print(f"  Fixed: {start.plant_id} ({start.variety or 'no variety'}) "
+                      f"- transplant {old_date} -> {start.expected_transplant_date}")
+                fixed += 1
+
+        if fixed:
+            db.session.commit()
+            print(f"\nFixed {fixed} mismatched transplant dates.")
+        else:
+            print("No mismatched dates found - all in sync.")
+
+
+if __name__ == '__main__':
+    main()

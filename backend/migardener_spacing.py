@@ -132,51 +132,6 @@ def get_migardener_spacing(plant_id, standard_spacing, standard_row_spacing=None
     return {'row_spacing': row_spacing, 'plant_spacing': plant_spacing}
 
 
-def calculate_migardener_plants_per_row(bed_length_feet, plant_id, standard_spacing, standard_row_spacing=None):
-    """
-    Calculate how many plants fit in a row for MIGardener bed.
-
-    Args:
-        bed_length_feet (float): Length of the bed in feet (horizontal dimension)
-        plant_id (str): The plant ID
-        standard_spacing (float): The plant's standard spacing from database
-        standard_row_spacing (float, optional): The plant's standard row spacing
-
-    Returns:
-        int: Number of plants that fit in one row
-    """
-    bed_length_inches = bed_length_feet * 12
-    spacing = get_migardener_spacing(plant_id, standard_spacing, standard_row_spacing)
-    return int(bed_length_inches / spacing['plant_spacing'])
-
-
-def calculate_migardener_rows(bed_width_feet, plant_id, standard_spacing, standard_row_spacing=None):
-    """
-    Calculate how many rows fit in a MIGardener bed.
-
-    Args:
-        bed_width_feet (float): Width of the bed in feet (vertical dimension)
-        plant_id (str): The plant ID
-        standard_spacing (float): The plant's standard spacing from database
-        standard_row_spacing (float, optional): The plant's standard row spacing
-
-    Returns:
-        int: Number of rows that fit in the bed
-    """
-    spacing = get_migardener_spacing(plant_id, standard_spacing, standard_row_spacing)
-
-    # If row_spacing is None or 0, this is an intensive crop with no row restrictions
-    # Return maximum grid rows based on bed width and default grid size (3")
-    if spacing['row_spacing'] is None or spacing['row_spacing'] == 0:
-        bed_width_inches = bed_width_feet * 12
-        grid_size = 3  # Default grid size in inches
-        return int(bed_width_inches / grid_size)
-
-    # Traditional row-based crops: calculate based on row spacing
-    bed_width_inches = bed_width_feet * 12
-    return int(bed_width_inches / spacing['row_spacing'])
-
-
 # Example usage for testing
 if __name__ == '__main__':
     test_cases = [

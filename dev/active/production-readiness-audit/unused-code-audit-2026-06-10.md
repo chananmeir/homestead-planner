@@ -22,6 +22,37 @@
 > Implication: the Phase 2 service-layer refactor those modules anticipated is now
 > officially abandoned — the inline blueprint implementations are the single
 > implementation. Sections D (F-3 onward) and E remain open.
+>
+> **ADDENDUM 3: F-3 (partial), F-4, E-1, E-3, E-4 resolved.** A follow-up commit:
+> - **F-3**: `fix_transplant_dates.py` and `init_db.py` wrapped in `main()` +
+>   `if __name__ == '__main__'` guards — importing them no longer touches the DB.
+>   The Plan-44 scripts (`add_gap_plantings.py`, `place_plants.py`,
+>   `place_gap_plants.py`, `db_utils.py`) already had guards and were left as-is.
+> - **F-4**: dead sync-pair mirror functions removed from BOTH sides together
+>   (pairs stay symmetric): intensive plants-per-bed 3-fn chain + hex-position
+>   3-fn chain (backend `intensive_spacing.py` + frontend `intensiveSpacing.ts`),
+>   `calculate_migardener_plants_per_row`/`_rows` + frontend twins + the three
+>   frontend-only row-coordinate helpers (`migardener_spacing.py` /
+>   `migardenerSpacing.ts`), `get_plants_by_category`/`get_companion_plants`/
+>   `get_incompatible_plants` + frontend `getPlantsByCategory`/`getCompanionPlants`/
+>   `getWinterHardyPlants` (plant databases), and frontend-only
+>   `getSpaceEstimateForSeed`. KEPT: backend `calculate_intensive_cells_required`
+>   (its frontend twin is live via spaceAvailability.ts — mirror preserved) and
+>   `HEX_ROW_OFFSET` on both sides (frontend live; backend used by demo + parity).
+> - **E-1**: `WEATHER_API_URL` defined (`https://api.weatherapi.com/v1/current.json`,
+>   matching the WeatherAPI.com params/response shape the code already used) — the
+>   WEATHER_API_KEY branch no longer raises NameError.
+> - **E-3**: import-mutates-DB hazard eliminated (same as F-3).
+> - **E-4 / F-6**: all data-bearing `pages_bp` legacy routes now require login and
+>   filter every query by `current_user.id` (previously unauthenticated `.all()`
+>   dumps of every user's beds, events, photos, harvests, seeds, properties,
+>   livestock). `/` and `/weather` render no user data and stay public.
+> - **F-5 (endpoints with no frontend caller): intentionally NOT removed** — no
+>   concrete fix was ever proposed; deleting public API surface is a product call.
+> Still open: F-5 (decide endpoint fate), F-7 (import constants from
+> utils/constants.py instead of local copies), F-8 (export-keyword-only cleanups),
+> F-9 (App.css/logo.svg deletion, tests-only helpers), E-2 footnote (the broken
+> conflict_service is deleted; nothing to fix).
 
 Full-codebase sweep for unused code (backend + frontend), per request: *find code that is
 not needed and comment it out*. Every commented block carries a greppable

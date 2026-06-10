@@ -3593,33 +3593,3 @@ def get_plant_by_id(plant_id):
         if plant['id'] == plant_id:
             return plant
     return None
-
-def get_plants_by_category(category):
-    """Get plants by category"""
-    return [p for p in PLANT_DATABASE if p['category'] == category]
-
-def get_companion_plants(plant_id):
-    """Get recommended companion plants for a given plant"""
-    plant = get_plant_by_id(plant_id)
-    if not plant:
-        return []
-
-    companions = []
-    for comp_id in plant.get('companionPlants', []):
-        comp = get_plant_by_id(comp_id)
-        if comp:
-            companions.append(comp)
-    return companions
-
-def get_incompatible_plants(plant_id):
-    """Get incompatible plants for a given plant"""
-    plant = get_plant_by_id(plant_id)
-    if not plant:
-        return []
-
-    incompatible = []
-    for incomp_id in plant.get('incompatiblePlants', []):
-        incomp = get_plant_by_id(incomp_id)
-        if incomp:
-            incompatible.append(incomp)
-    return incompatible
