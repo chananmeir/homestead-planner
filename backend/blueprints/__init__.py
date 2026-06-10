@@ -52,12 +52,14 @@ def register_blueprints(app, wrapper_prefix=''):
     from .pages_bp import pages_bp
     from .simulation_bp import simulation_bp
     from .dashboard_bp import dashboard_bp
+    from .calendar_feed_bp import calendar_feed_bp
 
     # Collect all blueprints in a list
     blueprints_list = [
         pages_bp, auth_bp, admin_bp, data_bp, seeds_bp, properties_bp,
         trellis_bp, gardens_bp, garden_planner_bp, livestock_bp, utilities_bp, weather_bp,
-        photos_bp, compost_bp, harvests_bp, nutrition_bp, simulation_bp, dashboard_bp
+        photos_bp, compost_bp, harvests_bp, nutrition_bp, simulation_bp, dashboard_bp,
+        calendar_feed_bp
     ]
 
     # Apply wrapper prefix if specified
@@ -101,7 +103,10 @@ def register_blueprints(app, wrapper_prefix=''):
     # 8. Dashboard aggregation
     app.register_blueprint(dashboard_bp)
 
-    # 9. Dev Tools
+    # 9. Calendar subscription feed (.ics)
+    app.register_blueprint(calendar_feed_bp)
+
+    # 10. Dev Tools
     app.register_blueprint(simulation_bp)
 
     # Log successful registration

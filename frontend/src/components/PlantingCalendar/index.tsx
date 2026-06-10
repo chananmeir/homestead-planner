@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNow } from '../../contexts/SimulationContext';
-import { List, Calendar, CalendarRange, Menu, Clock, PlusCircle, MapPin } from 'lucide-react';
+import { List, Calendar, CalendarRange, CalendarPlus, Menu, Clock, PlusCircle, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { PlantingCalendar as PlantingCalendarType, Plant, GardenBed } from '../../types';
 import { apiGet, apiPost } from '../../utils/api';
@@ -13,6 +13,7 @@ import AddCropModal from './AddCropModal';
 import AddGardenEventModal from './AddGardenEventModal';
 import AddMapleTappingModal from './AddMapleTappingModal';
 import SoilTemperatureCard from './SoilTemperatureCard';
+import SubscribeCalendarModal from './SubscribeCalendarModal';
 import { SoilTempResponse } from './SoilTemperatureCard/types';
 import MapleTappingSeasonCard from './MapleTappingSeasonCard';
 import TimelineView from './TimelineView';
@@ -71,6 +72,9 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
 
   // Maple Tapping Modal state
   const [mapleTappingModalOpen, setMapleTappingModalOpen] = useState(false);
+
+  // Subscribe (.ics feed) Modal state
+  const [subscribeModalOpen, setSubscribeModalOpen] = useState(false);
 
   // Event Detail Modal state
   const [detailEvent, setDetailEvent] = useState<PlantingCalendarType | null>(null);
@@ -602,6 +606,19 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
                   </button>
                 </div>
 
+                {/* Subscribe (.ics feed) Button */}
+                <div className="ml-2 pl-2 border-l border-gray-300">
+                  <button
+                    data-testid="btn-subscribe-calendar"
+                    onClick={() => setSubscribeModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    title="Subscribe your phone calendar to garden tasks (.ics feed)"
+                  >
+                    <CalendarPlus className="w-4 h-4" />
+                    <span className="hidden sm:inline">Subscribe</span>
+                  </button>
+                </div>
+
                 {/* Available Spaces Button - Only in Timeline view */}
                 {viewMode === 'timeline' && (
                   <button
@@ -856,6 +873,12 @@ const PlantingCalendar: React.FC<PlantingCalendarProps> = ({
         isOpen={mapleTappingModalOpen}
         onClose={() => setMapleTappingModalOpen(false)}
         onEventAdded={fetchPlantingEvents}
+      />
+
+      {/* Subscribe (.ics feed) Modal */}
+      <SubscribeCalendarModal
+        isOpen={subscribeModalOpen}
+        onClose={() => setSubscribeModalOpen(false)}
       />
 
       {/* Day Detail Modal */}

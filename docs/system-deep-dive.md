@@ -897,8 +897,8 @@ plant database's few snake_case keys to camelCase in the HTTP layer only
 
 # 6. API Reference
 
-**135 JSON API routes + 11 HTML page routes**, verified against the `@…route` decorators at
-commit `9dfb056`. Unless marked *(public)* or *(admin)*, every route requires login
+**138 JSON API routes + 11 HTML page routes** (135 verified against the `@…route` decorators
+at commit `9dfb056`; +3 calendar-feed routes added Jun 2026). Unless marked *(public)* or *(admin)*, every route requires login
 (session cookie). Errors are `{error: "message", details?}` with appropriate status codes;
 conflict-protected writes return **409** with conflict details.
 
@@ -1006,6 +1006,7 @@ conflict-protected writes return **409** with conflict details.
 | **weather_bp** (`/api/weather`, 2) | `GET /current`, `GET /forecast` (1–16 days). |
 | **trellis_bp** (`/api`, 3) | `GET·POST /trellis-structures`, `GET·PUT·DELETE /trellis-structures/<id>` (delete cascades allocations), `GET /trellis-structures/<id>/capacity`. |
 | **dashboard_bp** (`/api/dashboard`, 3) | `GET /today` (the signal engine §4.8), `POST /snooze`, `DELETE /snooze`. |
+| **calendar_feed_bp** (`/api/calendar`, 3 — added Jun 2026) | `GET /feed-info` (the user's secret iCal URL, token auto-created in Settings), `POST /feed-token/regenerate` (revokes the old URL), `GET /feed/<token>.ics` (token-authenticated — no session — iCalendar payload: one all-day VEVENT per phase date of every active planting event, stable UIDs, RFC 5545 folding/escaping). |
 | **simulation_bp** (`/api/simulation`, 3) | `GET /status`, `POST /set-date`, `POST /advance` (dev tooling; no auth). |
 | **pages_bp** (no prefix, 11 HTML) | Legacy server-rendered pages (§3.17); data routes login-gated + user-filtered. |
 
@@ -1247,7 +1248,10 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
    (same grid surface, 7 tall day columns, week-stepping header), dashboard-parity
    overlays (harvest-ready amber glow, missed flags from `/api/dashboard/today`), and a
    frost/rain forecast strip (❄️/🥶/🌧️ icons on upcoming day cells from the 10-day
-   forecast).
+   forecast). Tier 4 followed: an **iCal subscription feed** (see item 5 and §6
+   calendar_feed_bp) with a Subscribe modal on the calendar (copy/download/regenerate the
+   secret URL + per-provider instructions). The Settings model also gained its first real
+   consumer (the feed token), softening item 7.
 2. **Seed catalog multi-plant mapping** — `SeedCatalog.tsx:226` carries a TODO ("update
    backend to support multiple plant_ids"); catalog rows currently map to exactly one plant.
 3. **Plan export does not create indoor trays** — deliberate Apr 2026 decision: exporting a
@@ -1258,8 +1262,10 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
    14 days drops from the dashboard without ever telling the user "this seeding probably
    failed" (`dashboard_service._build_germination_check`). A "presumed failed" state might
    be the missing piece.
-5. **No notification channel beyond the dashboard** — nothing emails/pushes/texts; if you
-   don't open the app, nothing nags. Is that fine for a single-household tool?
+5. **~~No notification channel beyond the dashboard~~ — LARGELY RESOLVED Jun 2026** via the
+   iCal subscription feed (calendar_feed_bp): subscribe a phone/Google/Apple calendar to the
+   secret per-user `.ics` URL and the device's native reminders cover garden tasks. (True
+   push/email remains unbuilt — likely unnecessary now.)
 6. **No backup/export story** — data lives in one SQLite file; there's no in-app backup,
    restore, or full-data export (CSV export exists only for seeds and nutrition summaries).
 7. **Settings model has no UI** (`models.py:378`) — a per-user key-value store exists and is
