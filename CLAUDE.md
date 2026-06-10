@@ -134,8 +134,9 @@ if self.days_to_maturity is not None:  # Explicit NULL check
 // CORRECT: {seed.daysToMaturity != null && (...)}
 ```
 
-**Common locations where this pattern applies** (audited Feb 2026):
-- `backend/services/planting_service.py` — `plant.get('daysToMaturity') is not None`
+**Common locations where this pattern applies** (audited Feb 2026; planting_service.py
+removed Jun 2026 — the live pattern sites are the inline blueprint implementations):
+- `backend/blueprints/gardens_bp.py` — `plant.get('daysToMaturity') is not None`
 - `backend/services/csv_import_service.py` — DTM validation
 - `frontend/src/components/SeedCatalog.tsx` — displaying agronomic values
 - Any code using `dict.get()` on plant/seed fields that can be `0`
@@ -174,7 +175,7 @@ if self.days_to_maturity is not None:  # Explicit NULL check
 **Files Involved**:
 - `backend/services/garden_planner_service.py::calculate_plant_quantities()`
 - `backend/services/garden_planner_service.py::export_to_calendar()`
-- `backend/services/conflict_service.py`
+- `backend/conflict_checker.py` (live conflict validation; services/conflict_service.py was dead code, removed Jun 2026)
 
 **Why Critical**: Succession plantings create multiple PlantingEvents linked by `succession_group_id` (UUID string). If temporal/spatial offsets are incorrect, plantings collide.
 
@@ -1001,7 +1002,6 @@ homestead-planner/
 │   │   ├── space_calculator.py             # Space calculations (CRITICAL)
 │   │   ├── garden_planner_service.py       # Succession + quantity logic (COMPLEX)
 │   │   ├── rotation_checker.py             # Crop rotation validation
-│   │   ├── conflict_service.py             # Spatial/temporal conflicts
 │   │   ├── trellis_validation.py           # Trellis segment + overlap validation
 │   │   ├── event_details_validator.py      # JSON schema validation for event_details
 │   │   └── ...

@@ -10,6 +10,18 @@
 > was dead and WHY remains accurate. The flagged-only items (section D) and latent
 > bugs (section E) are still open and untouched.
 > History: checkpoint `88d8503` → comment-out `79c8282` → removal (see git log).
+>
+> **ADDENDUM 2: F-1 + F-2 resolved.** A follow-up commit deleted the three dead
+> service modules (`services/planting_service.py`, `services/garden_bed_service.py`,
+> `services/conflict_service.py`, ~670 lines) and stripped the zero-consumer
+> re-export block + `__all__` from `services/__init__.py` (now a docstring-only
+> package marker; all consumers already import submodules directly). The stale
+> `utils/helpers.py` pointer and three CLAUDE.md references were updated to match
+> (NULL-check example now cites `gardens_bp.py`; succession files-involved cites the
+> live `conflict_checker.py`). Backend pytest re-verified identical to baseline.
+> Implication: the Phase 2 service-layer refactor those modules anticipated is now
+> officially abandoned — the inline blueprint implementations are the single
+> implementation. Sections D (F-3 onward) and E remain open.
 
 Full-codebase sweep for unused code (backend + frontend), per request: *find code that is
 not needed and comment it out*. Every commented block carries a greppable

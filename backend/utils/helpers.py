@@ -27,5 +27,5 @@ def parse_iso_date(date_string):
     return datetime.fromisoformat(date_string)
 
 
-# NOTE: get_mulch_type_on_date() has been moved to services/garden_bed_service.py
+# NOTE: get_mulch_type_on_date() lives in blueprints/utilities_bp.py (module-local)
 # to maintain pure utils/ (no model imports)
