@@ -235,16 +235,17 @@ def get_seed_catalog():
     limit = request.args.get('limit', 100, type=int)
     limit = min(limit, 500)  # Cap at 500 to prevent abuse
 
-    # Filter parameters
-    plant_id = request.args.get('plant_id', type=str)
+    # Filter parameters. plant_id is repeatable (?plant_id=a&plant_id=b) so the
+    # catalog crop filter can be a true multi-select; a single value still works.
+    plant_ids = [p for p in request.args.getlist('plant_id') if p]
     search = request.args.get('search', type=str)
 
     # Base query
     query = SeedInventory.query.filter_by(is_global=True)
 
     # Apply filters
-    if plant_id:
-        query = query.filter_by(plant_id=plant_id)
+    if plant_ids:
+        query = query.filter(SeedInventory.plant_id.in_(plant_ids))
 
     if search:
         search_pattern = f'%{search}%'

@@ -1252,8 +1252,16 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
    calendar_feed_bp) with a Subscribe modal on the calendar (copy/download/regenerate the
    secret URL + per-provider instructions). The Settings model also gained its first real
    consumer (the feed token), softening item 7.
-2. **Seed catalog multi-plant mapping** — `SeedCatalog.tsx:226` carries a TODO ("update
-   backend to support multiple plant_ids"); catalog rows currently map to exactly one plant.
+2. **~~Seed catalog multi-plant filter~~ — RESOLVED Jun 10 2026.** The TODO was about the
+   crop *filter*, not row mapping: the UI multi-select silently degraded to one crop
+   (last-pick-wins clamp + first-value-only requests, in both browse and CSV export).
+   `GET /api/seed-catalog` now accepts repeatable `plant_id` params (`IN` filter, backward
+   compatible) and the frontend sends every selected crop. A latent secondary bug fixed in
+   the same pass: the Variety filter compared plant *names* against stored plant *ids*, so
+   its options emptied whenever a crop filter was active. Catalog rows still map to exactly
+   one plant by design — multi-plant rows (seed mixes) were assessed and deferred; if ever
+   built, scope to catalog browsing with a clone-time crop pick so inventory rows stay
+   single-plant.
 3. **Plan export does not create indoor trays** — deliberate Apr 2026 decision: exporting a
    plan creates PlantingEvents only; the "plan-only seedings" banner is the manual bridge to
    IndoorSeedStarts. If that banner gets ignored in practice, auto-create-on-export (option

@@ -219,12 +219,10 @@ const SeedCatalog: React.FC = () => {
         limit: itemsPerPage.toString()
       });
 
-      // Add crop filter (maps to plant_id)
+      // Add crop filters (each value is a plant_id; backend ORs repeated params)
       const cropFilters = activeFilters['crop'] || [];
-      if (cropFilters.length > 0) {
-        // For now, send first selected crop (backend doesn't support multiple)
-        // TODO: Update backend to support multiple plant_ids
-        params.append('plant_id', cropFilters[0]);
+      for (const cropId of cropFilters) {
+        params.append('plant_id', cropId);
       }
 
       // Add search query
@@ -320,10 +318,10 @@ const SeedCatalog: React.FC = () => {
           limit: '1000' // Fetch in larger batches for export
         });
 
-        // Apply same filters as loadSeeds
+        // Apply same filters as loadSeeds (repeatable plant_id params)
         const cropFilters = activeFilters['crop'] || [];
-        if (cropFilters.length > 0) {
-          params.append('plant_id', cropFilters[0]);
+        for (const cropId of cropFilters) {
+          params.append('plant_id', cropId);
         }
 
         if (searchQuery.trim()) {
@@ -529,10 +527,10 @@ const SeedCatalog: React.FC = () => {
     const cropFilters = activeFilters['crop'] || [];
     let varietySeeds = baseFilteredSeeds;
     if (cropFilters.length > 0) {
-      varietySeeds = baseFilteredSeeds.filter(seed => {
-        const plant = getPlantInfo(seed.plantId);
-        return plant && cropFilters.includes(plant.name);
-      });
+      // Crop filter values are plant_ids (the option `value`), not display
+      // names — comparing against plant.name never matched, which emptied
+      // the Variety filter whenever a crop was selected.
+      varietySeeds = baseFilteredSeeds.filter(seed => cropFilters.includes(seed.plantId));
     }
     const varieties = Array.from(new Set(
       varietySeeds.map(s => s.variety).filter(v => v !== undefined && v !== null && v.trim() !== '')
@@ -591,19 +589,10 @@ const SeedCatalog: React.FC = () => {
   }, [baseFilteredSeeds, categories, seasons, getPlantInfo, activeFilters, availableCrops]);
 
   const handleFilterChange = (groupId: string, values: string[]) => {
-    // For crop filter, only allow single selection (backend limitation)
-    if (groupId === 'crop' && values.length > 1) {
-      // Keep only the most recent selection
-      setActiveFilters(prev => ({
-        ...prev,
-        [groupId]: [values[values.length - 1]],
-      }));
-    } else {
-      setActiveFilters(prev => ({
-        ...prev,
-        [groupId]: values,
-      }));
-    }
+    setActiveFilters(prev => ({
+      ...prev,
+      [groupId]: values,
+    }));
     // Reset to page 1 when filters change
     if (currentPage !== 1) {
       setCurrentPage(1);
