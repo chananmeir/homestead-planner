@@ -1236,9 +1236,11 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
 
 ## A. Product gaps & open questions
 
-1. **Calendar month-grid editing** — the grid view's event editing is marked TODO
-   (`PlantingCalendar/index.tsx` ~line 693); edits work from list view / detail modals.
-   Intentional scope cut or unfinished?
+1. **Calendar Timeline-view editing is a dead click** *(corrected after closer reading)* —
+   clicking a timeline bar fires `onEditEvent`, whose parent callback is an empty TODO
+   (`PlantingCalendar/index.tsx:692-694`), so nothing happens. The month grid and list view
+   wire the identical callback to the shared EventDetailModal (`setDetailEvent(event)`), so
+   this is an unfinished one-liner, not a design decision.
 2. **Seed catalog multi-plant mapping** — `SeedCatalog.tsx:226` carries a TODO ("update
    backend to support multiple plant_ids"); catalog rows currently map to exactly one plant.
 3. **Plan export does not create indoor trays** — deliberate Apr 2026 decision: exporting a
