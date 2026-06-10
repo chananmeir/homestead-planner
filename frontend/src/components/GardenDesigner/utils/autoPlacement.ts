@@ -1,6 +1,7 @@
 import { Plant, PlantedItem } from '../../../types';
 import { getMIGardenerSpacing } from '../../../utils/migardenerSpacing';
 import { getIntensiveSpacing, HEX_ROW_OFFSET } from '../../../utils/intensiveSpacing';
+import { getSFGPlantsPerCell } from '../../../utils/sfgSpacing';
 import { PlantingStyle } from '../../../utils/plantingStyles';
 
 /**
@@ -99,7 +100,22 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
   // For dense plants, allow adjacent placement (distance = 0)
   // Each square will contain multiple plants densely packed WITHIN the square
   // For large plants, maintain spacing between squares
-  const requiredDistance = isDensePlanting ? 0 : Math.ceil(effectivePlantSpacing / gridSize);
+  let requiredDistance = isDensePlanting ? 0 : Math.ceil(effectivePlantSpacing / gridSize);
+
+  // SFG override (row-display stacking bug fix): in square-foot beds the SFG
+  // lookup table is authoritative over raw spacing (matching space_calculator).
+  // A plant rated ≥1 per square occupies exactly one cell, so CONSECUTIVE cells
+  // are legal — a pepper (18" spacing, 1/sq) row fills A7,B7,C7 instead of
+  // skipping every other cell. Fractional ratings (melon 0.5/sq) still claim
+  // 1/perCell cells of separation.
+  if (planningMethod === 'square-foot' && !isDensePlanting) {
+    const sfgPerCell = getSFGPlantsPerCell(plant.id);
+    if (sfgPerCell >= 1) {
+      requiredDistance = 1;
+    } else if (sfgPerCell > 0) {
+      requiredDistance = Math.ceil(1 / sfgPerCell);
+    }
+  }
 
   // Create a set of occupied positions for O(1) lookup
   const occupiedSet = new Set<string>();
@@ -124,11 +140,12 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
     }
 
     // 3. Check spacing conflicts with existing plants (Chebyshev distance)
+    // Uses the same method-aware stride as batch-internal checks (min 1 so a
+    // dense plant still can't land on an occupied cell — redundant with the
+    // occupied check above, kept for safety).
+    const existingMaxSpacing = Math.max(requiredDistance, 1);
     for (const existing of existingPlants) {
       if (!existing.position) continue;
-
-      const existingSpacing = Math.ceil(effectivePlantSpacing / gridSize);
-      const maxSpacing = Math.max(requiredDistance, existingSpacing);
 
       // Chebyshev distance: max of absolute differences
       const distance = Math.max(
@@ -136,7 +153,7 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
         Math.abs(existing.position.y - y)
       );
 
-      if (distance < maxSpacing) {
+      if (distance < existingMaxSpacing) {
         return false; // Too close to existing plant
       }
     }

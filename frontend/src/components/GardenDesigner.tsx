@@ -1994,8 +1994,12 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         return;
       }
 
-      // If only 1 square needed OR not using SFG/MIgardener, create single PlantedItem
-      if (squaresNeeded === 1 || (targetBed.planningMethod !== 'square-foot' && targetBed.planningMethod !== 'migardener' && targetBed.planningMethod !== 'intensive' && targetBed.planningMethod !== 'permaculture')) {
+      // If only 1 square needed, create single PlantedItem. Multi-square placements
+      // go through the spread path below for EVERY planning method — the old
+      // carve-out for non-SFG/MIG/intensive/permaculture methods stacked the whole
+      // quantity into one cell on row/raised-bed/container beds (the row-display
+      // stacking bug), which the renderer then drew as a single icon.
+      if (squaresNeeded === 1) {
         const payload = {
           gardenBedId: targetBed.id,
           plantId: plant.id,
@@ -2060,19 +2064,22 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         }
 
         if (config.previewPositions && config.previewPositions.length > 0) {
-          // Use positions from modal's preview (user already approved these)
-          // Distribute total evenly across positions (not capped at plantsPerSquare,
-          // which is wrong for rows where each position holds more than one SFG cell)
-          const perPositionQty = Math.ceil(totalQuantity / config.previewPositions.length);
-          let remaining = totalQuantity;
-          positions = config.previewPositions.map(pos => {
-            const qty = Math.min(perPositionQty, remaining);
-            remaining -= qty;
-            const entry: { x: number; y: number; quantity: number; plantedDate?: string } = { x: pos.x, y: pos.y, quantity: qty };
+          // Use positions from modal's preview (user already approved these),
+          // capacity-capped exactly like the multi-cell path above. The old
+          // ceil() distribution let a single preview cell absorb the whole
+          // quantity (stacked, invisible plants) — preview positions are
+          // per-cell now, so each holds at most plantsPerSquare.
+          const { positions: distributed, notFitted: previewNotFitted } =
+            distributePlantsAcrossCells(config.previewPositions, totalQuantity, plantsPerSquare);
+          if (previewNotFitted > 0) {
+            showWarning(`${previewNotFitted} ${cropName}${config.variety ? ` (${config.variety})` : ''} didn't fit in the previewed cell(s) at proper spacing -- place the rest separately.`);
+          }
+          positions = distributed.map(pos => {
+            const entry: { x: number; y: number; quantity: number; plantedDate?: string } = { x: pos.x, y: pos.y, quantity: pos.quantity };
             const staggeredDate = dateLookup.get(`${pos.x},${pos.y}`);
             if (staggeredDate) entry.plantedDate = staggeredDate;
             return entry;
-          }).filter(p => p.quantity > 0);
+          });
         } else {
           // Fallback: generate positions in a compact grid pattern starting from finalPosition
           const gridWidth = Math.floor((targetBed.width * 12) / (targetBed.gridSize || 12));

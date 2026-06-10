@@ -1286,11 +1286,14 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
 
 ## B. Known bugs & quirks (documented in dev notes/memory)
 
-13. **Row-display stacking bug (open, fix specced)** — placing row plantings of
-    wide-spacing plants (peppers, tomatoes, broccoli, squash) stacks the whole quantity into
-    one cell instead of one-per-cell along the row (`GardenDesigner.tsx` placement ~1914+ and
-    the renderer's one-icon-per-cell assumption; PlantedItem has no row_group_id). Spec:
-    place one per cell, respect spacing, stop at bed edge.
+13. **~~Row-display stacking bug~~ — FIXED Jun 10 2026.** All placement paths now cap at
+    per-cell capacity via `distributePlantsAcrossCells` (overflow warns and stops at the bed
+    edge), and `autoPlacement.ts` strides by the SFG table in square-foot beds (pepper
+    ≥1/sq → consecutive cells A7,B7,C7; melon 0.5/sq → every other cell) while non-SFG
+    methods keep the real-spacing stride. The non-SFG-method single-item carve-out and the
+    single-preview-cell `ceil()` path — both of which stacked quantity into one cell — were
+    removed. Guarded by `autoPlacement.test.ts` + `designerHelpers.test.ts`; full record in
+    `dev/active/seed-planning-ui-improvements/row-display-investigation.md`.
 14. **Harvest deep-link doesn't highlight a row** — dashboard harvest signals carry
     PlantingEvent ids, HarvestTracker rows are HarvestRecords; by design the click clears
     filters instead of highlighting (signals fire before a record exists).

@@ -84,6 +84,45 @@ The preview-position generator in `PlantConfigModal.tsx` derives cell count from
 - **Deliberately NOT changed:** the secondary `else`-branch preview path (`GardenDesigner.tsx:~2065`, only reached when `previewPositions.length === 1`) carries an explicit row-segment-semantics warning; left as-is to avoid regressing MIGardener/row-segment placements. Logged as follow-up.
 - **Still unresolved (modal-side):** preview cell *selection* / snapping for spacing > grid (why peppers got A7,C7 with B7 skipped) lives in `PlantConfigModal.tsx` and was not touched. The distribution fix stops the stacking + invisible-plant symptom regardless, but tidy consecutive-cell layout for wide crops needs a modal-preview follow-up.
 
+## Completion — 2026-06-10 (remaining halves shipped; bug closed)
+
+The 2026-06-04 pass fixed the *distribution* half (capacity capping). This pass fixed the
+*cell-selection* half and the two residual stacking paths:
+
+1. **SFG-aware placement stride** (`GardenDesigner/utils/autoPlacement.ts`) — resolves the
+   "known tension" above in favor of the SFG convention: in **square-foot beds** the SFG
+   lookup table (already authoritative for space_calculator) drives the stride. A plant
+   rated ≥1/sq (pepper, tomato) occupies exactly one cell → `requiredDistance = 1` →
+   **consecutive cells (A7,B7,C7 — the user's original expectation)**. Fractional ratings
+   (melon 0.5/sq) get `ceil(1/perCell)` cells of separation. **Non-SFG methods keep the
+   real-spacing stride** per locked decision #1 (pepper on a 12" row-method grid still steps
+   every other cell). The same stride now also governs proximity checks against *existing*
+   plants, so adding more peppers beside a placed row works.
+2. **Path B carve-out removed** (`GardenDesigner.tsx` ~1998) — multi-square placements on
+   row/raised-bed/container/custom-method beds previously took the single-PlantedItem branch
+   and stacked the whole quantity into one cell. Now only `squaresNeeded === 1` takes the
+   single-item path; everything else goes through the spread/batch path (capacity-capped).
+3. **Single-preview-position path capacity-capped** (`GardenDesigner.tsx` ~2062, the
+   "deliberately NOT changed" branch above) — replaced the `ceil(quantity/positions)`
+   distribution with `distributePlantsAcrossCells` + a didn't-fit warning, identical to the
+   primary path. The old comment's rationale (a position = a whole row) no longer holds:
+   preview positions have been per-cell since the modal's row-mode bypass shipped.
+4. **Modal preview messages corrected** (`PlantConfigModal.tsx` ~1245) — the row-mode
+   warning/success math used `ceil(quantity/cells)` (the stacking model) and could promise
+   "~3 plants per cell" for peppers. Now mirrors the placement cap: wide-spacing = 1/cell,
+   dense = `floor((grid/spacing)²)`/cell, and warns with exact didn't-fit counts.
+
+**Renderer note:** no renderer change needed — `GardenDesigner.tsx` already badges
+`item.quantity` on non-dense items, so any legacy stacked records remain visible until
+re-placed; new placements can no longer create them.
+
+**Tests:** new `__tests__/autoPlacement.test.ts` (6 tests: SFG-consecutive pepper repro,
+row-method stride preserved, melon 0.5/sq separation, adjacent-to-existing allowed, dense
+unaffected, edge-stop with shortfall reporting + no-duplicate-cells invariant). Existing
+`designerHelpers.test.ts` (16, incl. the original pepper reproduction) still green.
+Full frontend suite 304/304 (33 suites), tsc clean, production build compiles. No backend
+changes (batch endpoint persists as-sent, unchanged by design).
+
 ### Verification
 - `cd frontend && CI=true npx react-scripts test --watchAll=false --testPathPattern=designerHelpers` → 16 passed (6 new, incl. pepper-bug reproduction).
 - `cd frontend && npx tsc --noEmit` → exit 0 (clean).

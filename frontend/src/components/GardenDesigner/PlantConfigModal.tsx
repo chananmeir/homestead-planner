@@ -1243,14 +1243,23 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
     // Show warning if not enough cells for all plants
     if (isRowMode) {
-      const plantsPerCell = result.placed > 0 ? Math.ceil(quantity / result.placed) : 0;
-      const fittablePlants = result.placed * plantsPerCell;
-      if (result.placed < numPositions && fittablePlants < quantity) {
+      // Per-cell capacity mirrors the designer's placement cap (placement never
+      // stacks beyond it): wide-spacing crops hold 1 plant per cell; dense
+      // crops pack (gridSize/spacing)² per cell. The old ceil(quantity/cells)
+      // math described the stacking behavior this fix removed.
+      const gridSizeInches = bed.gridSize || 12;
+      const spacingInches = representativePlant.spacing || 12;
+      const cellCapacity = isDensePlanting
+        ? Math.max(1, Math.floor(Math.pow(gridSizeInches / spacingInches, 2)))
+        : 1;
+      const fittablePlants = result.placed * cellCapacity;
+      if (fittablePlants < quantity) {
         showWarning(
-          `Only ${result.placed} cells available in ${numberOfSquares} row(s) — fits ~${fittablePlants} of ${quantity} plants. Increase rows or reduce total plants.`
+          `Only ${result.placed} cells available in ${numberOfSquares} row(s) — fits ${fittablePlants} of ${quantity} plants at proper spacing. Increase rows or reduce total plants.`
         );
       } else {
-        showSuccess(`Preview: ${result.placed} cells across ${numberOfSquares} row(s), ~${plantsPerCell} plants per cell (${quantity} total)`);
+        const perCellLabel = cellCapacity > 1 ? `up to ${cellCapacity} plants per cell` : '1 plant per cell';
+        showSuccess(`Preview: ${result.placed} cells across ${numberOfSquares} row(s), ${perCellLabel} (${quantity} total)`);
       }
     } else if (result.placed < numPositions) {
       showWarning(
