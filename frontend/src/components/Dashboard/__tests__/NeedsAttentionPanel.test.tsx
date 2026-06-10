@@ -25,6 +25,7 @@ const emptyPayload = (): DashboardToday => ({
     indoorStartsDue: [],
     transplantsDue: [],
     directSeedDue: [],
+    placePlantedItem: [],
     germinationCheck: [],
     indoorGerminationCheck: [],
     frostRisk: { signalKey: 'frost-risk', atRisk: false, forecastLowF: null, windowHours: 24, source: 'weather-forecast' },
@@ -80,6 +81,37 @@ describe('NeedsAttentionPanel', () => {
     });
     expect(screen.getByText(/Transplant due/i)).toBeInTheDocument();
     expect(screen.getByText(/Compost overdue/i)).toBeInTheDocument();
+  });
+
+  test('filters rows by workflow tab', async () => {
+    const payload = emptyPayload();
+    payload.signals.harvestReady = [
+      { signalKey: 'harvest:7', plantingEventId: 7, plantName: 'Lettuce', variety: null, bedId: 3, bedName: 'Bed Alpha', quantity: 12, daysPastExpected: 4 },
+    ];
+    payload.signals.indoorStartsDue = [
+      { signalKey: 'indoor-iss-8', plantingEventId: null, indoorSeedStartId: 8, plantName: 'Pepper', variety: 'Shishito', seedStartDate: '2026-04-14', quantity: 6 },
+    ];
+    payload.signals.directSeedDue = [
+      { signalKey: 'direct-seed-9', plantingEventId: 9, plantName: 'Carrot', variety: 'Nantes', directSeedDate: '2026-04-14', quantity: 20, bedId: 5, bedName: 'Bed Five' },
+    ];
+    payload.signals.compostOverdue = [
+      { signalKey: 'compost:5', pileId: 5, pileName: 'Main', daysSinceLastTurn: 13, turnFrequencyDays: 7 },
+    ];
+
+    installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    expect(await screen.findByRole('tab', { name: /Seeding/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /Seeding/i }));
+
+    expect(screen.getByText(/Indoor start due/i)).toBeInTheDocument();
+    expect(screen.getByText(/Direct seed due/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Harvest ready/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Compost overdue/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Other/i }));
+    expect(screen.getByText(/Compost overdue/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Indoor start due/i)).not.toBeInTheDocument();
   });
 
   test('renders frost risk + rain alert rows when flags are true', async () => {
@@ -153,6 +185,26 @@ describe('NeedsAttentionPanel', () => {
     });
     const calledUrl = String((fetchMock.mock.calls[0] as any[])[0]);
     expect(calledUrl).toMatch(/\/api\/dashboard\/today\?date=2026-04-14/);
+  });
+
+  test('refreshes dashboard signals when the tab regains focus', async () => {
+    const fetchMock = installFetchMock([{ match: '/api/dashboard/today', response: emptyPayload() }]);
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    const later = Date.now() + 2000;
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(later);
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    nowSpy.mockRestore();
   });
 
   // -------------------------------------------------------------------------
@@ -1055,6 +1107,36 @@ describe('NeedsAttentionPanel', () => {
       expect(screen.getByText(/32 plants/i)).toBeInTheDocument();
     });
 
+    test('grouped indoor-start row click sends the full focus id group', async () => {
+      const payload = emptyPayload();
+      payload.signals.indoorStartsDue = [
+        {
+          signalKey: 'indoor-101',
+          plantingEventId: 101,
+          indoorSeedStartId: null,
+          plantingEventIds: [101, 102, 103, 104],
+          plantName: 'Squash',
+          variety: 'Spaghetti Squash',
+          seedStartDate: '2026-04-01',
+          quantity: 32,
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      const nav = makeNav();
+      render(<NeedsAttentionPanel {...nav} />);
+
+      const title = await screen.findByText(/Indoor start due .* Squash/i);
+      fireEvent.click(title);
+
+      expect(nav.onNavigate).toHaveBeenCalledTimes(1);
+      expect((nav.onNavigate as jest.Mock).mock.calls[0][0]).toEqual({
+        kind: 'indoorStart',
+        indoorSeedStartId: null,
+        plantingEventId: 101,
+        plantingEventIds: [101, 102, 103, 104],
+      });
+    });
+
     test('snooze on grouped row fans out one POST per id with the matching prefix', async () => {
       const payload = emptyPayload();
       payload.signals.indoorStartsDue = [
@@ -1103,7 +1185,6 @@ describe('NeedsAttentionPanel', () => {
       }
       expect(sentKeys).toEqual(new Set(['indoor-101', 'indoor-102', 'indoor-103', 'indoor-104']));
     });
-
 
     test('cancel and undo on grouped row fan out once per id', async () => {
       const payload = emptyPayload();

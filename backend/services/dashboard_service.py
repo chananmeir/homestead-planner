@@ -13,8 +13,11 @@ import logging
 from collections import defaultdict
 from datetime import datetime, date, timedelta, time
 
+from sqlalchemy import and_, or_
+
 from models import (
     PlantingEvent,
+    PlantedItem,
     GardenBed,
     CompostPile,
     SeedInventory,
@@ -46,6 +49,7 @@ STALE_TRANSPLANT_DAYS = 10        # transplant_date age threshold
 STALE_DIRECT_SEED_DAYS = 14       # direct_seed_date age threshold
 STALE_GERMINATION_CHECK_DAYS = 14 # expected_germination_date age threshold (silent drop)
 HARVEST_DEMOTION_DAYS = 14        # daysPastExpected threshold for isStale flag (never drops)
+STALE_PLACE_PLANTED_DAYS = 14     # planned PlantedItem planted_date age threshold
 
 
 # ---------------------------------------------------------------------------
@@ -105,14 +109,81 @@ def _plant_name(plant_id):
     return plant_id
 
 
+def _has_recorded_planting(event):
+    """Return True when the planting phase records real planted quantity."""
+    if event.quantity_completed is not None:
+        return event.quantity_completed > 0
+    return bool(event.completed)
+
+
+def _recorded_planting_quantity(event):
+    if event.quantity_completed is not None:
+        return max(0, event.quantity_completed)
+    if event.completed:
+        return event.quantity or 0
+    return 0
+
+
+def _is_harvest_recorded(event):
+    return bool(event.harvest_completed) or event.actual_harvest_date is not None
+
+
+def _harvested_item_match_key(record):
+    if isinstance(record, PlantingEvent):
+        start_date = _as_date(record.transplant_date or record.direct_seed_date)
+    else:
+        start_date = _as_date(record.transplant_date or record.planted_date)
+    if (
+        record.garden_bed_id is None
+        or record.position_x is None
+        or record.position_y is None
+        or start_date is None
+    ):
+        return None
+    return (
+        record.garden_bed_id,
+        record.plant_id,
+        record.variety or None,
+        record.position_x,
+        record.position_y,
+        start_date,
+    )
+
+
+def _harvested_planted_item_keys(user_id, events):
+    candidate_keys = {_harvested_item_match_key(event) for event in events}
+    candidate_keys.discard(None)
+    if not candidate_keys:
+        return set()
+
+    bed_ids = {key[0] for key in candidate_keys}
+    plant_ids = {key[1] for key in candidate_keys}
+    items = PlantedItem.query.filter(
+        PlantedItem.user_id == user_id,
+        PlantedItem.cancelled_at.is_(None),
+        PlantedItem.garden_bed_id.in_(bed_ids),
+        PlantedItem.plant_id.in_(plant_ids),
+        or_(
+            PlantedItem.status == 'harvested',
+            PlantedItem.harvest_date.isnot(None),
+        ),
+    ).all()
+
+    return {
+        key
+        for key in (_harvested_item_match_key(item) for item in items)
+        if key in candidate_keys
+    }
+
+
 # ---------------------------------------------------------------------------
 # Signal builders
 # ---------------------------------------------------------------------------
 
 def _build_harvest_ready(user_id, target_date):
     """
-    PlantingEvents whose expected_harvest_date <= target_date, not complete,
-    event_type == 'planting'.
+    PlantingEvents whose planting phase has recorded planted quantity, whose
+    expected_harvest_date <= target_date, and whose harvest phase is still open.
 
     Groups events sharing
     (expected_harvest_date, plant_id, variety, garden_bed_id) into one
@@ -120,6 +191,20 @@ def _build_harvest_ready(user_id, target_date):
     `isStale` is True if any event in the group is stale.
     """
     _, end_of_day = _day_bounds(target_date)
+    recorded_planting_filter = or_(
+        PlantingEvent.quantity_completed > 0,
+        and_(
+            PlantingEvent.quantity_completed.is_(None),
+            PlantingEvent.completed.is_(True),
+        ),
+    )
+    pending_harvest_filter = and_(
+        PlantingEvent.actual_harvest_date.is_(None),
+        or_(
+            PlantingEvent.harvest_completed.is_(False),
+            PlantingEvent.harvest_completed.is_(None),
+        ),
+    )
 
     # Eager-load the garden bed to avoid N+1
     events = (
@@ -131,9 +216,11 @@ def _build_harvest_ready(user_id, target_date):
             PlantingEvent.expected_harvest_date.isnot(None),
             PlantingEvent.expected_harvest_date <= end_of_day,
             PlantingEvent.cancelled_at.is_(None),
+            recorded_planting_filter,
+            pending_harvest_filter,
         )
         .order_by(PlantingEvent.expected_harvest_date.asc())
-        .limit(SIGNAL_CAP * 3)  # over-fetch; filter is_complete in Python
+        .limit(SIGNAL_CAP * 20)  # over-fetch before harvested-item filtering/grouping
         .all()
     )
 
@@ -144,11 +231,15 @@ def _build_harvest_ready(user_id, target_date):
         for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
             bed_lookup[bed.id] = bed.name
 
+    harvested_item_keys = _harvested_planted_item_keys(user_id, events)
+
     # Group qualifying events by composite key.
     # Variety normalization: empty string → None for key consistency.
     groups = defaultdict(list)
     for e in events:
-        if e.is_complete:
+        if not _has_recorded_planting(e) or _is_harvest_recorded(e):
+            continue
+        if _harvested_item_match_key(e) in harvested_item_keys:
             continue
         harvest_date = _as_date(e.expected_harvest_date)
         if harvest_date is None:
@@ -175,7 +266,7 @@ def _build_harvest_ready(user_id, target_date):
         ]
         max_days_past = max(per_event_days_past)
         any_stale = any(d > HARVEST_DEMOTION_DAYS for d in per_event_days_past)
-        total_quantity = sum((m.quantity or 0) for m in members)
+        total_quantity = sum(_recorded_planting_quantity(m) for m in members)
         results.append({
             'signalKey': f'harvest-{rep.id}',
             'plantingEventId': rep.id,
@@ -230,11 +321,37 @@ def _build_indoor_starts_due(user_id, target_date):
         .all()
     )
 
+    # A linked IndoorSeedStart can advance through the indoor lifecycle while
+    # the outdoor PlantingEvent stays incomplete until transplant. Do not keep
+    # showing "Indoor start due" once the linked start has moved past planned.
+    linked_start_statuses = defaultdict(list)
+    event_ids = [e.id for e in events]
+    if event_ids:
+        linked_starts = (
+            IndoorSeedStart.query
+            .filter(
+                IndoorSeedStart.user_id == user_id,
+                IndoorSeedStart.planting_event_id.in_(event_ids),
+                IndoorSeedStart.cancelled_at.is_(None),
+            )
+            .all()
+        )
+        for start in linked_starts:
+            linked_start_statuses[start.planting_event_id].append(start.status)
+
+    started_event_ids = {
+        event_id
+        for event_id, statuses in linked_start_statuses.items()
+        if any(status != 'planned' for status in statuses)
+    }
+
     # ---- PE path: group qualifying events ----
     pe_groups = defaultdict(list)
     linked_event_ids = set()
     for e in events:
         if e.is_complete:
+            continue
+        if e.id in started_event_ids:
             continue
         seed_start = _as_date(e.seed_start_date)
         if seed_start is None:
@@ -304,8 +421,11 @@ def _build_indoor_starts_due(user_id, target_date):
         # ---- ISS path: group qualifying records ----
         iss_groups = defaultdict(list)
         for s in seed_starts:
-            if s.planting_event_id is not None and s.planting_event_id in linked_event_ids:
-                continue  # already shown via the PlantingEvent path
+            if s.planting_event_id is not None and (
+                s.planting_event_id in linked_event_ids
+                or s.planting_event_id in started_event_ids
+            ):
+                continue  # already handled via the linked PlantingEvent/start
             start_date = _as_date(s.start_date)
             if start_date is None:
                 continue
@@ -521,6 +641,69 @@ def _build_direct_seed_due(user_id, target_date):
         }
         days_past = (target_date - direct_seed).days
         if days_past > STALE_DIRECT_SEED_DAYS:
+            if len(missed) < SIGNAL_CAP:
+                missed.append(row)
+        else:
+            if len(active) < SIGNAL_CAP:
+                active.append(row)
+        if len(active) >= SIGNAL_CAP and len(missed) >= SIGNAL_CAP:
+            break
+    return {'active': active, 'missed': missed}
+
+
+def _build_place_planted_item(user_id, target_date):
+    """PlantedItems still in `planned` status whose planted_date <= target_date.
+
+    These are drag-and-dropped placements whose due date has arrived (or
+    passed) without the user confirming they actually planted them. The
+    dashboard prompts the user to either confirm ("I planted it") or skip
+    ("Didn't plant it" -> POST /planted-items/<id>/cancel).
+
+    Returns a dict {'active': [...], 'missed': [...]}. Items older than
+    STALE_PLACE_PLANTED_DAYS move into `missed`. Model state is not mutated.
+    """
+    _, end_of_day = _day_bounds(target_date)
+
+    items = (
+        PlantedItem.query
+        .filter(
+            PlantedItem.user_id == user_id,
+            PlantedItem.cancelled_at.is_(None),
+            PlantedItem.status == 'planned',
+            PlantedItem.planted_date.isnot(None),
+            PlantedItem.planted_date <= end_of_day,
+        )
+        .order_by(PlantedItem.planted_date.asc())
+        .limit(SIGNAL_CAP * 3)
+        .all()
+    )
+
+    bed_ids = {i.garden_bed_id for i in items if i.garden_bed_id is not None}
+    bed_lookup = {}
+    if bed_ids:
+        for bed in GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all():
+            bed_lookup[bed.id] = bed.name
+
+    active = []
+    missed = []
+    for item in items:
+        planted = _as_date(item.planted_date)
+        if planted is None:
+            continue
+        row = {
+            'signalKey': f'place-planted-{item.id}',
+            'plantedItemId': item.id,
+            'plantName': _plant_name(item.plant_id),
+            'variety': item.variety,
+            'plantedDate': planted.isoformat(),
+            'quantity': item.quantity or 1,
+            'bedId': item.garden_bed_id,
+            'bedName': bed_lookup.get(item.garden_bed_id),
+            'positionX': item.position_x,
+            'positionY': item.position_y,
+        }
+        days_past = (target_date - planted).days
+        if days_past > STALE_PLACE_PLANTED_DAYS:
             if len(missed) < SIGNAL_CAP:
                 missed.append(row)
         else:
@@ -1057,12 +1240,14 @@ def build_dashboard_today(user_id, target_date):
     indoor_starts = _build_indoor_starts_due(user_id, target_date)
     transplants = _build_transplants_due(user_id, target_date)
     direct_seeds = _build_direct_seed_due(user_id, target_date)
+    place_planted = _build_place_planted_item(user_id, target_date)
 
     signals = {
         'harvestReady': _build_harvest_ready(user_id, target_date),
         'indoorStartsDue': indoor_starts['active'],
         'transplantsDue': transplants['active'],
         'directSeedDue': direct_seeds['active'],
+        'placePlantedItem': place_planted['active'],
         'germinationCheck': _build_germination_check(user_id, target_date),
         'indoorGerminationCheck': _build_indoor_germination_check(user_id, target_date),
         'frostRisk': _build_frost_risk(user_id, target_date),
@@ -1077,6 +1262,7 @@ def build_dashboard_today(user_id, target_date):
         'indoorStartsDue': indoor_starts['missed'],
         'transplantsDue': transplants['missed'],
         'directSeedDue': direct_seeds['missed'],
+        'placePlantedItem': place_planted['missed'],
     }
 
     # Filter out snoozed signals — runs across BOTH signals.* and missed.*
@@ -1092,13 +1278,13 @@ def build_dashboard_today(user_id, target_date):
     if snoozed_keys:
         # Filter array signals
         for key in ['harvestReady', 'indoorStartsDue', 'transplantsDue', 'directSeedDue',
-                     'germinationCheck', 'indoorGerminationCheck', 'compostOverdue',
-                     'seedLowStock', 'seedExpiring', 'livestockActionsDue']:
+                     'placePlantedItem', 'germinationCheck', 'indoorGerminationCheck',
+                     'compostOverdue', 'seedLowStock', 'seedExpiring', 'livestockActionsDue']:
             if key in signals and isinstance(signals[key], list):
                 signals[key] = [r for r in signals[key] if r.get('signalKey') not in snoozed_keys]
 
         # Filter missed buckets using the same snoozed_keys set
-        for key in ['indoorStartsDue', 'transplantsDue', 'directSeedDue']:
+        for key in ['indoorStartsDue', 'transplantsDue', 'directSeedDue', 'placePlantedItem']:
             if key in missed and isinstance(missed[key], list):
                 missed[key] = [r for r in missed[key] if r.get('signalKey') not in snoozed_keys]
 

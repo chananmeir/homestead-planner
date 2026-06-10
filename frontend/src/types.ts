@@ -166,6 +166,7 @@ export interface PlantedItem {
   position: { x: number; y: number }; // grid position
   quantity: number;
   status: 'planned' | 'seeded' | 'transplanted' | 'growing' | 'harvested' | 'saving-seed';
+  cancelledAt?: string | null;
   notes?: string;
 
   // Seed saving fields

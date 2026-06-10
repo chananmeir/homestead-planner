@@ -10,6 +10,7 @@ import type {
   IndoorStartDueRow,
   TransplantDueRow,
   DirectSeedDueRow,
+  PlacePlantedItemRow,
   GerminationCheckRow,
   IndoorGerminationCheckRow,
   FrostRisk,
@@ -27,6 +28,7 @@ export interface NeedsAttentionPanelProps {
 
 interface SignalRow {
   key: string;
+  tab: AttentionTabId;
   signalKey?: string;
   // For grouped rows (backend collapsed N same-task events into one row), this
   // carries the full set of signalKeys so snooze/dismiss can fan out one POST
@@ -56,6 +58,13 @@ interface SignalRow {
 }
 
 type Tone = 'red' | 'yellow' | 'green' | 'blue' | 'gray';
+type AttentionTabId = 'all' | 'harvest' | 'seeding' | 'transplant' | 'germination' | 'other';
+
+interface AttentionTab {
+  id: AttentionTabId;
+  label: string;
+  count: number;
+}
 
 const DEFAULT_VISIBLE = 5;
 
@@ -82,7 +91,8 @@ const toneIconBg: Record<Tone, string> = {
  */
 type CancellableAction =
   | { kind: 'planting-event'; entityId: number }
-  | { kind: 'indoor-seed-start'; entityId: number };
+  | { kind: 'indoor-seed-start'; entityId: number }
+  | { kind: 'planted-item'; entityId: number };
 
 /**
  * Decide whether a row should show "Cancel task" (destructive, soft-deletes
@@ -109,11 +119,18 @@ function getCancellableAction(signalKey: string): CancellableAction | null {
     const id = parseInt(signalKey.slice('direct-seed-'.length), 10);
     return Number.isFinite(id) ? { kind: 'planting-event', entityId: id } : null;
   }
+  if (signalKey.startsWith('place-planted-')) {
+    const id = parseInt(signalKey.slice('place-planted-'.length), 10);
+    return Number.isFinite(id) ? { kind: 'planted-item', entityId: id } : null;
+  }
   return null;
 }
 
 function cancelUrl(action: CancellableAction): string {
-  const base = action.kind === 'planting-event' ? 'planting-events' : 'indoor-seed-starts';
+  const base =
+    action.kind === 'planting-event' ? 'planting-events'
+    : action.kind === 'indoor-seed-start' ? 'indoor-seed-starts'
+    : 'planted-items';
   return `${API_BASE_URL}/api/${base}/${action.entityId}/cancel`;
 }
 
@@ -174,7 +191,10 @@ function mergeGroupSignalKeys(a: string[], b: string[]): string[] {
 }
 
 function uncancelUrl(action: CancellableAction): string {
-  const base = action.kind === 'planting-event' ? 'planting-events' : 'indoor-seed-starts';
+  const base =
+    action.kind === 'planting-event' ? 'planting-events'
+    : action.kind === 'indoor-seed-start' ? 'indoor-seed-starts'
+    : 'planted-items';
   return `${API_BASE_URL}/api/${base}/${action.entityId}/uncancel`;
 }
 
@@ -184,11 +204,13 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [activeAttentionTab, setActiveAttentionTab] = useState<AttentionTabId>('all');
   const [reloadKey, setReloadKey] = useState(0);
   // Tracks signalKeys that are in the 5-second "Dismissed · Undo" window.
   // Timers are held in a ref so re-renders don't recreate them.
   const [pendingDismissals, setPendingDismissals] = useState<Set<string>>(new Set());
   const dismissTimersRef = useRef<Map<string, number>>(new Map());
+  const lastAutoRefreshRef = useRef(Date.now());
   // When a pending row came from a "Cancel task" click we remember the
   // action so the Undo button can POST to the matching /uncancel endpoint.
   // Keyed by signalKey. Presence here means the strip should render as
@@ -242,6 +264,25 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
     return () => { cancelled = true; };
   }, [today, reloadKey]);
 
+  useEffect(() => {
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'hidden') return;
+      const nowMs = Date.now();
+      if (nowMs - lastAutoRefreshRef.current < 1500) return;
+      lastAutoRefreshRef.current = nowMs;
+      setReloadKey(k => k + 1);
+    };
+
+    window.addEventListener('focus', refreshOnReturn);
+    window.addEventListener('pageshow', refreshOnReturn);
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => {
+      window.removeEventListener('focus', refreshOnReturn);
+      window.removeEventListener('pageshow', refreshOnReturn);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+    };
+  }, []);
+
   const rows: SignalRow[] = useMemo(() => {
     if (!data) return [];
     return buildRows(data.signals, onNavigate);
@@ -256,6 +297,40 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
     return buildMissedRows(data.missed, onNavigate);
   }, [data, onNavigate]);
   const [missedExpanded, setMissedExpanded] = useState(false);
+
+  const attentionTabs: AttentionTab[] = useMemo(() => {
+    const counts: Record<AttentionTabId, number> = {
+      all: rows.length + missedRows.length,
+      harvest: 0,
+      seeding: 0,
+      transplant: 0,
+      germination: 0,
+      other: 0,
+    };
+    [...rows, ...missedRows].forEach(row => {
+      if (row.tab !== 'all') counts[row.tab] += 1;
+    });
+    const ordered: AttentionTab[] = [
+      { id: 'all', label: 'All', count: counts.all },
+      { id: 'harvest', label: 'Harvest', count: counts.harvest },
+      { id: 'seeding', label: 'Seeding', count: counts.seeding },
+      { id: 'transplant', label: 'Transplant', count: counts.transplant },
+      { id: 'germination', label: 'Germination', count: counts.germination },
+      { id: 'other', label: 'Other', count: counts.other },
+    ];
+    return ordered.filter(tab => tab.id === 'all' || tab.count > 0);
+  }, [rows, missedRows]);
+
+  useEffect(() => {
+    setExpanded(false);
+    setMissedExpanded(false);
+  }, [activeAttentionTab]);
+
+  useEffect(() => {
+    if (!attentionTabs.some(tab => tab.id === activeAttentionTab)) {
+      setActiveAttentionTab('all');
+    }
+  }, [attentionTabs, activeAttentionTab]);
 
   /**
    * Snooze one or more signalKeys for 3 days. For grouped rows the keys
@@ -485,8 +560,14 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
     }
   };
 
-  const visibleRows = expanded ? rows : rows.slice(0, DEFAULT_VISIBLE);
-  const hiddenCount = rows.length - visibleRows.length;
+  const filteredRows = activeAttentionTab === 'all'
+    ? rows
+    : rows.filter(row => row.tab === activeAttentionTab);
+  const filteredMissedRows = activeAttentionTab === 'all'
+    ? missedRows
+    : missedRows.filter(row => row.tab === activeAttentionTab);
+  const visibleRows = expanded ? filteredRows : filteredRows.slice(0, DEFAULT_VISIBLE);
+  const hiddenCount = filteredRows.length - visibleRows.length;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -502,6 +583,39 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
           </span>
         )}
       </div>
+
+      {!loading && !error && attentionTabs.length > 1 && (
+        <div
+          role="tablist"
+          aria-label="Needs attention categories"
+          className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-100"
+        >
+          {attentionTabs.map(tab => {
+            const selected = activeAttentionTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActiveAttentionTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                  selected
+                    ? 'border-green-600 text-green-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-200'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  selected ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-3" data-testid="needs-attention-loading">
@@ -526,7 +640,13 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
         </div>
       ) : (
         <div className="space-y-2">
-          {visibleRows.map(row => renderSignalRow(row))}
+          {visibleRows.length === 0 && filteredMissedRows.length === 0 ? (
+            <div className="py-6 text-center">
+              <p className="text-sm text-gray-600">Nothing in this tab.</p>
+            </div>
+          ) : (
+            visibleRows.map(row => renderSignalRow(row))
+          )}
           {hiddenCount > 0 && (
             <button
               onClick={() => setExpanded(true)}
@@ -535,7 +655,7 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
               + {hiddenCount} more
             </button>
           )}
-          {expanded && rows.length > DEFAULT_VISIBLE && (
+          {expanded && filteredRows.length > DEFAULT_VISIBLE && (
             <button
               onClick={() => setExpanded(false)}
               className="w-full text-center text-sm text-gray-500 hover:text-gray-700 py-2"
@@ -550,7 +670,7 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
             and is keyboard-accessible for free. Rows reuse the same deep-link
             and signalKey as their live counterparts.
           */}
-          {missedRows.length > 0 && (
+          {filteredMissedRows.length > 0 && (
             <details
               className="mt-3 border-t border-gray-100 pt-3"
               open={missedExpanded}
@@ -564,10 +684,10 @@ const NeedsAttentionPanel: React.FC<NeedsAttentionPanelProps> = ({ onNavigate })
                 >
                   ▶
                 </span>
-                <span>Missed ({missedRows.length})</span>
+                <span>Missed ({filteredMissedRows.length})</span>
               </summary>
               <div className="space-y-2 mt-2">
-                {missedRows.map(row => renderSignalRow(row))}
+                {filteredMissedRows.map(row => renderSignalRow(row))}
               </div>
             </details>
           )}
@@ -778,6 +898,7 @@ function buildRows(signals: DashboardSignals, onNavigate: NavigateFn): SignalRow
   signals.indoorStartsDue?.forEach((r, i) => rows.push(indoorStartRow(r, i, onNavigate)));
   signals.transplantsDue?.forEach((r, i) => rows.push(transplantRow(r, i, onNavigate)));
   signals.directSeedDue?.forEach((r, i) => rows.push(directSeedRow(r, i, onNavigate)));
+  signals.placePlantedItem?.forEach((r, i) => rows.push(placePlantedItemRow(r, i, onNavigate)));
   signals.germinationCheck?.forEach((r, i) => rows.push(germinationRow(r, i, onNavigate)));
   signals.indoorGerminationCheck?.forEach((r, i) => rows.push(indoorGerminationRow(r, i, onNavigate)));
   signals.compostOverdue?.forEach((r, i) => rows.push(compostRow(r, i, onNavigate)));
@@ -804,6 +925,7 @@ function buildMissedRows(missed: DashboardMissed, onNavigate: NavigateFn): Signa
   missed.indoorStartsDue?.forEach((r, i) => rows.push(indoorStartRow(r, i, onNavigate, true)));
   missed.transplantsDue?.forEach((r, i) => rows.push(transplantRow(r, i, onNavigate, true)));
   missed.directSeedDue?.forEach((r, i) => rows.push(directSeedRow(r, i, onNavigate, true)));
+  missed.placePlantedItem?.forEach((r, i) => rows.push(placePlantedItemRow(r, i, onNavigate, true)));
   return rows;
 }
 
@@ -811,6 +933,7 @@ function frostRiskRow(risk: FrostRisk, onNavigate: NavigateFn): SignalRow {
   const temp = risk.forecastLowF != null ? `${Math.round(risk.forecastLowF)}°F` : 'forecast low';
   return {
     key: 'frost-risk',
+    tab: 'other',
     signalKey: risk.signalKey,
     icon: '❄️',
     tone: 'red',
@@ -823,6 +946,7 @@ function frostRiskRow(risk: FrostRisk, onNavigate: NavigateFn): SignalRow {
 function rainAlertRow(rain: RainAlert, onNavigate: NavigateFn): SignalRow {
   return {
     key: 'rain-alert',
+    tab: 'other',
     signalKey: rain.signalKey,
     icon: '🌧️',
     tone: 'yellow',
@@ -876,6 +1000,7 @@ function harvestRow(row: HarvestReadyRow, idx: number, onNavigate: NavigateFn): 
   const count = groupKeys.length;
   return {
     key: `harvest-${row.plantingEventId}-${idx}`,
+    tab: 'harvest',
     signalKey: row.signalKey,
     groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '🧺',
@@ -930,6 +1055,7 @@ function indoorStartRow(
   const count = groupKeys.length;
   return {
     key: `${keyPrefix}-${row.plantingEventId ?? `iss-${row.indoorSeedStartId}`}-${idx}`,
+    tab: 'seeding',
     signalKey: row.signalKey,
     groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '🪴',
@@ -944,6 +1070,8 @@ function indoorStartRow(
           kind: 'indoorStart',
           indoorSeedStartId: row.indoorSeedStartId,
           plantingEventId: row.plantingEventId,
+          ...(row.indoorSeedStartIds ? { indoorSeedStartIds: row.indoorSeedStartIds } : {}),
+          ...(row.plantingEventIds ? { plantingEventIds: row.plantingEventIds } : {}),
         })
       : null,
     isMissed,
@@ -964,6 +1092,7 @@ function transplantRow(
   const count = groupKeys.length;
   return {
     key: `${keyPrefix}-${row.plantingEventId}-${idx}`,
+    tab: 'transplant',
     signalKey: row.signalKey,
     groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '🌱',
@@ -995,6 +1124,7 @@ function directSeedRow(
   const count = groupKeys.length;
   return {
     key: `${keyPrefix}-${row.plantingEventId}-${idx}`,
+    tab: 'seeding',
     signalKey: row.signalKey,
     groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '\u{1F330}',
@@ -1012,6 +1142,35 @@ function directSeedRow(
   };
 }
 
+function placePlantedItemRow(
+  row: PlacePlantedItemRow,
+  idx: number,
+  onNavigate: NavigateFn,
+  isMissed: boolean = false,
+): SignalRow {
+  const label = buildPlantLabel(row.plantName, row.variety);
+  const hasId = row.plantedItemId != null;
+  if (!hasId) warnMissingId('placePlantedItem', row);
+  const keyPrefix = isMissed ? 'missed-place-planted' : 'place-planted';
+  return {
+    key: `${keyPrefix}-${row.plantedItemId}-${idx}`,
+    tab: 'seeding',
+    signalKey: row.signalKey,
+    icon: '\u{1F33F}',
+    tone: isMissed ? 'gray' : 'yellow',
+    title: `Place planting — ${label}`,
+    subtitle: joinSubtitle([
+      plantsFragment(row.quantity),
+      row.bedName,
+      formatDate(row.plantedDate),
+    ]),
+    onClick: hasId
+      ? () => onNavigate({ kind: 'placePlantedItem', plantedItemId: row.plantedItemId, bedId: row.bedId })
+      : null,
+    isMissed,
+  };
+}
+
 function germinationRow(row: GerminationCheckRow, idx: number, onNavigate: NavigateFn): SignalRow {
   const label = buildPlantLabel(row.plantName, row.variety);
   const hasId = row.plantingEventId != null;
@@ -1020,6 +1179,7 @@ function germinationRow(row: GerminationCheckRow, idx: number, onNavigate: Navig
   const count = groupKeys.length;
   return {
     key: `germination-${row.plantingEventId}-${idx}`,
+    tab: 'germination',
     signalKey: row.signalKey,
     groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '\u{1F331}',
@@ -1058,6 +1218,7 @@ function indoorGerminationRow(row: IndoorGerminationCheckRow, idx: number, onNav
   const count = groupKeys.length;
   return {
     key: `indoor-germ-${keySuffix}-${idx}`,
+    tab: 'germination',
     signalKey: row.signalKey,
     groupSignalKeys: count > 1 ? groupKeys : undefined,
     icon: '\u{1F33F}',
@@ -1072,6 +1233,8 @@ function indoorGerminationRow(row: IndoorGerminationCheckRow, idx: number, onNav
           kind: 'indoorGerminationCheck',
           indoorSeedStartId: row.indoorSeedStartId,
           plantingEventId: row.plantingEventId,
+          ...(row.indoorSeedStartIds ? { indoorSeedStartIds: row.indoorSeedStartIds } : {}),
+          ...(row.plantingEventIds ? { plantingEventIds: row.plantingEventIds } : {}),
         })
       : null,
   };
@@ -1082,6 +1245,7 @@ function compostRow(row: CompostOverdueRow, idx: number, onNavigate: NavigateFn)
   if (!hasId) warnMissingId('compost', row);
   return {
     key: `compost-${row.pileId}-${idx}`,
+    tab: 'other',
     signalKey: row.signalKey,
     icon: '♻️',
     tone: 'yellow',
@@ -1098,6 +1262,7 @@ function seedLowRow(row: SeedLowStockRow, idx: number, onNavigate: NavigateFn): 
   if (!hasId) warnMissingId('seedLow', row);
   return {
     key: `seed-low-${row.seedId}-${idx}`,
+    tab: 'other',
     signalKey: row.signalKey,
     icon: '🌾',
     tone,
@@ -1113,6 +1278,7 @@ function seedExpiringRow(row: SeedExpiringRow, idx: number, onNavigate: Navigate
   if (!hasId) warnMissingId('seedExpiring', row);
   return {
     key: `seed-exp-${row.seedId}-${idx}`,
+    tab: 'other',
     signalKey: row.signalKey,
     icon: '⏳',
     tone: 'yellow',
@@ -1125,6 +1291,7 @@ function seedExpiringRow(row: SeedExpiringRow, idx: number, onNavigate: Navigate
 function livestockRow(row: LivestockActionDueRow, idx: number, onNavigate: NavigateFn): SignalRow {
   return {
     key: `livestock-${row.type}-${idx}`,
+    tab: 'other',
     signalKey: row.signalKey,
     icon: '🐔',
     tone: 'blue',

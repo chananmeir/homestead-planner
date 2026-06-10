@@ -48,6 +48,17 @@ function shouldUseDensePlanting(plant: Plant, planningMethod: string): boolean {
   return spacing <= threshold; // Plants with spacing <= grid size can be planted densely
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface IndoorStartAutoShiftNotice {
+  plantName: string;
+  fromDate: string;
+  toDate: string;
+  recommendedStartDate: string;
+  daysLate: number;
+  weeksIndoors: number;
+}
+
 interface PlantConfigModalProps {
   isOpen: boolean;
   cropName: string;  // Base crop name (e.g., "Tomato")
@@ -61,6 +72,8 @@ interface PlantConfigModalProps {
   rowNumber?: number;  // For MIGardener row planting (if provided, planting entire row)
   sourcePlanItemId?: number;  // Link to GardenPlanItem when placing from planned panel
   initialVariety?: string;  // Pre-filled variety (from Season Planner drag)
+  initialPlantingMethod?: 'direct' | 'transplant';  // Pre-filled method from Plant Palette validation
+  suppressIndoorStartAutoShift?: boolean;  // Existing indoor starts already have their indoor time
   activePlanId?: number;  // When set, shows seed-lot picker and enforces seed linkage
   onDateChange?: (newDate: string) => void;  // Callback to change the planting date
   onPreviewChange?: (positions: { x: number; y: number }[]) => void;  // Callback to show preview in grid
@@ -123,6 +136,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   rowNumber,
   sourcePlanItemId,
   initialVariety,
+  initialPlantingMethod,
+  suppressIndoorStartAutoShift = false,
   activePlanId,
   onDateChange,
   onPreviewChange,
@@ -143,9 +158,11 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   const [suggestion, setSuggestion] = useState<DateSuggestion | undefined>(undefined);
   const [validating, setValidating] = useState<boolean>(false);
   const [frostDateSource, setFrostDateSource] = useState<string | null>(null);
+  const [indoorStartAutoShiftNotice, setIndoorStartAutoShiftNotice] = useState<IndoorStartAutoShiftNotice | null>(null);
 
   // Track previous isOpen state to detect modal opening vs re-rendering
   const prevIsOpenRef = useRef<boolean>(false);
+  const autoShiftedTransplantDateRef = useRef<string | null>(null);
 
   // NEW: Seed density metadata for MIGardener method
   const [seedDensityMetadata, setSeedDensityMetadata] = useState<{
@@ -611,6 +628,25 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
     }));
   }, [cropName, userSeeds, representativePlant, allPlants, showCatalogVarieties]);
 
+  const displayedVarietyOptions = useMemo(() => {
+    const currentVariety = variety.trim();
+    if (!currentVariety || varietyOptions.some(opt => opt.variety === variety)) {
+      return varietyOptions;
+    }
+
+    return [
+      {
+        variety,
+        plantId: cropName,
+        plant: representativePlant,
+        source: 'current_start' as const,
+      },
+      ...varietyOptions,
+    ];
+  }, [variety, varietyOptions, cropName, representativePlant]);
+
+  const requiresSeedLotSelection = Boolean(activePlanId && variety && !suppressIndoorStartAutoShift);
+
   // Determine if this plant should use dense planting mode
   const isDensePlanting = useMemo(() => {
     return representativePlant && shouldUseDensePlanting(representativePlant, planningMethod);
@@ -625,6 +661,60 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
   const quantityTerminology = useMemo(() => {
     return getQuantityTerminology(selectedPlantingStyle || 'grid');
   }, [selectedPlantingStyle]);
+
+  // If an indoor start is already late, keep the recommended indoor growing
+  // duration by shifting the transplant date instead of shortening seedling time.
+  useEffect(() => {
+    if (!isOpen) {
+      autoShiftedTransplantDateRef.current = null;
+      setIndoorStartAutoShiftNotice(null);
+      return;
+    }
+    if (suppressIndoorStartAutoShift || !representativePlant || !plantingDate || plantingMethod !== 'transplant' || !onDateChange) {
+      setIndoorStartAutoShiftNotice(null);
+      return;
+    }
+
+    const weeksIndoors = representativePlant.weeksIndoors || 0;
+    if (weeksIndoors <= 0) {
+      setIndoorStartAutoShiftNotice(null);
+      return;
+    }
+
+    const transplantDate = parseLocalDate(plantingDate);
+    const todayDate = parseLocalDate(todayStr);
+    const recommendedStartDate = new Date(transplantDate.getTime() - weeksIndoors * 7 * DAY_MS);
+
+    if (recommendedStartDate >= todayDate) {
+      setIndoorStartAutoShiftNotice(prev => prev?.toDate === plantingDate ? prev : null);
+      return;
+    }
+
+    const daysLate = Math.ceil((todayDate.getTime() - recommendedStartDate.getTime()) / DAY_MS);
+    const adjustedTransplantDate = new Date(transplantDate.getTime() + daysLate * DAY_MS);
+    const adjustedTransplantDateStr = formatLocalDate(adjustedTransplantDate);
+    if (adjustedTransplantDateStr === plantingDate) return;
+
+    const shiftKey = [
+      representativePlant.id,
+      plantingDate,
+      adjustedTransplantDateStr,
+      todayStr,
+      plantingMethod,
+    ].join('|');
+    if (autoShiftedTransplantDateRef.current === shiftKey) return;
+
+    autoShiftedTransplantDateRef.current = shiftKey;
+    setIndoorStartAutoShiftNotice({
+      plantName: representativePlant.name,
+      fromDate: plantingDate,
+      toDate: adjustedTransplantDateStr,
+      recommendedStartDate: formatLocalDate(recommendedStartDate),
+      daysLate,
+      weeksIndoors,
+    });
+    onDateChange(adjustedTransplantDateStr);
+  }, [isOpen, representativePlant, plantingDate, plantingMethod, onDateChange, suppressIndoorStartAutoShift, todayStr]);
 
   // Validate planting conditions when plant, date, or method changes
   useEffect(() => {
@@ -642,13 +732,24 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       try {
         // Get user's zipcode from localStorage (set by Weather Dashboard)
         const zipcode = localStorage.getItem('weatherZipCode');
+        const autoShiftWarning: ValidationWarning | null =
+          indoorStartAutoShiftNotice && indoorStartAutoShiftNotice.toDate === plantingDate
+            ? {
+                type: 'seed_start_late',
+                message: `Transplant date was moved from ${parseLocalDate(indoorStartAutoShiftNotice.fromDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} to ${parseLocalDate(indoorStartAutoShiftNotice.toDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} so ${indoorStartAutoShiftNotice.plantName} still gets the recommended ${indoorStartAutoShiftNotice.weeksIndoors} weeks indoors after starting today.`,
+                severity: 'info',
+              }
+            : null;
 
         if (!zipcode) {
-          setWarnings([{
-            type: 'no_location',
-            message: 'Set your location in Weather Dashboard for planting validation',
-            severity: 'info'
-          }]);
+          setWarnings([
+            ...(autoShiftWarning ? [autoShiftWarning] : []),
+            {
+              type: 'no_location',
+              message: 'Set your location in Weather Dashboard for planting validation',
+              severity: 'info'
+            }
+          ]);
           setValidating(false);
           return;
         }
@@ -686,7 +787,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         ]);
 
         // Collect all warnings
-        const allWarnings: ValidationWarning[] = [];
+        const allWarnings: ValidationWarning[] = autoShiftWarning ? [autoShiftWarning] : [];
         let mainSuggestion: DateSuggestion | undefined;
 
         // Process basic validation response
@@ -754,7 +855,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         }
 
         // Check if seed start date would be in the past for transplants
-        if (plantingMethod === 'transplant' && representativePlant && plantingDate) {
+        if (!suppressIndoorStartAutoShift && plantingMethod === 'transplant' && representativePlant && plantingDate) {
           const weeksIndoors = representativePlant.weeksIndoors || 0;
           if (weeksIndoors > 0) {
             const transplantDate = new Date(plantingDate + 'T12:00:00');
@@ -775,9 +876,10 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 });
               } else {
                 // Some time but less than ideal
+                const adjustedTransplantDate = new Date(transplantDate.getTime() + daysLate * 24 * 60 * 60 * 1000);
                 allWarnings.push({
                   type: 'seed_start_late',
-                  message: `Indoor seed start would be ${seedStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} (${daysLate} days ago). Seeds will be started today if you proceed — ${daysLate} fewer days indoors than the recommended ${weeksIndoors} weeks.`,
+                  message: `Indoor seed start would be ${seedStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} (${daysLate} days ago). Starting today would shorten indoor growing time by ${daysLate} day${daysLate === 1 ? '' : 's'} unless you move transplant to about ${adjustedTransplantDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.`,
                   severity: 'info'
                 });
               }
@@ -797,7 +899,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
 
     validatePlanting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [representativePlant, plantingDate, plantingMethod, isOpen, bedId, variety, todayStr]);
+  }, [representativePlant, plantingDate, plantingMethod, isOpen, bedId, variety, todayStr, indoorStartAutoShiftNotice, suppressIndoorStartAutoShift]);
 
   // Calculate grid dimensions from bed
   const gridDimensions = useMemo(() => {
@@ -1042,9 +1144,16 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       // Auto-detect planting method based on planning mode and weeksIndoors
       // MIGardener methodology typically uses direct seeding for row crops
       const weeksIndoors = representativePlant.weeksIndoors || 0;
-      const defaultMethod = planningMethod === 'migardener'
-        ? 'direct'  // MIGardener defaults to direct seed for row crops
-        : (weeksIndoors > 0 ? 'transplant' : 'direct');
+      let defaultMethod: 'direct' | 'transplant';
+      if (initialPlantingMethod === 'direct') {
+        defaultMethod = 'direct';
+      } else if (initialPlantingMethod === 'transplant' && weeksIndoors > 0) {
+        defaultMethod = 'transplant';
+      } else {
+        defaultMethod = planningMethod === 'migardener'
+          ? 'direct'  // MIGardener defaults to direct seed for row crops
+          : (weeksIndoors > 0 ? 'transplant' : 'direct');
+      }
       setPlantingMethod(defaultMethod);
 
       // Reset position editing
@@ -1068,7 +1177,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
       prevPlantingStyleRef.current = getEffectivePlantingStyle(representativePlant, bed);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, representativePlant, planningMethod, initialVariety]);
+  }, [isOpen, representativePlant, planningMethod, initialVariety, initialPlantingMethod]);
 
   // Sync handlers for dual-input UI (squares <-> plants)
   const handleSquaresChange = (value: number) => {
@@ -1677,7 +1786,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         <div>
           <div className="flex items-center justify-between mb-2">
             <label htmlFor="variety" className="text-sm font-medium text-gray-700">
-              Variety {varietyOptions.length >= 1 ? '' : '(optional)'}
+              Variety {displayedVarietyOptions.length >= 1 ? '' : '(optional)'}
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -1690,7 +1799,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             </label>
           </div>
 
-          {varietyOptions.length >= 1 ? (
+          {displayedVarietyOptions.length >= 1 ? (
             <div>
               <select
                 id="variety"
@@ -1699,16 +1808,21 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">-- Select variety --</option>
-                {varietyOptions.map((opt, index) => (
-                  <option key={index} value={opt.variety}>
-                    {opt.variety}
+                {displayedVarietyOptions.map((opt, index) => (
+                  <option key={`${opt.variety}-${index}`} value={opt.variety}>
+                    {'source' in opt && opt.source === 'current_start'
+                      ? `${opt.variety.trim()} (current start)`
+                      : opt.variety}
                   </option>
                 ))}
               </select>
               <p className="mt-1 text-sm text-gray-500">
-                {varietyOptions.length} {varietyOptions.length === 1 ? 'variety' : 'varieties'} available for {cropName}
+                {displayedVarietyOptions.length} {displayedVarietyOptions.length === 1 ? 'variety' : 'varieties'} available for {cropName}
                 {showCatalogVarieties && <span className="text-blue-600"> (including catalog)</span>}
                 {!showCatalogVarieties && <span className="text-green-600"> (personal seeds only)</span>}
+                {displayedVarietyOptions.some(opt => 'source' in opt && opt.source === 'current_start') && (
+                  <span className="text-green-600"> (including current start)</span>
+                )}
               </p>
             </div>
           ) : (
@@ -1737,7 +1851,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
         </div>
 
         {/* Seed Lot Selection (only when active plan and variety chosen) */}
-        {activePlanId && variety && (
+        {requiresSeedLotSelection && (
           <div>
             {matchingSeedLots.length > 1 ? (
               <>
@@ -2287,8 +2401,8 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             disabled={
               isSubmitting ||
               !currentPosition || // Block: no grid position (click-to-place requires coordinate)
-              (activePlanId && variety && matchingSeedLots.length === 0) || // Block: no seed lot for variety
-              (activePlanId && variety && matchingSeedLots.length > 1 && !selectedSeedId) || // Block: multiple lots, none selected
+              (requiresSeedLotSelection && matchingSeedLots.length === 0) || // Block: no seed lot for variety
+              (requiresSeedLotSelection && matchingSeedLots.length > 1 && !selectedSeedId) || // Block: multiple lots, none selected
               (quantity > 1 &&
                 !showingPreview &&
                 bed !== undefined &&
@@ -2299,7 +2413,7 @@ const PlantConfigModal: React.FC<PlantConfigModalProps> = ({
             className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center gap-2 ${
               !currentPosition
                 || (quantity > 1 && !showingPreview && bed !== undefined && !rowNumber && (usesDualInput && numberOfSquares > 1))
-                || (activePlanId && variety && (matchingSeedLots.length === 0 || (matchingSeedLots.length > 1 && !selectedSeedId)))
+                || (requiresSeedLotSelection && (matchingSeedLots.length === 0 || (matchingSeedLots.length > 1 && !selectedSeedId)))
                 ? 'bg-gray-400 cursor-not-allowed'
                 : warnings.some(w => w.severity === 'warning')
                 ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500'

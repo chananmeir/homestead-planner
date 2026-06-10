@@ -476,6 +476,7 @@ def query_candidate_items(garden_bed_id, user_id, exclude_item_id=None):
     from models import PlantedItem
     query = PlantedItem.query.filter(
         PlantedItem.user_id == user_id,
+        PlantedItem.cancelled_at.is_(None),
         PlantedItem.garden_bed_id == garden_bed_id,
         PlantedItem.position_x.isnot(None),
         PlantedItem.position_y.isnot(None),

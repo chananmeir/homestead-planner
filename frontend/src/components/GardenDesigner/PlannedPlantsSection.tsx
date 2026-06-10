@@ -723,6 +723,9 @@ const PlannedPlantsSection: React.FC<PlannedPlantsSectionProps> = ({
     };
 
     fetchProgress();
+    // `now` is intentionally excluded: it is only a fallback for the request year and
+    // its Date identity changes every render, so keying on it would refetch endlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId, dateFilter?.date, refreshKey]);
 
   // Fetch ALL planting events for the bed (no date range filtering).

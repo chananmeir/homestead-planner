@@ -94,7 +94,7 @@ class GardenBed(db.Model):
             'soilType': self.soil_type,
             'mulchType': self.mulch_type,
             'zone': self.zone,
-            'plantedItems': [item.to_dict() for item in self.planted_items]
+            'plantedItems': [item.to_dict() for item in self.planted_items if item.cancelled_at is None]
         }
 
 class PlantedItem(db.Model):
@@ -110,6 +110,7 @@ class PlantedItem(db.Model):
     position_y = db.Column(db.Integer, default=0)
     quantity = db.Column(db.Integer, default=1)
     status = db.Column(db.String(20), default='planned')  # planned, seeded, transplanted, growing, harvested, saving-seed
+    cancelled_at = db.Column(db.DateTime, nullable=True, index=True)
     notes = db.Column(db.Text)
 
     # Seed saving fields
@@ -142,6 +143,7 @@ class PlantedItem(db.Model):
             'position': {'x': self.position_x, 'y': self.position_y},
             'quantity': self.quantity,
             'status': self.status,
+            'cancelledAt': self.cancelled_at.isoformat() if self.cancelled_at else None,
             'notes': self.notes,
             'sourcePlanItemId': self.source_plan_item_id,
             'saveForSeed': self.save_for_seed,
@@ -445,6 +447,7 @@ class HarvestRecord(db.Model):
     unit = db.Column(db.String(20), default='lbs')  # lbs, oz, count
     notes = db.Column(db.Text)
     quality = db.Column(db.String(20))  # excellent, good, fair, poor
+    harvest_group_id = db.Column(db.String(50), nullable=True, index=True)  # UUID linking records from a single bulk harvest
 
     # Relationships
     user = db.relationship('User', backref=db.backref('harvest_records', cascade='all, delete-orphan'))
@@ -458,7 +461,8 @@ class HarvestRecord(db.Model):
             'quantity': self.quantity,
             'unit': self.unit,
             'notes': self.notes,
-            'quality': self.quality
+            'quality': self.quality,
+            'harvestGroupId': self.harvest_group_id,
         }
 
 class SeedInventory(db.Model):
@@ -1156,6 +1160,18 @@ class IndoorSeedStart(db.Model):
         if not manual_override:
             bed_ids = set(e.garden_bed_id for e in matching_events if e.garden_bed_id is not None)
 
+        # Legacy fallback: older imported seed starts may have a linked
+        # PlantingEvent with a bed but no persisted destination_bed_ids.
+        # Include that bed for destination display without adding its quantity
+        # to current_count.
+        if not bed_ids and not manual_override and self.planting_event_id is not None:
+            linked_event = PlantingEvent.query.filter_by(
+                id=self.planting_event_id,
+                user_id=self.user_id
+            ).first()
+            if linked_event is not None and linked_event.garden_bed_id is not None:
+                bed_ids.add(linked_event.garden_bed_id)
+
         # If no beds found from PlantingEvents (and no manual override),
         # fall back to GardenPlanItem bed_assignments.
         # Filter by date proximity: only match plan items whose planting window
@@ -1212,7 +1228,10 @@ class IndoorSeedStart(db.Model):
         destination_beds = []
         destination_bed_details = []
         if bed_ids:
-            beds = GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all()
+            beds = GardenBed.query.filter(
+                GardenBed.id.in_(bed_ids),
+                GardenBed.user_id == self.user_id
+            ).all()
             beds_sorted = sorted(beds, key=lambda b: b.name)
             destination_beds = [bed.name for bed in beds_sorted]
             destination_bed_details = [{'id': bed.id, 'name': bed.name} for bed in beds_sorted]
@@ -1252,8 +1271,51 @@ class IndoorSeedStart(db.Model):
             'hasManualDestination': manual_override
         }
 
+    def get_placed_count_for_destination_beds(self, garden_sync=None):
+        """Count active placed plants matching this start's plant, variety, and destination bed."""
+        if garden_sync is None:
+            garden_sync = self.get_current_garden_plan_count()
+
+        bed_ids = [
+            detail.get('id')
+            for detail in garden_sync.get('destinationBedDetails', [])
+            if isinstance(detail, dict) and detail.get('id') is not None
+        ]
+        if not bed_ids:
+            parsed_bed_ids = self._parse_destination_bed_ids()
+            if parsed_bed_ids:
+                bed_ids = parsed_bed_ids
+
+        clean_bed_ids = []
+        for bed_id in bed_ids:
+            try:
+                clean_bed_ids.append(int(bed_id))
+            except (TypeError, ValueError):
+                continue
+
+        if not clean_bed_ids:
+            return 0
+
+        query = db.session.query(
+            db.func.coalesce(db.func.sum(PlantedItem.quantity), 0)
+        ).filter(
+            PlantedItem.user_id == self.user_id,
+            PlantedItem.plant_id == self.plant_id,
+            PlantedItem.garden_bed_id.in_(clean_bed_ids),
+            PlantedItem.cancelled_at.is_(None),
+        )
+
+        if self.variety is None:
+            query = query.filter(PlantedItem.variety.is_(None))
+        else:
+            query = query.filter(PlantedItem.variety == self.variety)
+
+        return int(query.scalar() or 0)
+
     def to_dict(self):
         garden_sync = self.get_current_garden_plan_count()
+        placed_count = self.get_placed_count_for_destination_beds(garden_sync)
+        germinated_count = self.seeds_germinated or 0
 
         return {
             'id': self.id,
@@ -1286,10 +1348,13 @@ class IndoorSeedStart(db.Model):
             'gardenPlanExpectedSeeds': garden_sync['expectedSeeds'],
             'gardenPlanInSync': garden_sync['inSync'],
             'gardenPlanWarning': garden_sync['warning'],
+            'hasPlannedPlacement': self.has_planned_placement(),
             'destinationBeds': garden_sync.get('destinationBeds', []),
             'destinationBedDetails': garden_sync.get('destinationBedDetails', []),
             'hasManualDestination': garden_sync.get('hasManualDestination', False),
-            'destinationBedIds': self._parse_destination_bed_ids()
+            'destinationBedIds': self._parse_destination_bed_ids(),
+            'placedCount': placed_count,
+            'remainingToPlant': max(0, germinated_count - placed_count),
         }
 
     def _parse_destination_bed_ids(self):
@@ -1300,6 +1365,21 @@ class IndoorSeedStart(db.Model):
             return json.loads(self.destination_bed_ids)
         except (json.JSONDecodeError, TypeError):
             return None
+
+    def has_planned_placement(self):
+        """True when the linked planting event represents a chosen bed cell."""
+        if self.planting_event_id is None:
+            return False
+        linked_event = PlantingEvent.query.filter_by(
+            id=self.planting_event_id,
+            user_id=self.user_id
+        ).first()
+        return (
+            linked_event is not None
+            and linked_event.garden_bed_id is not None
+            and linked_event.position_x is not None
+            and linked_event.position_y is not None
+        )
 
     def calculate_actual_germination_rate(self):
         """Calculate actual germination percentage"""

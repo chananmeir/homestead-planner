@@ -70,6 +70,19 @@ export interface DirectSeedDueRow {
   bedName?: string | null;
 }
 
+export interface PlacePlantedItemRow {
+  signalKey: string;
+  plantedItemId: number;
+  plantName: string;
+  variety?: string | null;
+  plantedDate: string;
+  quantity: number;
+  bedId?: number | null;
+  bedName?: string | null;
+  positionX?: number | null;
+  positionY?: number | null;
+}
+
 export interface GerminationCheckRow {
   signalKey: string;
   plantingEventId: number;
@@ -155,6 +168,7 @@ export interface DashboardSignals {
   indoorStartsDue: IndoorStartDueRow[];
   transplantsDue: TransplantDueRow[];
   directSeedDue: DirectSeedDueRow[];
+  placePlantedItem: PlacePlantedItemRow[];
   germinationCheck: GerminationCheckRow[];
   indoorGerminationCheck: IndoorGerminationCheckRow[];
   frostRisk: FrostRisk;
@@ -186,6 +200,7 @@ export interface DashboardMissed {
   indoorStartsDue: IndoorStartDueRow[];
   transplantsDue: TransplantDueRow[];
   directSeedDue: DirectSeedDueRow[];
+  placePlantedItem?: PlacePlantedItemRow[];
 }
 
 export interface DashboardToday {
@@ -200,11 +215,24 @@ export interface DashboardToday {
 export type NeedsAttentionTarget =
   | { kind: 'harvest'; plantingEventId: number }
   | { kind: 'harvestBed'; plantingEventId: number; bedId: number }
-  | { kind: 'indoorStart'; indoorSeedStartId?: number | null; plantingEventId?: number | null }
+  | {
+      kind: 'indoorStart';
+      indoorSeedStartId?: number | null;
+      plantingEventId?: number | null;
+      indoorSeedStartIds?: number[];
+      plantingEventIds?: number[];
+    }
   | { kind: 'transplant'; plantingEventId: number; bedId?: number | null }
   | { kind: 'directSeed'; plantingEventId: number; bedId?: number | null }
+  | { kind: 'placePlantedItem'; plantedItemId: number; bedId?: number | null }
   | { kind: 'germinationCheck'; plantingEventId: number; bedId?: number | null }
-  | { kind: 'indoorGerminationCheck'; indoorSeedStartId?: number | null; plantingEventId?: number | null }
+  | {
+      kind: 'indoorGerminationCheck';
+      indoorSeedStartId?: number | null;
+      plantingEventId?: number | null;
+      indoorSeedStartIds?: number[];
+      plantingEventIds?: number[];
+    }
   | { kind: 'compost'; pileId: number }
   | { kind: 'seedLow'; seedId: number }
   | { kind: 'seedExpiring'; seedId: number }

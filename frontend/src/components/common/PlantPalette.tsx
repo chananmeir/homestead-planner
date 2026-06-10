@@ -8,7 +8,7 @@ import PlantIcon from './PlantIcon';
 interface PlantPaletteProps {
   plants: Plant[];
   plantingDate?: string;  // Current date from date filter
-  onPlantSelect?: (plant: Plant) => void;
+  onPlantSelect?: (plant: Plant, initialPlantingMethod?: 'direct' | 'transplant') => void;
   onQuickHarvestChange?: (days: number | null) => void;  // Callback for Quick Harvest Filter changes
 }
 
@@ -576,7 +576,7 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
 interface DraggablePlantItemProps {
   plant: Plant;
   validationStatus?: PlantValidationStatus;
-  onSelect?: (plant: Plant) => void;
+  onSelect?: (plant: Plant, initialPlantingMethod?: 'direct' | 'transplant') => void;
   showMySeedsOnly: boolean;
   seedVarietyCount: number;
   plantingMethod: 'seed' | 'transplant';
@@ -592,11 +592,13 @@ const DraggablePlantItem: React.FC<DraggablePlantItemProps> = ({
   plantingMethod,
   showDaysToHarvestFilter
 }) => {
+  const initialPlantingMethod = plantingMethod === 'seed' ? 'direct' : 'transplant';
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `plant-${plant.id}`,
     data: {
       ...plant,
       cropName: extractCropName(plant.name), // Include crop name for variety lookup
+      initialPlantingMethod,
     },
   });
 
@@ -644,7 +646,7 @@ const DraggablePlantItem: React.FC<DraggablePlantItemProps> = ({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      onClick={!isDragging ? () => onSelect?.(plant) : undefined}
+      onClick={!isDragging ? () => onSelect?.(plant, initialPlantingMethod) : undefined}
       className={`bg-transparent p-2 rounded cursor-grab active:cursor-grabbing transition-all ${
         isDragging ? 'opacity-0' : 'hover:bg-gray-100'
       } group relative`}

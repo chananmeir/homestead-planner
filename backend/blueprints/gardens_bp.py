@@ -7,18 +7,24 @@ This blueprint handles all CRUD operations for garden-related entities.
 import json
 import logging
 import math
+import os
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import or_, and_, cast
 
-from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, GardenPlanItem, GardenPlan, SeedInventory
+from models import (
+    db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, GardenPlanItem,
+    GardenPlan, SeedInventory, Photo, HarvestRecord, PlacedStructure,
+    TrellisStructure,
+)
 from sqlalchemy import func as sa_func
 from plant_database import get_plant_by_id
 from blueprints.garden_planner_bp import _adjust_auto_plan_item
 from garden_methods import GARDEN_METHODS
 from conflict_checker import has_conflict, validate_planting_conflict, get_primary_planting_date, query_candidate_items
 from services.space_calculator import calculate_space_requirement
+from services.garden_planner_service import _calculate_seeds_needed
 from simulation_clock import get_now, get_utc_now
 
 
@@ -66,6 +72,174 @@ def _parse_plan_item_id_from_export_key(export_key):
         return None
 
 
+def _delete_planting_events(events, user_id):
+    """Hard-delete planting events and records that directly hang from them."""
+    event_ids = [event.id for event in events]
+    if not event_ids:
+        return {
+            'deleted': 0,
+            'deletedEventIds': [],
+            'deletedIndoorSeedStarts': 0,
+            'deletedAutoPlanItems': 0,
+            'planItemsReset': 0,
+        }
+
+    plan_item_ids_affected = set()
+    for event in events:
+        plan_item_id = _parse_plan_item_id_from_export_key(event.export_key)
+        if plan_item_id is not None:
+            plan_item_ids_affected.add(plan_item_id)
+
+    seed_starts = IndoorSeedStart.query.filter(
+        IndoorSeedStart.planting_event_id.in_(event_ids),
+        IndoorSeedStart.user_id == user_id
+    ).all()
+    seed_start_ids = [seed_start.id for seed_start in seed_starts]
+
+    deleted_auto_plan_items = 0
+    if seed_start_ids:
+        auto_plan_items = (
+            GardenPlanItem.query
+            .join(GardenPlan, GardenPlanItem.garden_plan_id == GardenPlan.id)
+            .filter(
+                GardenPlanItem.indoor_seed_start_id.in_(seed_start_ids),
+                GardenPlanItem.source == 'indoor-seed-start',
+                GardenPlan.user_id == user_id,
+            )
+            .all()
+        )
+        deleted_auto_plan_items = len(auto_plan_items)
+        for item in auto_plan_items:
+            db.session.delete(item)
+
+    for seed_start in seed_starts:
+        db.session.delete(seed_start)
+
+    for event in events:
+        db.session.delete(event)
+
+    db.session.flush()
+
+    plan_items_reset = 0
+    for plan_item_id in plan_item_ids_affected:
+        remaining = PlantingEvent.query.filter(
+            PlantingEvent.export_key.like(f"{user_id}_{plan_item_id}_%"),
+            PlantingEvent.user_id == user_id
+        ).count()
+        if remaining == 0:
+            plan_item = (
+                GardenPlanItem.query
+                .join(GardenPlan, GardenPlanItem.garden_plan_id == GardenPlan.id)
+                .filter(
+                    GardenPlanItem.id == plan_item_id,
+                    GardenPlan.user_id == user_id,
+                )
+                .first()
+            )
+            if plan_item and plan_item.status == 'exported':
+                plan_item.status = 'planned'
+                plan_items_reset += 1
+
+    return {
+        'deleted': len(event_ids),
+        'deletedEventIds': event_ids,
+        'deletedIndoorSeedStarts': len(seed_starts),
+        'deletedAutoPlanItems': deleted_auto_plan_items,
+        'planItemsReset': plan_items_reset,
+    }
+
+
+def _delete_indoor_seed_starts(seed_starts, user_id):
+    """Hard-delete indoor seed starts and records directly created from them."""
+    seed_start_ids = [seed_start.id for seed_start in seed_starts]
+    if not seed_start_ids:
+        return {
+            'deletedSeedStarts': 0,
+            'deletedSeedStartIds': [],
+            'deletedPlantedItems': 0,
+            'deletedPlantingEvents': 0,
+            'deletedLinkedEventIds': [],
+            'deletedPlanItems': 0,
+        }
+
+    linked_plan_items = (
+        GardenPlanItem.query
+        .join(GardenPlan, GardenPlanItem.garden_plan_id == GardenPlan.id)
+        .filter(
+            GardenPlanItem.indoor_seed_start_id.in_(seed_start_ids),
+            GardenPlan.user_id == user_id,
+        )
+        .all()
+    )
+    plan_item_ids = [item.id for item in linked_plan_items]
+
+    deleted_planted_items = 0
+    if plan_item_ids:
+        planted_items = PlantedItem.query.filter(
+            PlantedItem.source_plan_item_id.in_(plan_item_ids),
+            PlantedItem.user_id == user_id,
+        ).all()
+        deleted_planted_items = len(planted_items)
+        for planted_item in planted_items:
+            db.session.delete(planted_item)
+
+    linked_event_ids = [
+        seed_start.planting_event_id
+        for seed_start in seed_starts
+        if seed_start.planting_event_id is not None
+    ]
+    linked_events = []
+    if linked_event_ids:
+        linked_events = PlantingEvent.query.filter(
+            PlantingEvent.id.in_(linked_event_ids),
+            PlantingEvent.user_id == user_id,
+        ).all()
+        for event in linked_events:
+            db.session.delete(event)
+
+    for item in linked_plan_items:
+        db.session.delete(item)
+
+    for seed_start in seed_starts:
+        db.session.delete(seed_start)
+
+    return {
+        'deletedSeedStarts': len(seed_start_ids),
+        'deletedSeedStartIds': seed_start_ids,
+        'deletedPlantedItems': deleted_planted_items,
+        'deletedPlantingEvents': len(linked_events),
+        'deletedLinkedEventIds': [event.id for event in linked_events],
+        'deletedPlanItems': len(linked_plan_items),
+    }
+
+
+def _event_has_existing_bed_assignment(event, user_id):
+    if event.garden_bed_id is None:
+        return False
+    return GardenBed.query.filter_by(
+        id=event.garden_bed_id,
+        user_id=user_id
+    ).first() is not None
+
+
+def _event_has_planned_placement(event, user_id):
+    return (
+        event is not None
+        and _event_has_existing_bed_assignment(event, user_id)
+        and event.position_x is not None
+        and event.position_y is not None
+    )
+
+
+def _get_seed_start_linked_event(seed_start, user_id):
+    if seed_start.planting_event_id is None:
+        return None
+    return PlantingEvent.query.filter_by(
+        id=seed_start.planting_event_id,
+        user_id=user_id
+    ).first()
+
+
 def _find_existing_indoor_seed_start(user_id, planting_event, window_days=14):
     """Find an existing IndoorSeedStart that matches this placement.
 
@@ -99,6 +273,14 @@ def _find_existing_indoor_seed_start(user_id, planting_event, window_days=14):
         IndoorSeedStart.expected_transplant_date.isnot(None),
         IndoorSeedStart.expected_transplant_date.between(date_min, date_max),
     ).all()
+
+    candidates = [
+        candidate for candidate in candidates
+        if not _event_has_planned_placement(
+            _get_seed_start_linked_event(candidate, user_id),
+            user_id
+        )
+    ]
 
     if not candidates:
         return None
@@ -140,6 +322,82 @@ def _link_existing_indoor_seed_start(seed_start, planting_event):
         f"({planting_event.plant_id}, variety={planting_event.variety}); "
         f"status -> transplanted"
     )
+
+
+def _link_planned_indoor_seed_start(seed_start, planting_event):
+    """Record the bed-cell placement without marking the start transplanted."""
+    seed_start.planting_event_id = planting_event.id
+    if seed_start.start_date and not planting_event.seed_start_date:
+        planting_event.seed_start_date = seed_start.start_date
+
+    logging.info(
+        f"[PLAN-SEED-START] Linked IndoorSeedStart #{seed_start.id} "
+        f"to planned PlantingEvent #{planting_event.id} "
+        f"({planting_event.plant_id}, variety={planting_event.variety}); "
+        f"status preserved as {seed_start.status}"
+    )
+
+
+def _resolve_source_indoor_seed_start(data, user_id):
+    """Validate optional sourceIndoorSeedStartId/action from designer placement.
+
+    action='transplant' preserves the existing behavior: link the seed start to
+    the new placement and mark it transplanted. action='plan' records the
+    chosen future garden cell while preserving the seed start's current status.
+    """
+    source_indoor_seed_start_id = data.get('sourceIndoorSeedStartId')
+    source_indoor_seed_start_action = data.get('sourceIndoorSeedStartAction', 'transplant')
+
+    if source_indoor_seed_start_action not in ('transplant', 'plan'):
+        return None, None, (
+            jsonify({'error': 'sourceIndoorSeedStartAction must be "transplant" or "plan"'}),
+            400,
+        )
+
+    if source_indoor_seed_start_id is None:
+        return None, source_indoor_seed_start_action, None
+
+    if (
+        isinstance(source_indoor_seed_start_id, bool)
+        or not isinstance(source_indoor_seed_start_id, int)
+        or source_indoor_seed_start_id <= 0
+    ):
+        return None, None, (
+            jsonify({'error': 'sourceIndoorSeedStartId must be a positive integer'}),
+            400,
+        )
+
+    seed_start = IndoorSeedStart.query.get(source_indoor_seed_start_id)
+    if not seed_start or seed_start.user_id != user_id:
+        return None, None, (jsonify({'error': 'Indoor seed start not found'}), 404)
+
+    if seed_start.status in ('transplanted', 'failed'):
+        return None, None, (
+            jsonify({
+                'error': (
+                    f"Indoor seed start is already in status "
+                    f"'{seed_start.status}' and cannot be relinked."
+                )
+            }),
+            400,
+        )
+
+    if seed_start.cancelled_at is not None:
+        return None, None, (
+            jsonify({'error': 'Indoor seed start has been cancelled and cannot be relinked.'}),
+            400,
+        )
+
+    linked_event = _get_seed_start_linked_event(seed_start, user_id)
+    if _event_has_planned_placement(linked_event, user_id):
+        return None, None, (
+            jsonify({
+                'error': 'Indoor seed start already has a planned garden placement.'
+            }),
+            409,
+        )
+
+    return seed_start, source_indoor_seed_start_action, None
 
 
 def _auto_create_indoor_seed_start(user_id, planting_event, plant, quantity):
@@ -251,9 +509,315 @@ def _auto_create_indoor_seed_start(user_id, planting_event, plant, quantity):
 
 # Validation constants
 VALID_SUN_EXPOSURES = ['full', 'partial', 'shade']
+BED_DELETE_CONFIRMATION = 'delete'
 
 # Create blueprint
 gardens_bp = Blueprint('gardens', __name__, url_prefix='/api')
+
+
+def _delete_photo_file(photo):
+    """Best-effort removal for files attached to photo rows being deleted."""
+    if not photo.filename:
+        return
+
+    filepath = os.path.join('static', 'uploads', photo.filename)
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except OSError as exc:
+        logging.warning(f"Failed to delete photo file for photo {photo.id}: {exc}")
+
+
+def _parse_json_list(raw_value):
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _same_id(left, right):
+    try:
+        return int(left) == int(right)
+    except (TypeError, ValueError):
+        return False
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _remove_bed_assignment(raw_assignments, bed_id):
+    assignments = _parse_json_list(raw_assignments)
+    if not assignments:
+        return [], 0, False
+
+    remaining = []
+    removed_quantity = 0
+    changed = False
+
+    for assignment in assignments:
+        if not isinstance(assignment, dict):
+            remaining.append(assignment)
+            continue
+
+        assignment_bed_id = assignment.get('bedId')
+        if assignment_bed_id is None:
+            assignment_bed_id = assignment.get('bed_id')
+
+        if _same_id(assignment_bed_id, bed_id):
+            removed_quantity += _safe_int(assignment.get('quantity'), 0)
+            changed = True
+        else:
+            remaining.append(assignment)
+
+    return remaining, removed_quantity, changed
+
+
+def _remove_id_from_json_list(raw_ids, id_to_remove):
+    ids = _parse_json_list(raw_ids)
+    if not ids:
+        return [], False
+
+    remaining = [value for value in ids if not _same_id(value, id_to_remove)]
+    return remaining, len(remaining) != len(ids)
+
+
+def _detach_deleted_bed_from_indoor_starts(bed_id, user_id, deleted_start_ids):
+    query = IndoorSeedStart.query.filter(
+        IndoorSeedStart.user_id == user_id,
+        IndoorSeedStart.destination_bed_ids.isnot(None)
+    )
+    if deleted_start_ids:
+        query = query.filter(IndoorSeedStart.id.notin_(deleted_start_ids))
+
+    updated = 0
+    for seed_start in query.all():
+        remaining, changed = _remove_id_from_json_list(seed_start.destination_bed_ids, bed_id)
+        if changed:
+            seed_start.destination_bed_ids = json.dumps(remaining) if remaining else None
+            updated += 1
+
+    return updated
+
+
+def _detach_deleted_bed_from_plan_items(bed_id, user_id, trellis_ids):
+    plan_ids = [
+        row.id for row in GardenPlan.query.with_entities(GardenPlan.id).filter_by(user_id=user_id).all()
+    ]
+    if not plan_ids:
+        return {
+            'planItemsUpdated': 0,
+            'planItemsDeleted': 0,
+            'planBedAssignmentsRemoved': 0,
+            'planTrellisAssignmentsRemoved': 0,
+        }
+
+    updated = 0
+    deleted = 0
+    bed_assignments_removed = 0
+    trellis_assignments_removed = 0
+
+    plan_items = GardenPlanItem.query.filter(GardenPlanItem.garden_plan_id.in_(plan_ids)).all()
+    for plan_item in plan_items:
+        touched = False
+        should_delete = False
+
+        remaining_assignments, _removed_qty, assignments_changed = _remove_bed_assignment(
+            plan_item.bed_assignments,
+            bed_id
+        )
+        if assignments_changed:
+            touched = True
+            bed_assignments_removed += 1
+            if remaining_assignments:
+                remaining_total = sum(
+                    _safe_int(entry.get('quantity'), 0)
+                    for entry in remaining_assignments
+                    if isinstance(entry, dict)
+                )
+                plan_item.bed_assignments = json.dumps(remaining_assignments)
+                remaining_bed_ids = []
+                for entry in remaining_assignments:
+                    if not isinstance(entry, dict):
+                        continue
+                    entry_bed_id = entry.get('bedId')
+                    if entry_bed_id is None:
+                        entry_bed_id = entry.get('bed_id')
+                    if entry_bed_id is not None:
+                        remaining_bed_ids.append(entry_bed_id)
+                plan_item.beds_allocated = json.dumps(remaining_bed_ids)
+                plan_item.plant_equivalent = max(0, remaining_total)
+                plan_item.target_value = float(plan_item.plant_equivalent)
+                plan_item.seeds_required = _calculate_seeds_needed(
+                    plan_item.plant_equivalent,
+                    0.85,
+                    0.90
+                )
+            else:
+                should_delete = True
+
+        if not should_delete and plan_item.beds_allocated:
+            remaining_beds, beds_changed = _remove_id_from_json_list(plan_item.beds_allocated, bed_id)
+            if beds_changed:
+                touched = True
+                plan_item.beds_allocated = json.dumps(remaining_beds) if remaining_beds else None
+                if not remaining_beds and not plan_item.bed_assignments:
+                    should_delete = True
+
+        if not should_delete and trellis_ids and plan_item.trellis_assignments:
+            remaining_trellises = _parse_json_list(plan_item.trellis_assignments)
+            original_count = len(remaining_trellises)
+            for trellis_id in trellis_ids:
+                remaining_trellises = [
+                    value for value in remaining_trellises
+                    if not _same_id(value, trellis_id)
+                ]
+            if len(remaining_trellises) != original_count:
+                touched = True
+                trellis_assignments_removed += 1
+                plan_item.trellis_assignments = (
+                    json.dumps(remaining_trellises) if remaining_trellises else None
+                )
+
+        if should_delete:
+            db.session.delete(plan_item)
+            deleted += 1
+        elif touched:
+            updated += 1
+
+    return {
+        'planItemsUpdated': updated,
+        'planItemsDeleted': deleted,
+        'planBedAssignmentsRemoved': bed_assignments_removed,
+        'planTrellisAssignmentsRemoved': trellis_assignments_removed,
+    }
+
+
+def _clear_bed_owned_data_for_delete(bed, user_id):
+    bed_id = bed.id
+    planted_item_ids = [
+        row.id for row in PlantedItem.query.with_entities(PlantedItem.id).filter_by(
+            garden_bed_id=bed_id,
+            user_id=user_id
+        ).all()
+    ]
+    trellis_ids = [
+        row.id for row in TrellisStructure.query.with_entities(TrellisStructure.id).filter_by(
+            garden_bed_id=bed_id,
+            user_id=user_id
+        ).all()
+    ]
+
+    event_conditions = [PlantingEvent.garden_bed_id == bed_id]
+    if trellis_ids:
+        event_conditions.append(PlantingEvent.trellis_structure_id.in_(trellis_ids))
+
+    planting_events = PlantingEvent.query.filter(
+        PlantingEvent.user_id == user_id,
+        or_(*event_conditions)
+    ).all()
+    planting_event_ids = [event.id for event in planting_events]
+
+    photo_conditions = [Photo.garden_bed_id == bed_id]
+    if planted_item_ids:
+        photo_conditions.append(Photo.planted_item_id.in_(planted_item_ids))
+    photos = Photo.query.filter(
+        Photo.user_id == user_id,
+        or_(*photo_conditions)
+    ).all()
+    for photo in photos:
+        _delete_photo_file(photo)
+        db.session.delete(photo)
+
+    harvest_count = 0
+    seed_inventory_refs_cleared = 0
+    if planted_item_ids:
+        harvest_count = HarvestRecord.query.filter(
+            HarvestRecord.user_id == user_id,
+            HarvestRecord.planted_item_id.in_(planted_item_ids)
+        ).delete(synchronize_session=False)
+        seed_inventory_refs_cleared = SeedInventory.query.filter(
+            SeedInventory.user_id == user_id,
+            SeedInventory.source_planted_item_id.in_(planted_item_ids)
+        ).update(
+            {SeedInventory.source_planted_item_id: None},
+            synchronize_session=False
+        )
+
+    deleted_seed_start_ids = []
+    if planting_event_ids:
+        deleted_seed_start_ids = [
+            row.id for row in IndoorSeedStart.query.with_entities(IndoorSeedStart.id).filter(
+                IndoorSeedStart.user_id == user_id,
+                IndoorSeedStart.planting_event_id.in_(planting_event_ids)
+            ).all()
+        ]
+        if deleted_seed_start_ids:
+            plan_ids = [
+                row.id for row in GardenPlan.query.with_entities(GardenPlan.id).filter_by(user_id=user_id).all()
+            ]
+            if plan_ids:
+                GardenPlanItem.query.filter(
+                    GardenPlanItem.garden_plan_id.in_(plan_ids),
+                    GardenPlanItem.indoor_seed_start_id.in_(deleted_seed_start_ids)
+                ).update(
+                    {GardenPlanItem.indoor_seed_start_id: None},
+                    synchronize_session=False
+                )
+            IndoorSeedStart.query.filter(
+                IndoorSeedStart.id.in_(deleted_seed_start_ids),
+                IndoorSeedStart.user_id == user_id
+            ).delete(synchronize_session=False)
+
+    indoor_destination_refs_updated = _detach_deleted_bed_from_indoor_starts(
+        bed_id,
+        user_id,
+        deleted_seed_start_ids
+    )
+
+    planting_event_count = 0
+    if planting_event_ids:
+        planting_event_count = PlantingEvent.query.filter(
+            PlantingEvent.id.in_(planting_event_ids),
+            PlantingEvent.user_id == user_id
+        ).delete(synchronize_session=False)
+
+    planted_item_count = PlantedItem.query.filter_by(
+        garden_bed_id=bed_id,
+        user_id=user_id
+    ).delete(synchronize_session=False)
+    placed_structure_count = PlacedStructure.query.filter_by(
+        garden_bed_id=bed_id,
+        user_id=user_id
+    ).delete(synchronize_session=False)
+
+    plan_counts = _detach_deleted_bed_from_plan_items(bed_id, user_id, trellis_ids)
+
+    trellis_count = 0
+    if trellis_ids:
+        trellis_count = TrellisStructure.query.filter(
+            TrellisStructure.id.in_(trellis_ids),
+            TrellisStructure.user_id == user_id
+        ).delete(synchronize_session=False)
+
+    return {
+        'plantedItemsDeleted': planted_item_count,
+        'plantingEventsDeleted': planting_event_count,
+        'indoorSeedStartsDeleted': len(deleted_seed_start_ids),
+        'indoorSeedStartDestinationsUpdated': indoor_destination_refs_updated,
+        'harvestRecordsDeleted': harvest_count,
+        'photosDeleted': len(photos),
+        'placedStructuresDeleted': placed_structure_count,
+        'trellisesDeleted': trellis_count,
+        'seedInventoryLinksCleared': seed_inventory_refs_cleared,
+        **plan_counts,
+    }
 
 
 # ==================== GARDEN BEDS ROUTES ====================
@@ -373,9 +937,28 @@ def garden_bed(bed_id):
         return jsonify({'error': 'Unauthorized'}), 403
 
     if request.method == 'DELETE':
-        db.session.delete(bed)
-        db.session.commit()
-        return '', 204
+        data = request.get_json(silent=True) or {}
+        confirmation = data.get('confirmation')
+        if not isinstance(confirmation, str) or confirmation.strip() != BED_DELETE_CONFIRMATION:
+            return jsonify({
+                'error': 'Permanent bed deletion requires confirmation',
+                'requiredConfirmation': BED_DELETE_CONFIRMATION
+            }), 400
+
+        try:
+            counts = _clear_bed_owned_data_for_delete(bed, current_user.id)
+            bed_name = bed.name
+            db.session.delete(bed)
+            db.session.commit()
+            return jsonify({
+                'message': f'Permanently deleted bed "{bed_name}" and attached records',
+                'deletedBedId': bed_id,
+                'counts': counts
+            }), 200
+        except Exception as e:
+            db.session.rollback()
+            logging.exception(f"Failed to permanently delete garden bed {bed_id}: {e}")
+            return jsonify({'error': 'Failed to delete garden bed'}), 500
 
     if request.method == 'PUT':
         data = request.json
@@ -407,6 +990,206 @@ def garden_bed(bed_id):
 
 
 # ==================== PLANTED ITEMS ROUTES ====================
+
+
+def _group_quantity_value(item):
+    if item.quantity is None:
+        return 1
+    return max(0, int(item.quantity))
+
+
+def _apply_variety_match(query, model, variety):
+    if variety is None:
+        return query.filter(model.variety.is_(None))
+    return query.filter(model.variety == variety)
+
+
+def _matching_planting_event_for_item(item):
+    query = PlantingEvent.query.filter(
+        PlantingEvent.user_id == item.user_id,
+        PlantingEvent.garden_bed_id == item.garden_bed_id,
+        PlantingEvent.plant_id == item.plant_id,
+        PlantingEvent.position_x == item.position_x,
+        PlantingEvent.position_y == item.position_y,
+        PlantingEvent.cancelled_at.is_(None),
+        or_(PlantingEvent.event_type.is_(None), PlantingEvent.event_type == 'planting'),
+    )
+    query = _apply_variety_match(query, PlantingEvent, item.variety)
+    events = query.all()
+    if not events:
+        return None
+
+    item_date = item.transplant_date or item.planted_date
+
+    def event_sort_key(event):
+        event_date = (
+            event.transplant_date
+            or event.direct_seed_date
+            or event.seed_start_date
+            or event.created_at
+        )
+        if item_date is not None and event_date is not None:
+            try:
+                date_distance = abs((event_date - item_date).total_seconds())
+            except TypeError:
+                date_distance = float('inf')
+        else:
+            date_distance = float('inf')
+        return date_distance, -(event.id or 0)
+
+    return sorted(events, key=event_sort_key)[0]
+
+
+def _reduce_matching_planting_event(item, removed_quantity, new_item_quantity, cancelled_at):
+    event = _matching_planting_event_for_item(item)
+    if event is None:
+        return None
+
+    if event.quantity is None:
+        if new_item_quantity <= 0:
+            event.cancelled_at = cancelled_at
+        else:
+            event.quantity = new_item_quantity
+        return event
+
+    new_event_quantity = max(0, int(event.quantity) - removed_quantity)
+    if new_event_quantity <= 0:
+        event.quantity = 0
+        event.cancelled_at = cancelled_at
+        if event.quantity_completed is not None:
+            event.quantity_completed = 0
+        return event
+
+    event.quantity = new_event_quantity
+    if event.quantity_completed is not None:
+        event.quantity_completed = min(event.quantity_completed, new_event_quantity)
+        event.completed = event.quantity_completed >= new_event_quantity
+    elif event.completed:
+        event.quantity_completed = new_event_quantity
+
+    return event
+
+
+@gardens_bp.route('/garden-beds/<int:bed_id>/planted-item-groups/quantity', methods=['PATCH'])
+@login_required
+def update_planted_item_group_quantity(bed_id):
+    """Downward-correct the displayed count for a plant+variety group in one bed."""
+    data = request.get_json(silent=True) or {}
+    plant_id = data.get('plantId')
+    if not isinstance(plant_id, str) or not plant_id.strip():
+        return jsonify({'error': 'plantId is required'}), 400
+
+    if 'quantity' not in data:
+        return jsonify({'error': 'quantity is required'}), 400
+
+    raw_quantity = data.get('quantity')
+    if isinstance(raw_quantity, bool):
+        return jsonify({'error': 'quantity must be a non-negative integer'}), 400
+    try:
+        new_quantity = int(raw_quantity)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'quantity must be a non-negative integer'}), 400
+    if new_quantity < 0:
+        return jsonify({'error': 'quantity must be a non-negative integer'}), 400
+
+    bed = GardenBed.query.filter_by(id=bed_id, user_id=current_user.id).first_or_404()
+    variety = data.get('variety') if 'variety' in data else None
+
+    items_query = PlantedItem.query.filter(
+        PlantedItem.user_id == current_user.id,
+        PlantedItem.garden_bed_id == bed.id,
+        PlantedItem.plant_id == plant_id,
+        PlantedItem.cancelled_at.is_(None),
+    )
+    items_query = _apply_variety_match(items_query, PlantedItem, variety)
+    items = items_query.order_by(
+        PlantedItem.planted_date.desc(),
+        PlantedItem.id.desc(),
+    ).all()
+
+    current_quantity = sum(_group_quantity_value(item) for item in items)
+    if current_quantity == 0:
+        return jsonify({'error': 'No active planted items found for this plant group'}), 404
+    if new_quantity > current_quantity:
+        return jsonify({
+            'error': 'Increasing planted group quantity is not supported yet',
+            'currentQuantity': current_quantity,
+        }), 400
+    if new_quantity == current_quantity:
+        return jsonify({
+            'bedId': bed.id,
+            'plantId': plant_id,
+            'variety': variety,
+            'previousQuantity': current_quantity,
+            'quantity': current_quantity,
+            'removedQuantity': 0,
+            'cancelledItemIds': [],
+            'updatedItems': [item.to_dict() for item in items],
+        }), 200
+
+    to_remove = current_quantity - new_quantity
+    remaining_to_remove = to_remove
+    cancelled_at = get_utc_now()
+    cancelled_item_ids = []
+    changed_items = []
+    changed_event_ids = []
+
+    for item in items:
+        if remaining_to_remove <= 0:
+            break
+
+        item_quantity = _group_quantity_value(item)
+        if item_quantity <= 0:
+            continue
+
+        remove_from_item = min(item_quantity, remaining_to_remove)
+        new_item_quantity = item_quantity - remove_from_item
+
+        changed_event = _reduce_matching_planting_event(
+            item,
+            remove_from_item,
+            new_item_quantity,
+            cancelled_at,
+        )
+        if changed_event is not None and changed_event.id is not None:
+            changed_event_ids.append(changed_event.id)
+
+        if new_item_quantity <= 0:
+            item.cancelled_at = cancelled_at
+            cancelled_item_ids.append(item.id)
+        else:
+            item.quantity = new_item_quantity
+
+        changed_items.append(item)
+        remaining_to_remove -= remove_from_item
+
+    db.session.commit()
+
+    active_items = [
+        item.to_dict()
+        for item in PlantedItem.query.filter(
+            PlantedItem.user_id == current_user.id,
+            PlantedItem.garden_bed_id == bed.id,
+            PlantedItem.plant_id == plant_id,
+            PlantedItem.cancelled_at.is_(None),
+        )
+        .filter(PlantedItem.id.in_([item.id for item in items]))
+        .all()
+    ]
+
+    return jsonify({
+        'bedId': bed.id,
+        'plantId': plant_id,
+        'variety': variety,
+        'previousQuantity': current_quantity,
+        'quantity': new_quantity,
+        'removedQuantity': to_remove,
+        'cancelledItemIds': cancelled_item_ids,
+        'changedItemIds': [item.id for item in changed_items],
+        'changedEventIds': sorted(set(changed_event_ids)),
+        'updatedItems': active_items,
+    }), 200
+
 
 @gardens_bp.route('/planted-items', methods=['POST'])
 @login_required
@@ -458,35 +1241,11 @@ def add_planted_item():
             if not plan or plan.user_id != current_user.id:
                 return jsonify({'error': 'Unauthorized: plan item belongs to another user'}), 400
 
-        # Validate sourceIndoorSeedStartId (AUDIT-013 Option α: explicit linkage
-        # from the banner "Pick cell" flow). When provided, linkage skips the
-        # heuristic +/- 14d transplant-date match and targets this exact record.
-        source_indoor_seed_start_id = data.get('sourceIndoorSeedStartId')
-        explicit_seed_start = None
-        if source_indoor_seed_start_id is not None:
-            # Reject non-int types (bool is rejected too even though isinstance(True, int))
-            # and any non-positive values.
-            if (
-                isinstance(source_indoor_seed_start_id, bool)
-                or not isinstance(source_indoor_seed_start_id, int)
-                or source_indoor_seed_start_id <= 0
-            ):
-                return jsonify({'error': 'sourceIndoorSeedStartId must be a positive integer'}), 400
-            explicit_seed_start = IndoorSeedStart.query.get(source_indoor_seed_start_id)
-            if not explicit_seed_start or explicit_seed_start.user_id != current_user.id:
-                # Treat cross-user as "not found" — no information leak.
-                return jsonify({'error': 'Indoor seed start not found'}), 404
-            if explicit_seed_start.status in ('transplanted', 'failed'):
-                return jsonify({
-                    'error': (
-                        f"Indoor seed start is already in status "
-                        f"'{explicit_seed_start.status}' and cannot be relinked."
-                    )
-                }), 400
-            if explicit_seed_start.cancelled_at is not None:
-                return jsonify({
-                    'error': 'Indoor seed start has been cancelled and cannot be relinked.'
-                }), 400
+        explicit_seed_start, source_seed_start_action, seed_start_error = (
+            _resolve_source_indoor_seed_start(data, current_user.id)
+        )
+        if seed_start_error is not None:
+            return seed_start_error
 
         # Compute expected harvest date for both PlantedItem and PlantingEvent
         expected_harvest = planted_date
@@ -572,10 +1331,15 @@ def add_planted_item():
         #   3. Auto-create a new IndoorSeedStart.
         indoor_seed_start = None
         indoor_seed_start_linked = False
+        indoor_seed_start_planned = False
         if explicit_seed_start is not None:
-            _link_existing_indoor_seed_start(explicit_seed_start, planting_event)
             indoor_seed_start = explicit_seed_start
-            indoor_seed_start_linked = True
+            if source_seed_start_action == 'transplant':
+                _link_existing_indoor_seed_start(explicit_seed_start, planting_event)
+                indoor_seed_start_linked = True
+            else:
+                _link_planned_indoor_seed_start(explicit_seed_start, planting_event)
+                indoor_seed_start_planned = True
         elif planting_method == 'transplant':
             existing_seed_start = _find_existing_indoor_seed_start(
                 current_user.id, planting_event
@@ -611,6 +1375,9 @@ def add_planted_item():
             response_data['indoorSeedStartCreated'] = not indoor_seed_start_linked
             response_data['indoorSeedStartLinked'] = indoor_seed_start_linked
             response_data['indoorSeedStartId'] = indoor_seed_start.id
+            if indoor_seed_start_planned:
+                response_data['indoorSeedStartCreated'] = False
+                response_data['indoorSeedStartPlacementPlanned'] = True
         return jsonify(response_data), 201
     except KeyError as e:
         db.session.rollback()
@@ -688,6 +1455,12 @@ def batch_add_planted_items():
             plan = GardenPlan.query.get(plan_item.garden_plan_id)
             if not plan or plan.user_id != current_user.id:
                 return jsonify({'error': 'Unauthorized: plan item belongs to another user'}), 400
+
+        explicit_seed_start, source_seed_start_action, seed_start_error = (
+            _resolve_source_indoor_seed_start(data, current_user.id)
+        )
+        if seed_start_error is not None:
+            return seed_start_error
 
         # Get plant data
         plant = get_plant_by_id(data['plantId'])
@@ -871,6 +1644,7 @@ def batch_add_planted_items():
         # (all positions in a batch share the same plant+variety).
         indoor_seed_starts_created = 0
         indoor_seed_starts_linked = 0
+        indoor_seed_starts_planned = 0
         if planting_method == 'transplant' and plant and plant.get('weeksIndoors', 0) > 0:
             # Group created events by transplant_date
             date_groups = {}
@@ -890,15 +1664,31 @@ def batch_add_planted_items():
             # multiple date-groups don't all latch onto the same existing record.
             reused_seed_start_ids = set()
 
+            if explicit_seed_start is not None and source_seed_start_action == 'plan':
+                indoor_seed_starts_planned = 1
+                if created_events:
+                    _link_planned_indoor_seed_start(
+                        explicit_seed_start,
+                        created_events[0][0]
+                    )
+                date_groups = {}
+
             for date_key, group in date_groups.items():
                 # Use the first event in the group as representative (linked to the IndoorSeedStart)
                 representative_event = group['events'][0]
                 total_qty = group['total_qty']
 
                 # Prefer linking an existing IndoorSeedStart over creating a new one.
-                existing_seed_start = _find_existing_indoor_seed_start(
-                    current_user.id, representative_event
-                )
+                if (
+                    explicit_seed_start is not None
+                    and source_seed_start_action == 'transplant'
+                    and explicit_seed_start.id not in reused_seed_start_ids
+                ):
+                    existing_seed_start = explicit_seed_start
+                else:
+                    existing_seed_start = _find_existing_indoor_seed_start(
+                        current_user.id, representative_event
+                    )
                 if existing_seed_start is not None and existing_seed_start.id in reused_seed_start_ids:
                     existing_seed_start = None  # already consumed by another group
 
@@ -960,6 +1750,9 @@ def batch_add_planted_items():
             response_data['indoorSeedStartsCreated'] = indoor_seed_starts_created
         if indoor_seed_starts_linked > 0:
             response_data['indoorSeedStartsLinked'] = indoor_seed_starts_linked
+        if indoor_seed_starts_planned > 0:
+            response_data['indoorSeedStartPlacementPlanned'] = True
+            response_data['indoorSeedStartId'] = explicit_seed_start.id
         return jsonify(response_data), 201
 
     except KeyError as e:
@@ -973,6 +1766,155 @@ def batch_add_planted_items():
         except UnicodeEncodeError:
             error_msg = repr(e)  # Fallback to repr if str() fails
         return jsonify({'error': f'Database error: {error_msg}'}), 500
+
+
+@gardens_bp.route('/planted-items/bulk-move', methods=['POST'])
+@login_required
+def bulk_move_planted_items():
+    """Move multiple planted items within one bed atomically.
+
+    Used by Garden Designer's future-row move workflow. The endpoint validates
+    every requested target before mutating rows so a conflict cannot leave a
+    partially moved row.
+    """
+    data = request.get_json(silent=True) or {}
+    raw_moves = data.get('moves')
+    if not isinstance(raw_moves, list) or len(raw_moves) == 0:
+        return jsonify({'error': 'moves must be a non-empty list'}), 400
+
+    move_by_id = {}
+    target_positions = set()
+    for raw in raw_moves:
+        if not isinstance(raw, dict):
+            return jsonify({'error': 'Each move must be an object'}), 400
+        raw_id = raw.get('id')
+        if isinstance(raw_id, bool):
+            return jsonify({'error': 'Move id must be a positive integer'}), 400
+        try:
+            item_id = int(raw_id)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Move id must be a positive integer'}), 400
+        if item_id <= 0:
+            return jsonify({'error': 'Move id must be a positive integer'}), 400
+        if item_id in move_by_id:
+            return jsonify({'error': 'Duplicate move id'}), 400
+
+        position = raw.get('position')
+        if not isinstance(position, dict):
+            return jsonify({'error': 'Each move requires a position'}), 400
+        try:
+            x = int(position.get('x'))
+            y = int(position.get('y'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Position x and y must be integers'}), 400
+        if x < 0 or y < 0:
+            return jsonify({'error': 'Position x and y must be non-negative'}), 400
+
+        target_key = (x, y)
+        if target_key in target_positions:
+            return jsonify({'error': 'Multiple items cannot move to the same position'}), 400
+        target_positions.add(target_key)
+        move_by_id[item_id] = {'x': x, 'y': y}
+
+    item_ids = list(move_by_id.keys())
+    items = PlantedItem.query.filter(
+        PlantedItem.user_id == current_user.id,
+        PlantedItem.id.in_(item_ids)
+    ).all()
+    if len(items) != len(item_ids):
+        return jsonify({'error': 'One or more planted items were not found'}), 404
+
+    bed_ids = {item.garden_bed_id for item in items}
+    if len(bed_ids) != 1:
+        return jsonify({'error': 'Bulk move supports one garden bed at a time'}), 400
+    bed_id = next(iter(bed_ids))
+    bed = GardenBed.query.filter_by(id=bed_id, user_id=current_user.id).first()
+    if not bed:
+        return jsonify({'error': 'Garden bed not found'}), 404
+
+    grid_size = bed.grid_size or 12
+    grid_width = math.floor((bed.width * 12) / grid_size)
+    grid_height = math.floor((bed.length * 12) / grid_size)
+    for item in items:
+        pos = move_by_id[item.id]
+        if pos['x'] >= grid_width or pos['y'] >= grid_height:
+            return jsonify({
+                'error': 'Target position is outside the garden bed',
+                'failedItemId': item.id,
+                'failedPosition': {'x': pos['x'], 'y': pos['y']},
+                'message': (
+                    f"Position ({pos['x']}, {pos['y']}) is outside this bed "
+                    f"(max: {grid_width - 1}, {grid_height - 1})"
+                )
+            }), 400
+
+    events_by_item_id = {}
+    for item in items:
+        events_by_item_id[item.id] = PlantingEvent.query.filter_by(
+            garden_bed_id=item.garden_bed_id,
+            plant_id=item.plant_id,
+            position_x=item.position_x,
+            position_y=item.position_y,
+            user_id=current_user.id
+        ).first()
+
+    conflict_override = bool(data.get('conflictOverride', False))
+    if not conflict_override:
+        moving_ids = set(item_ids)
+        candidate_events = [
+            candidate for candidate in query_candidate_items(bed_id, current_user.id)
+            if candidate.id not in moving_ids
+        ]
+
+        for item in items:
+            event = events_by_item_id.get(item.id)
+            if not event:
+                continue
+            start_date = event.transplant_date or event.direct_seed_date
+            if not start_date or not event.expected_harvest_date:
+                continue
+
+            pos = move_by_id[item.id]
+            temp_event = type('TempEvent', (), {
+                'position_x': pos['x'],
+                'position_y': pos['y'],
+                'garden_bed_id': bed_id,
+                'plant_id': event.plant_id,
+                'transplant_date': event.transplant_date,
+                'direct_seed_date': event.direct_seed_date,
+                'seed_start_date': event.seed_start_date,
+                'expected_harvest_date': event.expected_harvest_date,
+                'id': item.id,
+            })()
+
+            result = has_conflict(temp_event, candidate_events, bed)
+            if result.get('has_conflict'):
+                return jsonify({
+                    'error': 'Planting conflict detected',
+                    'conflicts': result.get('conflicts', []),
+                    'failedItemId': item.id,
+                    'failedPosition': {'x': pos['x'], 'y': pos['y']},
+                    'message': (
+                        f"Bulk move blocked at position ({pos['x']}, {pos['y']}). "
+                        f"This overlaps with {len(result.get('conflicts', []))} existing planting(s)."
+                    )
+                }), 409
+
+    for item in items:
+        pos = move_by_id[item.id]
+        item.position_x = pos['x']
+        item.position_y = pos['y']
+        event = events_by_item_id.get(item.id)
+        if event:
+            event.position_x = pos['x']
+            event.position_y = pos['y']
+
+    db.session.commit()
+    moved_items = sorted(items, key=lambda item: item.id)
+    return jsonify({
+        'moved': len(moved_items),
+        'items': [item.to_dict() for item in moved_items],
+    }), 200
 
 
 @gardens_bp.route('/garden-beds/<int:bed_id>/planted-items/date/<date_str>', methods=['DELETE'])
@@ -1379,6 +2321,7 @@ def planted_item(item_id):
     # Cross-model sync: PlantedItem 'harvested' → PlantingEvent completed
     if item.status == 'harvested' and old_status != 'harvested' and planting_event:
         planting_event.completed = True
+        planting_event.harvest_completed = True
         if planting_event.quantity is not None:
             planting_event.quantity_completed = planting_event.quantity
         _sync_indoor_start_on_completion(planting_event)
@@ -1441,6 +2384,7 @@ def planted_item(item_id):
             planting_event.transplant_date = item.transplant_date
         if 'harvestDate' in data and data['harvestDate']:
             planting_event.actual_harvest_date = item.harvest_date  # Use actual_harvest_date for filtering
+            planting_event.harvest_completed = True
 
         # Sync seed maturity / harvest date to PlantingEvent for conflict detection
         if item.save_for_seed and item.seed_maturity_date:
@@ -1902,6 +2846,51 @@ def uncancel_planting_event(event_id):
         'cancelledAt': None,
     }), 200
 
+
+@gardens_bp.route('/planted-items/<int:item_id>/cancel', methods=['POST'])
+@login_required
+def cancel_planted_item(item_id):
+    """Soft-cancel a placed planting so bed/snapshot reads hide it.
+
+    Used when the user opts out of a placed plant at or after its
+    planted_date (e.g., "I'm not actually planting that lettuce").
+    The PlantedItem stays in the database for history but is filtered
+    out of forward-looking views.
+    """
+    item = PlantedItem.query.filter_by(
+        id=item_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if item.cancelled_at is None:
+        item.cancelled_at = get_utc_now()
+        db.session.commit()
+
+    return jsonify({
+        'id': item.id,
+        'cancelledAt': item.cancelled_at.isoformat() if item.cancelled_at else None,
+    }), 200
+
+
+@gardens_bp.route('/planted-items/<int:item_id>/uncancel', methods=['POST'])
+@login_required
+def uncancel_planted_item(item_id):
+    """Restore a soft-cancelled planted item."""
+    item = PlantedItem.query.filter_by(
+        id=item_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if item.cancelled_at is not None:
+        item.cancelled_at = None
+        db.session.commit()
+
+    return jsonify({
+        'id': item.id,
+        'cancelledAt': None,
+    }), 200
+
+
 @gardens_bp.route('/planting-events/orphaned', methods=['GET', 'DELETE'])
 @login_required
 def orphaned_planting_events():
@@ -1988,55 +2977,12 @@ def planting_event(event_id):
         else:
             events_to_delete = [event]
 
-        event_ids = [e.id for e in events_to_delete]
-
-        # Collect plan item IDs from export keys before deletion
-        plan_item_ids_affected = set()
-        for e in events_to_delete:
-            if e.export_key:
-                try:
-                    plan_item_id = int(e.export_key.split('_')[1])
-                    plan_item_ids_affected.add(plan_item_id)
-                except (ValueError, IndexError):
-                    pass
-
-        # Delete linked IndoorSeedStarts and their auto-created GardenPlanItems
-        seed_starts = IndoorSeedStart.query.filter(
-            IndoorSeedStart.planting_event_id.in_(event_ids),
-            IndoorSeedStart.user_id == current_user.id
-        ).all()
-        seed_start_ids = [ss.id for ss in seed_starts]
-
-        if seed_start_ids:
-            GardenPlanItem.query.filter(
-                GardenPlanItem.indoor_seed_start_id.in_(seed_start_ids),
-                GardenPlanItem.source == 'indoor-seed-start'
-            ).delete(synchronize_session=False)
-
-        for ss in seed_starts:
-            db.session.delete(ss)
-
-        # Delete the planting events
-        for e in events_to_delete:
-            db.session.delete(e)
-
-        db.session.flush()
-
-        # Reset GardenPlanItem status if all exported events for that item are now gone
-        plan_items_reset = 0
-        for pid in plan_item_ids_affected:
-            remaining = PlantingEvent.query.filter(
-                PlantingEvent.export_key.like(f"{current_user.id}_{pid}_%"),
-                PlantingEvent.user_id == current_user.id
-            ).count()
-            if remaining == 0:
-                plan_item = db.session.get(GardenPlanItem, pid)
-                if plan_item and plan_item.status == 'exported':
-                    plan_item.status = 'planned'
-                    plan_items_reset += 1
-
+        delete_result = _delete_planting_events(events_to_delete, current_user.id)
         db.session.commit()
-        return jsonify({'deleted': len(event_ids), 'planItemsReset': plan_items_reset}), 200
+        return jsonify({
+            'deleted': delete_result['deleted'],
+            'planItemsReset': delete_result['planItemsReset'],
+        }), 200
 
     data = request.json
     event.completed = data.get('completed', event.completed)
@@ -2172,6 +3118,160 @@ def planting_event(event_id):
 
     db.session.commit()
     return jsonify(event.to_dict())
+
+
+@gardens_bp.route('/planting-events/bulk-delete', methods=['POST'])
+@login_required
+def bulk_delete_planting_events():
+    """Hard-delete selected planting events after typed confirmation."""
+    data = request.get_json(silent=True) or {}
+    if data.get('confirmation') != 'delete':
+        return jsonify({'error': 'Typed confirmation must be exactly "delete"'}), 400
+
+    raw_event_ids = data.get('eventIds')
+    if not isinstance(raw_event_ids, list) or not raw_event_ids:
+        return jsonify({'error': 'eventIds must be a non-empty list'}), 400
+
+    event_ids = []
+    for raw_id in raw_event_ids:
+        if isinstance(raw_id, bool):
+            return jsonify({'error': 'eventIds must contain positive integers'}), 400
+        try:
+            event_id = int(raw_id)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'eventIds must contain positive integers'}), 400
+        if event_id <= 0:
+            return jsonify({'error': 'eventIds must contain positive integers'}), 400
+        event_ids.append(event_id)
+
+    unique_event_ids = list(dict.fromkeys(event_ids))
+    events = PlantingEvent.query.filter(
+        PlantingEvent.id.in_(unique_event_ids),
+        PlantingEvent.user_id == current_user.id,
+    ).all()
+
+    if len(events) != len(unique_event_ids):
+        return jsonify({'error': 'One or more planting events were not found'}), 404
+
+    events_by_id = {event.id: event for event in events}
+    ordered_events = [events_by_id[event_id] for event_id in unique_event_ids]
+    delete_result = _delete_planting_events(ordered_events, current_user.id)
+
+    db.session.commit()
+    return jsonify(delete_result), 200
+
+
+@gardens_bp.route('/planned-items/unassigned/bulk-delete', methods=['POST'])
+@login_required
+def bulk_delete_unassigned_planned_items():
+    """Hard-delete unassigned planned calendar events and seed starts."""
+    data = request.get_json(silent=True) or {}
+    if data.get('confirmation') != 'delete':
+        return jsonify({'error': 'Typed confirmation must be exactly "delete"'}), 400
+
+    raw_event_ids = data.get('eventIds') or []
+    raw_seed_start_ids = data.get('seedStartIds') or []
+    if not isinstance(raw_event_ids, list) or not isinstance(raw_seed_start_ids, list):
+        return jsonify({'error': 'eventIds and seedStartIds must be lists'}), 400
+
+    def _parse_positive_ids(raw_ids, field_name):
+        parsed_ids = []
+        for raw_id in raw_ids:
+            if isinstance(raw_id, bool):
+                raise ValueError(field_name)
+            try:
+                parsed_id = int(raw_id)
+            except (TypeError, ValueError):
+                raise ValueError(field_name)
+            if parsed_id <= 0:
+                raise ValueError(field_name)
+            parsed_ids.append(parsed_id)
+        return list(dict.fromkeys(parsed_ids))
+
+    try:
+        event_ids = _parse_positive_ids(raw_event_ids, 'eventIds')
+        seed_start_ids = _parse_positive_ids(raw_seed_start_ids, 'seedStartIds')
+    except ValueError as exc:
+        return jsonify({'error': f'{exc.args[0]} must contain positive integers'}), 400
+
+    if not event_ids and not seed_start_ids:
+        return jsonify({'error': 'No planned items were provided'}), 400
+
+    events = []
+    if event_ids:
+        events = PlantingEvent.query.filter(
+            PlantingEvent.id.in_(event_ids),
+            PlantingEvent.user_id == current_user.id,
+        ).all()
+        if len(events) != len(event_ids):
+            return jsonify({'error': 'One or more planting events were not found'}), 404
+        for event in events:
+            if _event_has_existing_bed_assignment(event, current_user.id):
+                return jsonify({'error': 'Only unassigned planting events can be deleted here'}), 400
+            if event.cancelled_at is not None or event.completed:
+                return jsonify({'error': 'Only active planned planting events can be deleted here'}), 400
+            if event.quantity_completed is not None and event.quantity_completed > 0:
+                return jsonify({'error': 'Only unstarted planting events can be deleted here'}), 400
+
+    seed_starts = []
+    if seed_start_ids:
+        seed_starts = IndoorSeedStart.query.filter(
+            IndoorSeedStart.id.in_(seed_start_ids),
+            IndoorSeedStart.user_id == current_user.id,
+        ).all()
+        if len(seed_starts) != len(seed_start_ids):
+            return jsonify({'error': 'One or more indoor seed starts were not found'}), 404
+
+        linked_event_ids = [
+            seed_start.planting_event_id
+            for seed_start in seed_starts
+            if seed_start.planting_event_id is not None
+        ]
+        linked_events_by_id = {}
+        if linked_event_ids:
+            linked_events = PlantingEvent.query.filter(
+                PlantingEvent.id.in_(linked_event_ids),
+                PlantingEvent.user_id == current_user.id,
+            ).all()
+            linked_events_by_id = {event.id: event for event in linked_events}
+
+        for seed_start in seed_starts:
+            if seed_start.status != 'planned':
+                return jsonify({'error': 'Only planned indoor seed starts can be deleted here'}), 400
+            linked_event = linked_events_by_id.get(seed_start.planting_event_id)
+            if linked_event is not None and _event_has_existing_bed_assignment(linked_event, current_user.id):
+                return jsonify({'error': 'Only unassigned indoor seed starts can be deleted here'}), 400
+            sync = seed_start.get_current_garden_plan_count()
+            if sync.get('destinationBedDetails'):
+                return jsonify({'error': 'Only unassigned indoor seed starts can be deleted here'}), 400
+
+    seed_start_linked_event_ids = {
+        seed_start.planting_event_id
+        for seed_start in seed_starts
+        if seed_start.planting_event_id is not None
+    }
+    standalone_events = [
+        event for event in events
+        if event.id not in seed_start_linked_event_ids
+    ]
+
+    event_result = _delete_planting_events(standalone_events, current_user.id)
+    seed_start_result = _delete_indoor_seed_starts(seed_starts, current_user.id)
+    db.session.commit()
+
+    deleted_event_ids = (
+        event_result['deletedEventIds'] + seed_start_result['deletedLinkedEventIds']
+    )
+    return jsonify({
+        'deletedEventIds': deleted_event_ids,
+        'deletedSeedStartIds': seed_start_result['deletedSeedStartIds'],
+        'deletedPlantingEvents': event_result['deleted'] + seed_start_result['deletedPlantingEvents'],
+        'deletedIndoorSeedStarts': seed_start_result['deletedSeedStarts'],
+        'deletedPlantedItems': seed_start_result['deletedPlantedItems'],
+        'deletedPlanItems': seed_start_result['deletedPlanItems'],
+        'deletedAutoPlanItems': event_result['deletedAutoPlanItems'],
+        'planItemsReset': event_result['planItemsReset'],
+    }), 200
 
 
 @gardens_bp.route('/planting-events/<int:event_id>/switch-to-direct-seed', methods=['PATCH'])
@@ -2320,6 +3420,7 @@ def mark_event_harvested(event_id):
 
     # Harvesting implies completion
     event.completed = True
+    event.harvest_completed = True
     if event.quantity is not None:
         event.quantity_completed = event.quantity
     _sync_indoor_start_on_completion(event)
@@ -2621,10 +3722,12 @@ def get_planting_events_needing_indoor_starts():
                     scoped_events.append(event)
             events = scoped_events
 
-        # Group events by (plant_id, variety, transplant_date, plan_id) and sum quantities.
-        # plan_id is included in the key so two plans with the same crop+variety+
-        # date do NOT silently merge into one row (previous behavior mixed their
-        # plantingEventIds and hid the cross-plan span from the user).
+        # Group events by (plant_id, variety, transplant_date, plan_id, bed_id)
+        # and sum quantities. plan_id is included in the key so two plans with
+        # the same crop+variety+date do NOT silently merge into one row
+        # (previous behavior mixed their plantingEventIds and hid the cross-plan
+        # span from the user). bed_id stays in the key so Indoor Seed Starts can
+        # filter planned rows by destination bed without cross-bed merging.
         grouped = {}
         for event in events:
             # Get plant data
@@ -2643,9 +3746,15 @@ def get_planting_events_needing_indoor_starts():
             event_plan_id = plan_info[0] if plan_info else None
             event_plan_name = plan_info[1] if plan_info else None
 
-            # Group by plant, variety, transplant date, and plan id
+            # Group by plant, variety, transplant date, plan id, and bed id
             transplant_date_str = event.transplant_date.date().isoformat()
-            group_key = (event.plant_id, event.variety or '', transplant_date_str, event_plan_id)
+            group_key = (
+                event.plant_id,
+                event.variety or '',
+                transplant_date_str,
+                event_plan_id,
+                event.garden_bed_id,
+            )
 
             if group_key not in grouped:
                 grouped[group_key] = {
@@ -2684,7 +3793,10 @@ def get_planting_events_needing_indoor_starts():
         bed_ids = {g['gardenBedId'] for g in grouped.values() if g['gardenBedId']}
         bed_names = {}
         if bed_ids:
-            beds = GardenBed.query.filter(GardenBed.id.in_(bed_ids)).all()
+            beds = GardenBed.query.filter(
+                GardenBed.id.in_(bed_ids),
+                GardenBed.user_id == current_user.id
+            ).all()
             bed_names = {b.id: b.name for b in beds}
 
         # Convert grouped data to results

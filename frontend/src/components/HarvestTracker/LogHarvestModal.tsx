@@ -55,6 +55,9 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
       });
       setErrors({});
     }
+    // `today` is intentionally excluded: the form should reset only when the modal opens,
+    // not mid-session if the simulated date advances (which would wipe user input).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, fetchPlants]);
 
   const validate = () => {

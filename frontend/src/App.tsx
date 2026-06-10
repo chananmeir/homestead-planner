@@ -63,6 +63,25 @@ interface NavGroup {
   items?: NavSubItem[]; // undefined for Dashboard (direct view)
 }
 
+interface IndoorStartFocusTarget {
+  indoorSeedStartIds: number[];
+  plantingEventIds: number[];
+}
+
+type CalendarViewModeRequest = { mode: 'grid'; requestId: number };
+
+const collectNumberIds = (...groups: Array<ReadonlyArray<number | null | undefined> | undefined>): number[] => {
+  const ids = new Set<number>();
+  for (const group of groups) {
+    for (const value of group || []) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        ids.add(value);
+      }
+    }
+  }
+  return Array.from(ids);
+};
+
 const NAV_GROUPS: NavGroup[] = [
   { id: 'dashboard', name: 'Dashboard', icon: '🏡', description: 'Your homestead today' },
   {
@@ -121,36 +140,208 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+const TAB_TO_GROUP: Record<Tab, NavGroupId> = {
+  dashboard: 'dashboard',
+  garden: 'plan',
+  snapshot: 'plan',
+  designer: 'design',
+  property: 'design',
+  'planting-calendar': 'grow',
+  'indoor-starts': 'grow',
+  'soil-temp': 'grow',
+  weather: 'grow',
+  harvests: 'track',
+  photos: 'track',
+  nutrition: 'track',
+  seeds: 'manage',
+  livestock: 'manage',
+  compost: 'manage',
+  admin: 'admin',
+};
+
+const VALID_TABS = new Set<Tab>(Object.keys(TAB_TO_GROUP) as Tab[]);
+const VALID_GROUPS = new Set<NavGroupId>(['dashboard', 'plan', 'design', 'grow', 'track', 'manage', 'admin']);
+
+interface AppRouteState {
+  activeGroup: NavGroupId;
+  activeTab: Tab;
+  designerBedId: number | null;
+  designerDate: string | null;
+  transplantSeedStartId: number | null;
+  plantingEventId: number | null;
+  harvestFocusId: number | null;
+  seedFocusId: number | null;
+  compostFocusId: number | null;
+  indoorStartFocusId: number | null;
+  indoorStartFocusTarget: IndoorStartFocusTarget | null;
+  livestockFocusType: string | null;
+  calendarFocusEventId: number | null;
+  calendarViewModeRequest: CalendarViewModeRequest | null;
+}
+
+interface AppRouteDestination {
+  tab: Tab;
+  group?: NavGroupId;
+  bedId?: number | null;
+  date?: string | null;
+  seedStartId?: number | null;
+  plantingEventId?: number | null;
+  harvestFocusId?: number | null;
+  seedId?: number | null;
+  compostPileId?: number | null;
+  indoorSeedStartId?: number | null;
+  indoorSeedStartIds?: number[];
+  plantingEventIds?: number[];
+  livestockType?: string | null;
+  calendarEventId?: number | null;
+  calendarViewMode?: 'grid';
+}
+
+const defaultAppRouteState = (): AppRouteState => ({
+  activeGroup: 'dashboard',
+  activeTab: 'dashboard',
+  designerBedId: null,
+  designerDate: null,
+  transplantSeedStartId: null,
+  plantingEventId: null,
+  harvestFocusId: null,
+  seedFocusId: null,
+  compostFocusId: null,
+  indoorStartFocusId: null,
+  indoorStartFocusTarget: null,
+  livestockFocusType: null,
+  calendarFocusEventId: null,
+  calendarViewModeRequest: null,
+});
+
+const readNumberParam = (params: URLSearchParams, key: string): number | null => {
+  const raw = params.get(key);
+  if (raw == null || raw.trim() === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+};
+
+const readNumberListParam = (params: URLSearchParams, key: string): number[] => {
+  const raw = params.get(key);
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(part => Number(part.trim()))
+    .filter(value => Number.isFinite(value));
+};
+
+const parseInitialAppRoute = (): AppRouteState => {
+  const route = defaultAppRouteState();
+  const params = new URLSearchParams(window.location.search);
+
+  const tabParam = params.get('tab') as Tab | null;
+  if (tabParam && VALID_TABS.has(tabParam)) {
+    route.activeTab = tabParam;
+    route.activeGroup = TAB_TO_GROUP[tabParam];
+  }
+
+  const groupParam = params.get('group') as NavGroupId | null;
+  if (groupParam && VALID_GROUPS.has(groupParam)) {
+    route.activeGroup = groupParam;
+  }
+
+  route.designerBedId = readNumberParam(params, 'bedId');
+  route.designerDate = params.get('date') || params.get('designerDate');
+  route.transplantSeedStartId = readNumberParam(params, 'seedStartId');
+  route.plantingEventId = readNumberParam(params, 'plantingEventId');
+  route.harvestFocusId = readNumberParam(params, 'harvestFocusId');
+  route.seedFocusId = readNumberParam(params, 'seedId');
+  route.compostFocusId = readNumberParam(params, 'compostPileId');
+  route.livestockFocusType = params.get('livestockType');
+  route.calendarFocusEventId = readNumberParam(params, 'calendarEventId');
+  route.calendarViewModeRequest = params.get('calendarView') === 'grid'
+    ? { mode: 'grid', requestId: 1 }
+    : null;
+
+  const indoorSeedStartId = readNumberParam(params, 'indoorSeedStartId');
+  const indoorSeedStartIds = collectNumberIds(
+    [indoorSeedStartId],
+    readNumberListParam(params, 'indoorSeedStartIds')
+  );
+  const plantingEventIds = readNumberListParam(params, 'plantingEventIds');
+  if (indoorSeedStartIds.length > 0 || plantingEventIds.length > 0) {
+    route.indoorStartFocusId = indoorSeedStartIds[0] ?? plantingEventIds[0] ?? null;
+    route.indoorStartFocusTarget = { indoorSeedStartIds, plantingEventIds };
+  }
+
+  return route;
+};
+
+const setNumberParam = (params: URLSearchParams, key: string, value: number | null | undefined) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    params.set(key, String(value));
+  }
+};
+
+const setNumberListParam = (params: URLSearchParams, key: string, values: number[] | undefined) => {
+  const cleanValues = collectNumberIds(values);
+  if (cleanValues.length > 0) {
+    params.set(key, cleanValues.join(','));
+  }
+};
+
+const buildAppDestinationUrl = (destination: AppRouteDestination): string => {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  const params = url.searchParams;
+
+  params.set('tab', destination.tab);
+  params.set('group', destination.group || TAB_TO_GROUP[destination.tab]);
+  setNumberParam(params, 'bedId', destination.bedId);
+  if (destination.date) params.set('date', destination.date);
+  setNumberParam(params, 'seedStartId', destination.seedStartId);
+  setNumberParam(params, 'plantingEventId', destination.plantingEventId);
+  setNumberParam(params, 'harvestFocusId', destination.harvestFocusId);
+  setNumberParam(params, 'seedId', destination.seedId);
+  setNumberParam(params, 'compostPileId', destination.compostPileId);
+  setNumberParam(params, 'indoorSeedStartId', destination.indoorSeedStartId);
+  setNumberListParam(params, 'indoorSeedStartIds', destination.indoorSeedStartIds);
+  setNumberListParam(params, 'plantingEventIds', destination.plantingEventIds);
+  if (destination.livestockType) params.set('livestockType', destination.livestockType);
+  setNumberParam(params, 'calendarEventId', destination.calendarEventId);
+  if (destination.calendarViewMode) params.set('calendarView', destination.calendarViewMode);
+
+  return url.toString();
+};
+
 function AppContent() {
   const { user, isAuthenticated, loading, logout } = useAuth();
   const { getToday, isSimulating } = useSimulation();
+  const initialAppRoute = React.useMemo(parseInitialAppRoute, []);
   const headerDateLabel = parseLocalDate(getToday()).toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   });
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
 
-  const [activeGroup, setActiveGroup] = useState<NavGroupId>('dashboard');
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [activeGroup, setActiveGroup] = useState<NavGroupId>(initialAppRoute.activeGroup);
+  const [activeTab, setActiveTab] = useState<Tab>(initialAppRoute.activeTab);
 
   const [locationInfo, setLocationInfo] = useState<{
     zipCode: string; zone: string; city: string;
     weatherTemp?: number; weatherConditions?: string; weatherIcon?: string;
   } | null>(null);
-  const [designerBedId, setDesignerBedId] = useState<number | null>(null);
-  const [designerDate, setDesignerDate] = useState<string | null>(null);
-  const [transplantSeedStartId, setTransplantSeedStartId] = useState<number | null>(null);
-  const [plantingEventId, setPlantingEventId] = useState<number | null>(null);
+  const [designerBedId, setDesignerBedId] = useState<number | null>(initialAppRoute.designerBedId);
+  const [designerDate, setDesignerDate] = useState<string | null>(initialAppRoute.designerDate);
+  const [transplantSeedStartId, setTransplantSeedStartId] = useState<number | null>(initialAppRoute.transplantSeedStartId);
+  const [plantingEventId, setPlantingEventId] = useState<number | null>(initialAppRoute.plantingEventId);
 
   // Phase B: focus-state atoms for Needs Attention deep-links. Destinations
   // will consume these in Phase C; here we only plumb them through.
-  const [harvestFocusId, setHarvestFocusId] = useState<number | null>(null);
-  const [seedFocusId, setSeedFocusId] = useState<number | null>(null);
-  const [compostFocusId, setCompostFocusId] = useState<number | null>(null);
-  const [indoorStartFocusId, setIndoorStartFocusId] = useState<number | null>(null);
-  const [livestockFocusType, setLivestockFocusType] = useState<string | null>(null);
-  const [calendarFocusEventId, setCalendarFocusEventId] = useState<number | null>(null);
-  const [calendarViewModeRequest, setCalendarViewModeRequest] = useState<{ mode: 'grid'; requestId: number } | null>(null);
+  const [harvestFocusId, setHarvestFocusId] = useState<number | null>(initialAppRoute.harvestFocusId);
+  const [seedFocusId, setSeedFocusId] = useState<number | null>(initialAppRoute.seedFocusId);
+  const [compostFocusId, setCompostFocusId] = useState<number | null>(initialAppRoute.compostFocusId);
+  const [indoorStartFocusId, setIndoorStartFocusId] = useState<number | null>(initialAppRoute.indoorStartFocusId);
+  const [indoorStartFocusTarget, setIndoorStartFocusTarget] = useState<IndoorStartFocusTarget | null>(initialAppRoute.indoorStartFocusTarget);
+  const [livestockFocusType, setLivestockFocusType] = useState<string | null>(initialAppRoute.livestockFocusType);
+  const [calendarFocusEventId, setCalendarFocusEventId] = useState<number | null>(initialAppRoute.calendarFocusEventId);
+  const [calendarViewModeRequest, setCalendarViewModeRequest] = useState<CalendarViewModeRequest | null>(initialAppRoute.calendarViewModeRequest);
 
   // Build nav groups including conditional Admin.
   const navGroups: NavGroup[] = [
@@ -228,31 +419,49 @@ function AppContent() {
     };
   }, [user]);
 
-  // When activeTab changes, clear transient designer navigation state unless staying in designer.
+  // Clear transient designer navigation state when leaving Designer, or when
+  // entering Designer through generic nav instead of an explicit deep link.
   const goToTab = (tab: Tab, group?: NavGroupId) => {
-    if (tab !== 'designer') {
+    if (tab !== 'designer' || activeTab !== 'designer') {
       setDesignerBedId(null);
       setDesignerDate(null);
       setTransplantSeedStartId(null);
+      setPlantingEventId(null);
     }
     // Phase B: clear focus atoms for tabs we're leaving. Clearing them all on
     // every tab switch is simple and prevents stale state.
     if (tab !== 'harvests') setHarvestFocusId(null);
     if (tab !== 'seeds') setSeedFocusId(null);
     if (tab !== 'compost') setCompostFocusId(null);
-    if (tab !== 'indoor-starts') setIndoorStartFocusId(null);
+    if (tab !== 'indoor-starts') {
+      setIndoorStartFocusId(null);
+      setIndoorStartFocusTarget(null);
+    }
     if (tab !== 'livestock') setLivestockFocusType(null);
     if (tab !== 'planting-calendar' && tab !== 'soil-temp') setCalendarFocusEventId(null);
     setActiveTab(tab);
     if (group) setActiveGroup(group);
   };
 
+  const openAppDestination = (destination: AppRouteDestination) => {
+    window.open(buildAppDestinationUrl(destination), '_blank', 'noopener,noreferrer');
+  };
+
+  const clearDesignerPlantingEvent = () => {
+    setPlantingEventId(null);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('plantingEventId')) {
+      url.searchParams.delete('plantingEventId');
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  };
+
   const openPlantingCalendarGrid = () => {
-    setCalendarViewModeRequest(prev => ({
-      mode: 'grid',
-      requestId: (prev?.requestId ?? 0) + 1,
-    }));
-    goToTab('planting-calendar', 'grow');
+    openAppDestination({
+      tab: 'planting-calendar',
+      group: 'grow',
+      calendarViewMode: 'grid',
+    });
   };
 
   // Navigate directly to a group, selecting first sub-item (or dashboard/admin for direct groups).
@@ -271,76 +480,127 @@ function AppContent() {
     if (first) goToTab(first.id, groupId);
   };
 
-  // Needs Attention router: sets focus atoms + navigates to the matching tab.
-  // Destination components will consume the focus atoms in Phase C.
+  // Needs Attention router: opens a deep-linked browser tab so the Dashboard
+  // remains available for reference while the destination view receives focus.
   const handleNeedsAttentionNavigate = (target: NeedsAttentionTarget) => {
     switch (target.kind) {
       case 'harvest':
-        setHarvestFocusId(target.plantingEventId);
-        goToTab('harvests', 'track');
+        openAppDestination({
+          tab: 'harvests',
+          group: 'track',
+          harvestFocusId: target.plantingEventId,
+        });
         return;
       case 'harvestBed':
-        setDesignerBedId(target.bedId);
-        setPlantingEventId(target.plantingEventId);
-        setTransplantSeedStartId(null);
-        goToTab('designer', 'design');
+        openAppDestination({
+          tab: 'designer',
+          group: 'design',
+          bedId: target.bedId,
+        });
         return;
       case 'indoorStart':
       case 'indoorGerminationCheck': {
-        const focus = target.indoorSeedStartId ?? target.plantingEventId ?? null;
-        setIndoorStartFocusId(focus);
-        goToTab('indoor-starts', 'grow');
+        const indoorSeedStartIds = collectNumberIds(
+          [target.indoorSeedStartId],
+          target.indoorSeedStartIds
+        );
+        const plantingEventIds = collectNumberIds(
+          [target.plantingEventId],
+          target.plantingEventIds
+        );
+        openAppDestination({
+          tab: 'indoor-starts',
+          group: 'grow',
+          indoorSeedStartId: indoorSeedStartIds[0] ?? null,
+          indoorSeedStartIds,
+          plantingEventIds,
+        });
         return;
       }
       case 'transplant':
         if (target.bedId != null) {
-          setDesignerBedId(target.bedId);
-          setPlantingEventId(target.plantingEventId);
-          setTransplantSeedStartId(null);
-          goToTab('designer', 'design');
+          openAppDestination({
+            tab: 'designer',
+            group: 'design',
+            bedId: target.bedId,
+            plantingEventId: target.plantingEventId,
+          });
         } else {
-          setCalendarFocusEventId(target.plantingEventId);
-          goToTab('planting-calendar', 'grow');
+          openAppDestination({
+            tab: 'planting-calendar',
+            group: 'grow',
+            calendarEventId: target.plantingEventId,
+          });
         }
         return;
       case 'germinationCheck':
         if (target.bedId != null) {
-          setDesignerBedId(target.bedId);
-          setPlantingEventId(target.plantingEventId);
-          setTransplantSeedStartId(null);
-          goToTab('designer', 'design');
+          openAppDestination({
+            tab: 'designer',
+            group: 'design',
+            bedId: target.bedId,
+            plantingEventId: target.plantingEventId,
+          });
         } else {
-          setCalendarFocusEventId(target.plantingEventId);
-          goToTab('planting-calendar', 'grow');
+          openAppDestination({
+            tab: 'planting-calendar',
+            group: 'grow',
+            calendarEventId: target.plantingEventId,
+          });
         }
         return;
       case 'directSeed':
         if (target.bedId != null) {
-          setDesignerBedId(target.bedId);
-          setPlantingEventId(target.plantingEventId);
-          setTransplantSeedStartId(null);
-          goToTab('designer', 'design');
+          openAppDestination({
+            tab: 'designer',
+            group: 'design',
+            bedId: target.bedId,
+            plantingEventId: target.plantingEventId,
+          });
         } else {
-          setCalendarFocusEventId(target.plantingEventId);
-          goToTab('planting-calendar', 'grow');
+          openAppDestination({
+            tab: 'planting-calendar',
+            group: 'grow',
+            calendarEventId: target.plantingEventId,
+          });
+        }
+        return;
+      case 'placePlantedItem':
+        if (target.bedId != null) {
+          openAppDestination({
+            tab: 'designer',
+            group: 'design',
+            bedId: target.bedId,
+          });
+        } else {
+          openAppDestination({ tab: 'designer', group: 'design' });
         }
         return;
       case 'compost':
-        setCompostFocusId(target.pileId);
-        goToTab('compost', 'manage');
+        openAppDestination({
+          tab: 'compost',
+          group: 'manage',
+          compostPileId: target.pileId,
+        });
         return;
       case 'seedLow':
       case 'seedExpiring':
-        setSeedFocusId(target.seedId);
-        goToTab('seeds', 'manage');
+        openAppDestination({
+          tab: 'seeds',
+          group: 'manage',
+          seedId: target.seedId,
+        });
         return;
       case 'livestock':
-        setLivestockFocusType(target.type);
-        goToTab('livestock', 'manage');
+        openAppDestination({
+          tab: 'livestock',
+          group: 'manage',
+          livestockType: target.type,
+        });
         return;
       case 'weatherFrost':
       case 'weatherRain':
-        goToTab('weather', 'grow');
+        openAppDestination({ tab: 'weather', group: 'grow' });
         return;
       default: {
         // Exhaustiveness guard — TS will fail if a new NeedsAttentionTarget
@@ -351,19 +611,19 @@ function AppContent() {
     }
   };
 
-  // Shortcut helpers for Dashboard buttons (sets both group + tab).
+  // Shortcut helpers for Dashboard action buttons.
   const nav = {
-    openGardenDesigner: () => goToTab('designer', 'design'),
-    openPlantingCalendar: () => goToTab('planting-calendar', 'grow'),
-    openGardenPlans: () => goToTab('garden', 'plan'),
-    openSeasonPlanner: () => goToTab('garden', 'plan'),
-    openWeather: () => goToTab('weather', 'grow'),
-    openSeeds: () => goToTab('seeds', 'manage'),
-    openLivestock: () => goToTab('livestock', 'manage'),
-    openCompost: () => goToTab('compost', 'manage'),
-    openHarvests: () => goToTab('harvests', 'track'),
-    openPhotos: () => goToTab('photos', 'track'),
-    openIndoorStarts: () => goToTab('indoor-starts', 'grow'),
+    openGardenDesigner: () => openAppDestination({ tab: 'designer', group: 'design' }),
+    openPlantingCalendar: () => openAppDestination({ tab: 'planting-calendar', group: 'grow' }),
+    openGardenPlans: () => openAppDestination({ tab: 'garden', group: 'plan' }),
+    openSeasonPlanner: () => openAppDestination({ tab: 'garden', group: 'plan' }),
+    openWeather: () => openAppDestination({ tab: 'weather', group: 'grow' }),
+    openSeeds: () => openAppDestination({ tab: 'seeds', group: 'manage' }),
+    openLivestock: () => openAppDestination({ tab: 'livestock', group: 'manage' }),
+    openCompost: () => openAppDestination({ tab: 'compost', group: 'manage' }),
+    openHarvests: () => openAppDestination({ tab: 'harvests', group: 'track' }),
+    openPhotos: () => openAppDestination({ tab: 'photos', group: 'track' }),
+    openIndoorStarts: () => openAppDestination({ tab: 'indoor-starts', group: 'grow' }),
     onNavigate: handleNeedsAttentionNavigate,
   };
 
@@ -478,7 +738,7 @@ function AppContent() {
 
         {/* Main Content */}
         <main className={
-          isFullViewport ? 'flex-1 overflow-hidden' : 'container mx-auto px-4 py-8'
+          isFullViewport ? 'flex-1 min-h-0 overflow-hidden flex flex-col' : 'container mx-auto px-4 py-8'
         }>
           {!isAuthenticated ? (
             <LoginRequiredMessage onLoginClick={() => setShowLogin(true)} />
@@ -486,7 +746,7 @@ function AppContent() {
             <>
               {/* Section landing for groups with sub-nav */}
               {showSectionLanding && currentGroup && (
-                <div className="mb-6">
+                <div className={isFullViewport ? 'mb-6 flex-shrink-0' : 'mb-6'}>
                   <div className="mb-4">
                     <h2 className="text-2xl font-bold text-gray-900">{currentGroup.name}</h2>
                     <p className="text-gray-600 mt-1 text-sm">{currentGroup.description}</p>
@@ -519,16 +779,22 @@ function AppContent() {
 
               {/* Design group */}
               {activeTab === 'designer' && (
-                <GardenDesigner
-                  initialBedId={designerBedId}
-                  initialDate={designerDate}
-                  transplantSeedStartId={transplantSeedStartId}
-                  onTransplantComplete={() => setTransplantSeedStartId(null)}
-                  plantingEventId={plantingEventId}
-                  onPlantingComplete={() => setPlantingEventId(null)}
-                />
+                <div className="flex-1 min-h-0">
+                  <GardenDesigner
+                    initialBedId={designerBedId}
+                    initialDate={designerDate}
+                    transplantSeedStartId={transplantSeedStartId}
+                    onTransplantComplete={() => setTransplantSeedStartId(null)}
+                    plantingEventId={plantingEventId}
+                    onPlantingComplete={clearDesignerPlantingEvent}
+                  />
+                </div>
               )}
-              {activeTab === 'property' && <PropertyDesigner />}
+              {activeTab === 'property' && (
+                <div className="flex-1 min-h-0">
+                  <PropertyDesigner />
+                </div>
+              )}
 
               {/* Grow group */}
               {activeTab === 'planting-calendar' && (
@@ -538,22 +804,29 @@ function AppContent() {
                   onPreferredViewModeConsumed={() => setCalendarViewModeRequest(null)}
                   focusPlantingEventId={calendarFocusEventId}
                   onNavigateToBed={(bedId, date, seedStartId, eventId) => {
-                    setDesignerBedId(bedId);
-                    setDesignerDate(date || null);
-                    setTransplantSeedStartId(seedStartId || null);
-                    setPlantingEventId(eventId || null);
-                    goToTab('designer', 'design');
+                    openAppDestination({
+                      tab: 'designer',
+                      group: 'design',
+                      bedId,
+                      date,
+                      seedStartId,
+                      plantingEventId: eventId,
+                    });
                   }}
                 />
               )}
               {activeTab === 'indoor-starts' && (
                 <IndoorSeedStarts
                   focusIndoorStartId={indoorStartFocusId}
+                  focusIndoorStartTarget={indoorStartFocusTarget}
                   onNavigateToBed={(bedId, date, seedStartId) => {
-                    setDesignerBedId(bedId);
-                    setDesignerDate(date || null);
-                    setTransplantSeedStartId(seedStartId || null);
-                    goToTab('designer', 'design');
+                    openAppDestination({
+                      tab: 'designer',
+                      group: 'design',
+                      bedId,
+                      date,
+                      seedStartId,
+                    });
                   }}
                 />
               )}
@@ -562,11 +835,14 @@ function AppContent() {
                   initialView="soil-temp"
                   focusPlantingEventId={calendarFocusEventId}
                   onNavigateToBed={(bedId, date, seedStartId, eventId) => {
-                    setDesignerBedId(bedId);
-                    setDesignerDate(date || null);
-                    setTransplantSeedStartId(seedStartId || null);
-                    setPlantingEventId(eventId || null);
-                    goToTab('designer', 'design');
+                    openAppDestination({
+                      tab: 'designer',
+                      group: 'design',
+                      bedId,
+                      date,
+                      seedStartId,
+                      plantingEventId: eventId,
+                    });
                   }}
                 />
               )}

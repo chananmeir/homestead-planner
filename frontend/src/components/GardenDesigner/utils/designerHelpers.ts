@@ -4,6 +4,7 @@
  */
 
 import { Plant, PlantedItem, PlantingEvent } from '../../../types';
+import { parseLocalDate } from '../../../utils/dateUtils';
 import { coordinateToGridLabel } from './gridCoordinates';
 
 // Badge positioning constants (percentage of cell size)
@@ -84,6 +85,7 @@ export const calculateHarvestDate = (item: PlantedItem, plant: Plant | undefined
 
 /** True when a placed item should be visible in the actual bed state. */
 export const isPlantedItemActiveOnDate = (item: PlantedItem, viewDate: Date): boolean => {
+  if (item.cancelledAt) return false;
   if (!item.plantedDate) return false;
 
   const planted = new Date(item.plantedDate);
@@ -108,6 +110,51 @@ export const isPlantedItemActiveOnDate = (item: PlantedItem, viewDate: Date): bo
   }
 
   return true;
+};
+
+export type PlantedItemDisplayStatusTone =
+  | 'scheduled'
+  | 'growing'
+  | 'seeded'
+  | 'transplanted'
+  | 'harvested'
+  | 'saving-seed'
+  | 'neutral';
+
+export interface PlantedItemDisplayStatus {
+  label: string;
+  tone: PlantedItemDisplayStatusTone;
+}
+
+const normalizeDay = (value: Date | string | null | undefined): Date | null => {
+  if (!value) return null;
+  const date = typeof value === 'string' ? parseLocalDate(value) : new Date(value);
+  if (isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+/** User-facing status for placed plants. Keeps "planned" for unplaced plans only. */
+export const getPlantedItemDisplayStatus = (
+  item: PlantedItem,
+  viewDate: Date = new Date()
+): PlantedItemDisplayStatus => {
+  if (item.cancelledAt) return { label: 'Skipped', tone: 'neutral' };
+  if (item.status === 'harvested') return { label: 'Harvested', tone: 'harvested' };
+  if (item.status === 'saving-seed') return { label: 'Saving seed', tone: 'saving-seed' };
+
+  const plantedDay = normalizeDay(item.plantedDate);
+  const viewDay = normalizeDay(viewDate);
+  if (plantedDay && viewDay && plantedDay > viewDay) {
+    return { label: 'Scheduled', tone: 'scheduled' };
+  }
+
+  if (item.status === 'planned') return { label: 'Growing', tone: 'growing' };
+  if (item.status === 'seeded') return { label: 'Seeded', tone: 'seeded' };
+  if (item.status === 'transplanted') return { label: 'Transplanted', tone: 'transplanted' };
+  if (item.status === 'growing') return { label: 'Growing', tone: 'growing' };
+
+  return { label: item.status || 'Placed', tone: 'neutral' };
 };
 
 /** Get future planting events at a specific grid position */
@@ -154,3 +201,40 @@ export const calculateTooltipPosition = (clickX: number, clickY: number) => {
 
   return { left, top };
 };
+
+/**
+ * Lay out `totalQuantity` plants across a set of pre-computed cells, filling each cell
+ * up to `cellCapacity` plants before moving to the next. The input cells already encode
+ * the plant's real spacing (one entry per placeable cell), so walking them in order lays
+ * plants out at proper spacing — 1 per cell for wide-spacing crops (cellCapacity === 1),
+ * multiple per cell only for dense crops (cellCapacity > 1).
+ *
+ * Crucially it NEVER stacks more than a cell can hold: that was the bug that crammed a
+ * whole row of peppers into a single square (e.g. 5 plants -> A7 qty3 + C7 qty2) and then
+ * rendered it as one icon. If more plants are requested than fit at proper spacing, the
+ * surplus is returned as `notFitted` so the caller can warn the user ("stop at bed edge")
+ * instead of over-stacking.
+ *
+ * Pure function — no state or DOM dependencies, so it is unit-testable.
+ */
+export function distributePlantsAcrossCells(
+  cells: { x: number; y: number }[],
+  totalQuantity: number,
+  cellCapacity: number
+): {
+  positions: { x: number; y: number; quantity: number }[];
+  notFitted: number;
+} {
+  const capacity = Math.max(1, Math.floor(cellCapacity));
+  let remaining = Math.max(0, Math.floor(totalQuantity));
+  const positions: { x: number; y: number; quantity: number }[] = [];
+
+  for (const cell of cells) {
+    if (remaining <= 0) break;
+    const quantity = Math.min(capacity, remaining);
+    remaining -= quantity;
+    positions.push({ x: cell.x, y: cell.y, quantity });
+  }
+
+  return { positions, notFitted: remaining };
+}

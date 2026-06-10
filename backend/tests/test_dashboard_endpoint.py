@@ -16,12 +16,14 @@ import pytest
 from models import (
     db,
     PlantingEvent,
+    PlantedItem,
     GardenBed,
     CompostPile,
     SeedInventory,
     Chicken,
     EggProduction,
     IndoorSeedStart,
+    DashboardSnooze,
 )
 from tests.conftest import login_as
 
@@ -112,6 +114,8 @@ class TestHarvestReady:
             garden_bed_id=bed.id,
             expected_harvest_date=datetime(2026, 4, 10),  # 4 days ago
             quantity=12,
+            quantity_completed=12,
+            completed=True,
         )
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
         assert resp.status_code == 200
@@ -124,14 +128,57 @@ class TestHarvestReady:
         assert row['daysPastExpected'] == 4
         assert row['quantity'] == 12
 
-    def test_excludes_completed_events(self, auth_client_a, user_a):
+    def test_excludes_unplanted_scheduled_harvests(self, auth_client_a, user_a):
+        _make_event(
+            user_a.id,
+            expected_harvest_date=datetime(2026, 4, 10),
+            quantity=4,
+        )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['harvestReady'] == []
+
+    def test_excludes_harvest_completed_events(self, auth_client_a, user_a):
         _make_event(
             user_a.id,
             expected_harvest_date=datetime(2026, 4, 10),
             quantity=4,
             quantity_completed=4,
             completed=True,
+            harvest_completed=True,
         )
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['harvestReady'] == []
+
+    def test_excludes_harvested_matching_planted_items(self, auth_client_a, user_a):
+        bed = _make_bed(user_a.id, 'Bed Spinach')
+        _make_event(
+            user_a.id,
+            plant_id='spinach-1',
+            variety='Bloomsdale Long Standing',
+            garden_bed_id=bed.id,
+            direct_seed_date=datetime(2026, 3, 25),
+            expected_harvest_date=datetime(2026, 5, 4),
+            position_x=0,
+            position_y=0,
+            quantity=3,
+            quantity_completed=3,
+            completed=True,
+        )
+        planted_item = PlantedItem(
+            user_id=user_a.id,
+            plant_id='spinach-1',
+            variety='Bloomsdale Long Standing',
+            garden_bed_id=bed.id,
+            planted_date=datetime(2026, 3, 25),
+            harvest_date=datetime(2026, 5, 8),
+            position_x=0,
+            position_y=0,
+            quantity=3,
+            status='harvested',
+        )
+        db.session.add(planted_item)
+        db.session.commit()
+
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
         assert resp.get_json()['signals']['harvestReady'] == []
 
@@ -139,6 +186,8 @@ class TestHarvestReady:
         _make_event(
             user_a.id,
             expected_harvest_date=datetime(2026, 5, 1),  # after TODAY
+            quantity_completed=4,
+            completed=True,
         )
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
         assert resp.get_json()['signals']['harvestReady'] == []
@@ -149,6 +198,8 @@ class TestHarvestReady:
             user_a.id,
             expected_harvest_date=datetime(2026, 5, 1),
             quantity=3,
+            quantity_completed=3,
+            completed=True,
         )
         # Today: empty
         resp_today = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
@@ -187,6 +238,64 @@ class TestIndoorStartsDue:
         )
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
         assert resp.get_json()['signals']['indoorStartsDue'] == []
+
+    def test_linked_seeded_indoor_start_excludes_incomplete_event(
+        self, auth_client_a, user_a,
+    ):
+        """A linked IndoorSeedStart can be seeded while its outdoor
+        PlantingEvent stays incomplete until transplant. That must not keep
+        the original seed-start task in Needs Attention."""
+        event = _make_event(
+            user_a.id,
+            plant_id='pumpkin-1',
+            variety='Cinderella',
+            seed_start_date=datetime(2026, 4, 14),
+            quantity=3,
+            completed=False,
+            quantity_completed=0,
+        )
+        _make_seed_start(
+            user_a.id,
+            plant_id='pumpkin-1',
+            variety='Cinderella',
+            start_date=datetime(2026, 4, 14),
+            seeds_started=3,
+            status='seeded',
+            planting_event_id=event.id,
+        )
+
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        body = resp.get_json()
+
+        assert body['signals']['indoorStartsDue'] == []
+        assert body['missed']['indoorStartsDue'] == []
+
+    def test_other_users_seeded_indoor_start_does_not_exclude_event(
+        self, auth_client_a, user_a, user_b,
+    ):
+        """The linked-status lookup must stay user-scoped."""
+        event = _make_event(
+            user_a.id,
+            plant_id='pumpkin-1',
+            variety='Cinderella',
+            seed_start_date=datetime(2026, 4, 14),
+            quantity=3,
+        )
+        _make_seed_start(
+            user_b.id,
+            plant_id='pumpkin-1',
+            variety='Cinderella',
+            start_date=datetime(2026, 4, 14),
+            seeds_started=3,
+            status='seeded',
+            planting_event_id=event.id,
+        )
+
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['indoorStartsDue']
+
+        assert len(rows) == 1
+        assert rows[0]['plantingEventId'] == event.id
 
 
 def _make_seed_start(user_id, **kwargs):
@@ -862,8 +971,245 @@ class TestDefensive:
             garden_bed_id=bed.id,
             expected_harvest_date=datetime(2026, 4, 10),
             event_details='{this is not valid json',
+            quantity_completed=4,
+            completed=True,
         )
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
         assert resp.status_code == 200
         # And the event still shows up (confirming we didn't silently drop it)
         assert len(resp.get_json()['signals']['harvestReady']) == 1
+
+
+# ---------------------------------------------------------------------------
+# POST /api/dashboard/snooze
+# ---------------------------------------------------------------------------
+
+class TestSnoozeEndpoint:
+    """Coverage for POST /api/dashboard/snooze.
+
+    The endpoint accepts either a `days` window (1-30) or `forever: true` for
+    a permanent dismiss. Earlier the endpoint ignored `forever` and treated
+    permanent-dismiss requests as 3-day snoozes — see
+    harvest-ready-signal-deep-dive.md §3.11.
+    """
+
+    def _post(self, client, body):
+        return client.post('/api/dashboard/snooze', json=body)
+
+    def test_forever_sets_sentinel_date(self, auth_client_a, user_a):
+        resp = self._post(auth_client_a, {'signalKey': 'harvest-1', 'forever': True})
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['signalKey'] == 'harvest-1'
+        assert body['snoozeUntil'] == '9999-12-31'
+
+        row = DashboardSnooze.query.filter_by(
+            user_id=user_a.id, signal_key='harvest-1'
+        ).first()
+        assert row is not None
+        assert row.snooze_until == date(9999, 12, 31)
+
+    def test_forever_hides_harvest_signal_indefinitely(self, auth_client_a, user_a):
+        """Regression: a forever-dismissed harvest must stay hidden even when
+        queried with a target date far in the future. Before the fix, the
+        endpoint silently set snooze_until = today + 3d, so the row resurfaced
+        on day 4. After the fix, the year-9999 sentinel keeps it hidden."""
+        bed = _make_bed(user_a.id, 'Bed Forever')
+        event = _make_event(
+            user_a.id,
+            plant_id='radish-1',
+            variety='Cherry Belle',
+            garden_bed_id=bed.id,
+            expected_harvest_date=datetime(2026, 4, 10),
+            quantity=22,
+            quantity_completed=22,
+            completed=True,
+        )
+        # Dismiss permanently.
+        signal_key = f'harvest-{event.id}'
+        resp = self._post(auth_client_a, {'signalKey': signal_key, 'forever': True})
+        assert resp.status_code == 200
+
+        # Today: hidden.
+        resp_today = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp_today.get_json()['signals']['harvestReady'] == []
+
+        # 90 days later: still hidden (this is the regression — would have
+        # resurfaced under the old default-3-days behavior).
+        future = (TODAY + timedelta(days=90)).isoformat()
+        resp_future = _get_today(auth_client_a, f'date={future}')
+        assert resp_future.get_json()['signals']['harvestReady'] == []
+
+    def test_forever_ignores_days_argument(self, auth_client_a, user_a):
+        """When forever=true, an out-of-range days value must not 400 — the
+        frontend currently sends `{signalKey, forever: true}` with no days,
+        but defensive callers may also send invalid days."""
+        resp = self._post(
+            auth_client_a,
+            {'signalKey': 'harvest-1', 'forever': True, 'days': 999},
+        )
+        assert resp.status_code == 200
+        row = DashboardSnooze.query.filter_by(signal_key='harvest-1').first()
+        assert row.snooze_until == date(9999, 12, 31)
+
+    def test_default_days_is_3(self, auth_client_a, user_a):
+        # Pin target date so we can assert the resulting snooze_until.
+        resp = auth_client_a.post(
+            f'/api/dashboard/snooze?date={TODAY.isoformat()}',
+            json={'signalKey': 'harvest-1'},
+        )
+        assert resp.status_code == 200
+        row = DashboardSnooze.query.filter_by(signal_key='harvest-1').first()
+        assert row.snooze_until == TODAY + timedelta(days=3)
+
+    def test_days_in_range_is_accepted(self, auth_client_a, user_a):
+        resp = auth_client_a.post(
+            f'/api/dashboard/snooze?date={TODAY.isoformat()}',
+            json={'signalKey': 'harvest-1', 'days': 7},
+        )
+        assert resp.status_code == 200
+        row = DashboardSnooze.query.filter_by(signal_key='harvest-1').first()
+        assert row.snooze_until == TODAY + timedelta(days=7)
+
+    def test_invalid_days_returns_400(self, auth_client_a, user_a):
+        for bad in (0, -1, 31, 'three', None):
+            resp = self._post(auth_client_a, {'signalKey': 'harvest-1', 'days': bad})
+            assert resp.status_code == 400, f'days={bad!r} should be rejected'
+
+    def test_missing_signal_key_returns_400(self, auth_client_a):
+        resp = self._post(auth_client_a, {'forever': True})
+        assert resp.status_code == 400
+
+    def test_empty_body_returns_400(self, auth_client_a):
+        resp = self._post(auth_client_a, {})
+        assert resp.status_code == 400
+
+    def test_non_dict_body_returns_400(self, auth_client_a):
+        """A JSON array or scalar must 400, not 500 (data.get would crash)."""
+        for body in ([1, 2, 3], 'string', 42):
+            resp = self._post(auth_client_a, body)
+            assert resp.status_code == 400, f'body={body!r} should be rejected'
+
+    def test_invalid_date_query_param_returns_400(self, auth_client_a):
+        """Invalid `?date=` must 400, not 500 (the GET endpoint already does
+        this; POST was missing the try/except)."""
+        resp = auth_client_a.post(
+            '/api/dashboard/snooze?date=not-a-date',
+            json={'signalKey': 'harvest-1', 'days': 3},
+        )
+        assert resp.status_code == 400
+
+    def test_upsert_overwrites_existing_snooze(self, auth_client_a, user_a):
+        """Two snoozes with the same signalKey collapse to one row — the most
+        recent POST wins. Documents (rather than mandates) the current
+        behavior: a later Skip-3d after a forever-dismiss will downgrade to
+        3 days. If that becomes a problem the upsert can switch to
+        max(existing, new), but for now the frontend doesn't hit that path."""
+        self._post(auth_client_a, {'signalKey': 'harvest-1', 'forever': True})
+        auth_client_a.post(
+            f'/api/dashboard/snooze?date={TODAY.isoformat()}',
+            json={'signalKey': 'harvest-1', 'days': 3},
+        )
+        rows = DashboardSnooze.query.filter_by(signal_key='harvest-1').all()
+        assert len(rows) == 1
+        assert rows[0].snooze_until == TODAY + timedelta(days=3)
+
+
+class TestUnsnoozeEndpoint:
+    """Coverage for DELETE /api/dashboard/snooze (the Undo path).
+
+    Earlier the route was registered POST-only, so the frontend Undo button
+    received 405 and the snooze record survived — the row visually returned
+    for 5 seconds and then re-hid on the next refresh."""
+
+    def _delete(self, client, body):
+        return client.delete('/api/dashboard/snooze', json=body)
+
+    def test_removes_existing_snooze(self, auth_client_a, user_a):
+        db.session.add(DashboardSnooze(
+            user_id=user_a.id,
+            signal_key='harvest-1',
+            snooze_until=date(9999, 12, 31),
+        ))
+        db.session.commit()
+
+        resp = self._delete(auth_client_a, {'signalKey': 'harvest-1'})
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['signalKey'] == 'harvest-1'
+        assert body['deleted'] is True
+        assert DashboardSnooze.query.filter_by(signal_key='harvest-1').first() is None
+
+    def test_idempotent_when_no_snooze_exists(self, auth_client_a, user_a):
+        """Undo should never error — clicking it twice is harmless."""
+        resp = self._delete(auth_client_a, {'signalKey': 'harvest-999'})
+        assert resp.status_code == 200
+        assert resp.get_json()['deleted'] is False
+
+    def test_missing_signal_key_returns_400(self, auth_client_a):
+        resp = self._delete(auth_client_a, {})
+        assert resp.status_code == 400
+
+    def test_non_dict_body_returns_400(self, auth_client_a):
+        for body in ([1, 2, 3], 'string', 42):
+            resp = self._delete(auth_client_a, body)
+            assert resp.status_code == 400, f'body={body!r} should be rejected'
+
+    def test_user_isolation(self, auth_client_a, user_a, user_b):
+        """User A's DELETE must not touch user B's snooze for the same key."""
+        db.session.add(DashboardSnooze(
+            user_id=user_b.id,
+            signal_key='harvest-1',
+            snooze_until=date(9999, 12, 31),
+        ))
+        db.session.commit()
+        assert user_a.id != user_b.id
+
+        resp = self._delete(auth_client_a, {'signalKey': 'harvest-1'})
+        assert resp.status_code == 200
+        assert resp.get_json()['deleted'] is False
+        # User B's snooze is untouched.
+        b_row = DashboardSnooze.query.filter_by(
+            user_id=user_b.id, signal_key='harvest-1'
+        ).first()
+        assert b_row is not None
+
+    def test_dismiss_then_undo_restores_harvest_signal(self, auth_client_a, user_a):
+        """End-to-end regression: POST forever → row hidden; DELETE → row back.
+
+        Pre-fix flow: DELETE returned 405, snooze persisted, row stayed hidden
+        on next refresh despite the 5-second Undo toast. This test fails
+        before the DELETE handler exists.
+        """
+        bed = _make_bed(user_a.id, 'Bed Undo')
+        event = _make_event(
+            user_a.id,
+            plant_id='radish-1',
+            variety='Cherry Belle',
+            garden_bed_id=bed.id,
+            expected_harvest_date=datetime(2026, 4, 10),
+            quantity=22,
+            quantity_completed=22,
+            completed=True,
+        )
+        signal_key = f'harvest-{event.id}'
+
+        # 1. Dismiss permanently.
+        resp = auth_client_a.post(
+            '/api/dashboard/snooze',
+            json={'signalKey': signal_key, 'forever': True},
+        )
+        assert resp.status_code == 200
+        assert _get_today(auth_client_a, f'date={TODAY.isoformat()}') \
+            .get_json()['signals']['harvestReady'] == []
+
+        # 2. Undo.
+        resp = self._delete(auth_client_a, {'signalKey': signal_key})
+        assert resp.status_code == 200
+        assert resp.get_json()['deleted'] is True
+
+        # 3. Row is back.
+        hr = _get_today(auth_client_a, f'date={TODAY.isoformat()}') \
+            .get_json()['signals']['harvestReady']
+        assert len(hr) == 1
+        assert hr[0]['variety'] == 'Cherry Belle'

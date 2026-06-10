@@ -1,0 +1,23 @@
+- generic [ref=e2]:
+  - generic [ref=e52]:
+    - generic [ref=e53]:
+      - heading "MedXM" [level=1] [ref=e54]
+      - paragraph [ref=e55]: IME Booking Platform
+    - generic [ref=e56]:
+      - generic [ref=e57]:
+        - generic [ref=e58]: Email
+        - textbox "Email" [ref=e59]:
+          - /placeholder: you@example.com
+          - text: pendingtest20260531@test.com
+      - generic [ref=e60]:
+        - generic [ref=e61]: Password
+        - textbox "Password" [ref=e62]:
+          - /placeholder: ••••••••
+          - text: PendingPass123!
+      - generic [ref=e67]: We couldn't sign you in. Double-check your email and password, or contact support if your account may be inactive.
+      - button "Login" [ref=e63] [cursor=pointer]
+    - paragraph [ref=e65]:
+      - text: Don't have an account?
+      - link "Register here" [ref=e66] [cursor=pointer]:
+        - /url: /register
+  - region "Notifications Alt+T"

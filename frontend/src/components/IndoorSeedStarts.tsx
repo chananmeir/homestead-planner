@@ -8,7 +8,7 @@ import { ImportFromGardenModal } from './IndoorSeedStarts/ImportFromGardenModal'
 import { EditSeedStartModal } from './IndoorSeedStarts/EditSeedStartModal';
 import { FailedSeedStartDialog } from './IndoorSeedStarts/FailedSeedStartDialog';
 import PlantIcon from './common/PlantIcon';
-import { parseLocalDate } from '../utils/dateUtils';
+import { formatLocalDate, parseLocalDate } from '../utils/dateUtils';
 import { API_BASE_URL } from '../config';
 import { useNow, useToday } from '../contexts/SimulationContext';
 
@@ -59,6 +59,7 @@ interface IndoorSeedStart {
   notes?: string;
   status: 'planned' | 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
   plantingEventId?: number;
+  hasPlannedPlacement?: boolean;
   // Live sync fields
   gardenPlanCount?: number;
   gardenPlanExpectedSeeds?: number;
@@ -66,11 +67,17 @@ interface IndoorSeedStart {
   gardenPlanWarning?: string;
   destinationBeds?: string[];
   destinationBedDetails?: DestinationBedDetail[];
+  placedCount?: number;
+  remainingToPlant?: number;
 }
 
 interface IndoorSeedStartsProps {
   onNavigateToBed?: (bedId: number, date?: string, seedStartId?: number) => void;
   focusIndoorStartId?: number | null;
+  focusIndoorStartTarget?: {
+    indoorSeedStartIds?: number[];
+    plantingEventIds?: number[];
+  } | null;
   onFocusConsumed?: () => void;
 }
 
@@ -80,6 +87,7 @@ interface IndoorSeedStartsProps {
 // page to that modal's internal types.
 interface PlanOnlySeeding {
   plantingEventId: number;
+  plantingEventIds?: number[];
   plantId: string;
   plantName: string;
   plantIcon: string;
@@ -99,8 +107,66 @@ interface PlanOnlySeeding {
   planName?: string | null;
 }
 
-const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, focusIndoorStartId, onFocusConsumed }) => {
+const PLAN_ONLY_BED_FILTER_ALL = 'all';
+const PLAN_ONLY_BED_FILTER_UNASSIGNED = 'unassigned';
+
+const getDateKey = (value?: string | null): string | null => {
+  if (!value) return null;
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  if (match) return match[1];
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+};
+
+const isDateInRange = (
+  value: string | null | undefined,
+  startDate: string,
+  endDate: string
+): boolean => {
+  if (!startDate && !endDate) return true;
+  const dateKey = getDateKey(value);
+  if (!dateKey) return false;
+  if (startDate && dateKey < startDate) return false;
+  if (endDate && dateKey > endDate) return false;
+  return true;
+};
+
+const getPlanOnlyPlantingEventIds = (rows: PlanOnlySeeding[]): number[] => {
+  const ids = new Set<number>();
+  for (const row of rows) {
+    const rowIds = row.plantingEventIds && row.plantingEventIds.length > 0
+      ? row.plantingEventIds
+      : [row.plantingEventId];
+    for (const id of rowIds) {
+      if (Number.isFinite(id)) {
+        ids.add(id);
+      }
+    }
+  }
+  return Array.from(ids);
+};
+
+const collectNumberIds = (...groups: Array<ReadonlyArray<number | null | undefined> | undefined>): number[] => {
+  const ids = new Set<number>();
+  for (const group of groups) {
+    for (const value of group || []) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        ids.add(value);
+      }
+    }
+  }
+  return Array.from(ids);
+};
+
+const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({
+  onNavigateToBed,
+  focusIndoorStartId,
+  focusIndoorStartTarget,
+  onFocusConsumed,
+}) => {
   const now = useNow();
+  const today = useToday();
   const [seedStarts, setSeedStarts] = useState<IndoorSeedStart[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [seedInventory, setSeedInventory] = useState<SeedInventoryItem[]>([]);
@@ -116,42 +182,123 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
   const [needsIndoorStarts, setNeedsIndoorStarts] = useState<PlanOnlySeeding[]>([]);
   const [bannerExpanded, setBannerExpanded] = useState<boolean>(false);
   const [dismissedIds, setDismissedIds] = useState<Set<number>>(new Set());
+  const [planOnlyBedFilter, setPlanOnlyBedFilter] = useState<string>(PLAN_ONLY_BED_FILTER_ALL);
+  const [startDateFromFilter, setStartDateFromFilter] = useState('');
+  const [startDateToFilter, setStartDateToFilter] = useState('');
   const [bannerActionInFlight, setBannerActionInFlight] = useState<Set<number>>(new Set());
-  const autoFilterFocusHandledRef = useRef<number | null>(null);
+  const [deletePlanOnlyConfirmOpen, setDeletePlanOnlyConfirmOpen] = useState(false);
+  const [deletePlanOnlyInFlight, setDeletePlanOnlyInFlight] = useState(false);
+  const autoFilterFocusHandledRef = useRef<string | null>(null);
   const { showSuccess, showError } = useToast();
 
-  // Two-phase focus resolution: first renders resolve against whatever seedStarts
-  // is currently loaded (possibly empty on mount); when the list finishes loading,
-  // this memo recomputes and the useFocusHighlight hook re-fires the scroll.
-  const resolvedFocusId = React.useMemo(() => {
-    if (focusIndoorStartId == null) return null;
-    const directMatch = seedStarts.find(s => s.id === focusIndoorStartId);
-    if (directMatch) return directMatch.id;
-    const eventMatch = seedStarts.find(s => s.plantingEventId === focusIndoorStartId);
-    return eventMatch ? eventMatch.id : focusIndoorStartId;
-  }, [focusIndoorStartId, seedStarts]);
+  const hasExplicitFocusTarget = React.useMemo(
+    () =>
+      (focusIndoorStartTarget?.indoorSeedStartIds?.length ?? 0) > 0 ||
+      (focusIndoorStartTarget?.plantingEventIds?.length ?? 0) > 0,
+    [focusIndoorStartTarget]
+  );
 
-  const { registerRef, highlightedId } = useFocusHighlight<number>(resolvedFocusId, onFocusConsumed);
+  const focusIndoorSeedStartIds = React.useMemo(
+    () => hasExplicitFocusTarget
+      ? collectNumberIds(focusIndoorStartTarget?.indoorSeedStartIds)
+      : collectNumberIds([focusIndoorStartId]),
+    [focusIndoorStartId, focusIndoorStartTarget, hasExplicitFocusTarget]
+  );
+
+  const focusPlantingEventIds = React.useMemo(
+    () => hasExplicitFocusTarget
+      ? collectNumberIds(focusIndoorStartTarget?.plantingEventIds)
+      : collectNumberIds([focusIndoorStartId]),
+    [focusIndoorStartId, focusIndoorStartTarget, hasExplicitFocusTarget]
+  );
+
+  const focusRequestKey = React.useMemo(() => {
+    if (focusIndoorSeedStartIds.length === 0 && focusPlantingEventIds.length === 0) {
+      return null;
+    }
+    return `iss:${focusIndoorSeedStartIds.join(',')}|pe:${focusPlantingEventIds.join(',')}`;
+  }, [focusIndoorSeedStartIds, focusPlantingEventIds]);
+
+  const hasStartDateFilter = startDateFromFilter !== '' || startDateToFilter !== '';
+
+  // Two-phase focus resolution: first renders resolve against whatever data is
+  // loaded (possibly empty on mount); when loadData finishes, these memos
+  // recompute and the matching useFocusHighlight hook re-fires the scroll.
+  const focusedSeedStart = React.useMemo(
+    () => seedStarts.find(s =>
+      focusIndoorSeedStartIds.includes(s.id) ||
+      (s.plantingEventId != null && focusPlantingEventIds.includes(s.plantingEventId))
+    ) || null,
+    [focusIndoorSeedStartIds, focusPlantingEventIds, seedStarts]
+  );
+
+  const focusedSeedStartId = focusedSeedStart?.id ?? null;
+
+  const focusedBannerRow = React.useMemo(() => {
+    if (focusRequestKey == null || focusedSeedStart != null) return null;
+    return needsIndoorStarts.find(row =>
+      getPlanOnlyPlantingEventIds([row]).some(id => focusPlantingEventIds.includes(id))
+    ) || null;
+  }, [focusPlantingEventIds, focusRequestKey, focusedSeedStart, needsIndoorStarts]);
+
+  const focusedBannerEventId = focusedBannerRow?.plantingEventId ?? null;
+  const effectiveBannerExpanded = bannerExpanded || focusedBannerRow != null;
+
+  const { registerRef, highlightedId } = useFocusHighlight<number>(focusedSeedStartId, onFocusConsumed);
+  const {
+    registerRef: registerBannerRef,
+    highlightedId: highlightedBannerEventId,
+  } = useFocusHighlight<number>(focusedBannerEventId, onFocusConsumed);
 
   // Force filter to include the focused row once per navigation focus request.
   // After that, manual filter clicks should not be bounced back to "All".
   useEffect(() => {
-    if (focusIndoorStartId == null) {
+    if (focusRequestKey == null) {
       autoFilterFocusHandledRef.current = null;
       return;
     }
-    if (autoFilterFocusHandledRef.current === focusIndoorStartId) return;
+    if (autoFilterFocusHandledRef.current === focusRequestKey) return;
 
-    const target = seedStarts.find(
-      s => s.id === focusIndoorStartId || s.plantingEventId === focusIndoorStartId
-    );
-    if (target == null) return;
+    if (focusedSeedStart == null) return;
 
-    autoFilterFocusHandledRef.current = focusIndoorStartId;
-    if (filterStatus !== 'all' && target.status !== filterStatus) {
+    autoFilterFocusHandledRef.current = focusRequestKey;
+    if (filterStatus !== 'all' && focusedSeedStart.status !== filterStatus) {
       setFilterStatus('all');
     }
-  }, [focusIndoorStartId, seedStarts, filterStatus]);
+    if (
+      hasStartDateFilter &&
+      !isDateInRange(focusedSeedStart.startDate, startDateFromFilter, startDateToFilter)
+    ) {
+      setStartDateFromFilter('');
+      setStartDateToFilter('');
+    }
+  }, [focusRequestKey, focusedSeedStart, filterStatus, hasStartDateFilter, startDateFromFilter, startDateToFilter]);
+
+  useEffect(() => {
+    if (focusedBannerRow == null) return;
+
+    setBannerExpanded(true);
+    setDismissedIds(prev => {
+      if (!prev.has(focusedBannerRow.plantingEventId)) return prev;
+      const next = new Set(prev);
+      next.delete(focusedBannerRow.plantingEventId);
+      return next;
+    });
+
+    const requiredBedFilter = focusedBannerRow.gardenBedId == null
+      ? PLAN_ONLY_BED_FILTER_UNASSIGNED
+      : String(focusedBannerRow.gardenBedId);
+    if (planOnlyBedFilter !== requiredBedFilter) {
+      setPlanOnlyBedFilter(requiredBedFilter);
+    }
+    if (
+      hasStartDateFilter &&
+      !isDateInRange(focusedBannerRow.suggestedIndoorStartDate, startDateFromFilter, startDateToFilter)
+    ) {
+      setStartDateFromFilter('');
+      setStartDateToFilter('');
+    }
+  }, [focusedBannerRow, planOnlyBedFilter, hasStartDateFilter, startDateFromFilter, startDateToFilter]);
 
   useEffect(() => {
     loadData();
@@ -240,6 +387,28 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
+  // "Has a spot in the garden" means a specific cell in a specific bed has
+  // been chosen via the cell-picker flow. A destination bed alone is not a
+  // spot until placement chooses the cell.
+  const hasChosenPlacement = (start: IndoorSeedStart): boolean =>
+    start.status === 'transplanted' || start.hasPlannedPlacement === true;
+
+  const getPlacementPill = (start: IndoorSeedStart): { label: string; icon: string; className: string } | null => {
+    if (start.status === 'failed') return null;
+    if (hasChosenPlacement(start)) {
+      return {
+        label: 'has spot',
+        icon: '✓',
+        className: 'bg-green-100 text-green-800',
+      };
+    }
+    return {
+      label: 'no spot',
+      icon: '⚠',
+      className: 'bg-amber-100 text-amber-800',
+    };
+  };
+
   const handleDelete = async () => {
     if (!selectedSeedStart) return;
 
@@ -273,12 +442,104 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
     }
   };
 
-  // Slice B: rows visible in the plan-only banner (raw needs minus dismissed).
-  // The banner suppresses itself when this is empty.
-  const visibleBannerRows = React.useMemo(
+  // Slice B: rows available in the plan-only banner (raw needs minus dismissed).
+  // Bed filtering is applied separately so the filter UI can stay visible even
+  // when a selected bed currently has zero matching rows.
+  const undismissedBannerRows = React.useMemo(
     () => needsIndoorStarts.filter(e => !dismissedIds.has(e.plantingEventId)),
     [needsIndoorStarts, dismissedIds]
   );
+
+  const planOnlyBedOptions = React.useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const event of undismissedBannerRows) {
+      if (event.gardenBedId == null) continue;
+      byId.set(
+        event.gardenBedId,
+        event.gardenBedName || `Bed ${event.gardenBedId}`
+      );
+    }
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [undismissedBannerRows]);
+
+  const bedFilterOptions = React.useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const option of planOnlyBedOptions) {
+      byId.set(option.id, option.name);
+    }
+    for (const start of seedStarts) {
+      for (const bed of start.destinationBedDetails || []) {
+        byId.set(bed.id, bed.name);
+      }
+    }
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [planOnlyBedOptions, seedStarts]);
+
+  const hasBedFilterableRows = seedStarts.length > 0 || undismissedBannerRows.length > 0;
+
+  useEffect(() => {
+    if (planOnlyBedFilter === PLAN_ONLY_BED_FILTER_ALL) return;
+    if (
+      planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED
+    ) {
+      return;
+    }
+    const selectedBedStillExists = bedFilterOptions.some(
+      bed => String(bed.id) === planOnlyBedFilter
+    );
+    if (!selectedBedStillExists) {
+      setPlanOnlyBedFilter(PLAN_ONLY_BED_FILTER_ALL);
+    }
+  }, [bedFilterOptions, planOnlyBedFilter]);
+
+  const visibleBannerRows = React.useMemo(
+    () => undismissedBannerRows.filter(event => {
+      if (!isDateInRange(event.suggestedIndoorStartDate, startDateFromFilter, startDateToFilter)) {
+        return false;
+      }
+      if (planOnlyBedFilter === PLAN_ONLY_BED_FILTER_ALL) return true;
+      if (planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED) {
+        return event.gardenBedId == null;
+      }
+      return String(event.gardenBedId) === planOnlyBedFilter;
+    }),
+    [undismissedBannerRows, planOnlyBedFilter, startDateFromFilter, startDateToFilter]
+  );
+
+  const visibleBannerEventIds = React.useMemo(
+    () => getPlanOnlyPlantingEventIds(visibleBannerRows),
+    [visibleBannerRows]
+  );
+
+  const selectedBedFilterLabel = React.useMemo(() => {
+    if (planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED) return 'Not assigned';
+    const selectedBed = bedFilterOptions.find(bed => String(bed.id) === planOnlyBedFilter);
+    return selectedBed?.name || 'All planned beds';
+  }, [bedFilterOptions, planOnlyBedFilter]);
+
+  const unassignedPlannedSeedStartIds = React.useMemo(
+    () => seedStarts
+      .filter(start =>
+        start.status === 'planned' &&
+        (start.destinationBedDetails || []).length === 0 &&
+        isDateInRange(start.startDate, startDateFromFilter, startDateToFilter)
+      )
+      .map(start => start.id),
+    [seedStarts, startDateFromFilter, startDateToFilter]
+  );
+
+  const selectedDeleteSeedStartIds =
+    planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED
+      ? unassignedPlannedSeedStartIds
+      : [];
+  const selectedDeleteTotal =
+    visibleBannerEventIds.length + selectedDeleteSeedStartIds.length;
+  const canDeleteFilteredPlannedItems =
+    planOnlyBedFilter !== PLAN_ONLY_BED_FILTER_ALL && selectedDeleteTotal > 0;
 
   const handleDismissBannerRow = (plantingEventId: number) => {
     setDismissedIds(prev => {
@@ -286,6 +547,64 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
       next.add(plantingEventId);
       return next;
     });
+  };
+
+  const handleDeleteFilteredPlannedItems = async () => {
+    const eventIds = getPlanOnlyPlantingEventIds(visibleBannerRows);
+    const seedStartIds =
+      planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED
+        ? [...selectedDeleteSeedStartIds]
+        : [];
+    if (eventIds.length === 0 && seedStartIds.length === 0) return;
+
+    setDeletePlanOnlyInFlight(true);
+    try {
+      const response = planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED
+        ? await apiPost('/api/planned-items/unassigned/bulk-delete', {
+            eventIds,
+            seedStartIds,
+            confirmation: 'delete',
+          })
+        : await apiPost('/api/planting-events/bulk-delete', {
+            eventIds,
+            confirmation: 'delete',
+          });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showError(data?.error || data?.message || 'Could not delete planned events');
+        return;
+      }
+
+      const deletedIds = new Set<number>(data?.deletedEventIds || eventIds);
+      const deletedSeedStartIds = new Set<number>(data?.deletedSeedStartIds || seedStartIds);
+      setNeedsIndoorStarts(prev => prev.filter(row => {
+        const rowIds = getPlanOnlyPlantingEventIds([row]);
+        return !rowIds.some(id => deletedIds.has(id));
+      }));
+      if (deletedSeedStartIds.size > 0) {
+        setSeedStarts(prev => prev.filter(start => !deletedSeedStartIds.has(start.id)));
+      }
+      setDismissedIds(prev => {
+        const next = new Set(prev);
+        for (const row of visibleBannerRows) {
+          next.delete(row.plantingEventId);
+        }
+        return next;
+      });
+
+      const deletedCount =
+        (typeof data?.deletedPlantingEvents === 'number' ? data.deletedPlantingEvents : eventIds.length) +
+        (typeof data?.deletedIndoorSeedStarts === 'number' ? data.deletedIndoorSeedStarts : seedStartIds.length);
+      showSuccess(
+        `Deleted ${deletedCount} planned item${deletedCount === 1 ? '' : 's'}`
+      );
+    } catch (error) {
+      console.error('Error deleting filtered planned events:', error);
+      showError('Network error - could not delete planned events');
+    } finally {
+      setDeletePlanOnlyInFlight(false);
+    }
   };
 
   const handleStartTrackingBannerRow = async (event: PlanOnlySeeding) => {
@@ -363,9 +682,39 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
     }
   };
 
-  const filteredStarts = filterStatus === 'all'
+  const statusFilteredStarts = filterStatus === 'all'
     ? seedStarts
     : seedStarts.filter(s => s.status === filterStatus);
+
+  const filteredStarts = statusFilteredStarts.filter(start => {
+    if (!isDateInRange(start.startDate, startDateFromFilter, startDateToFilter)) {
+      return false;
+    }
+    if (planOnlyBedFilter === PLAN_ONLY_BED_FILTER_ALL) return true;
+    const destinationBedDetails = start.destinationBedDetails || [];
+    if (planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED) {
+      return destinationBedDetails.length === 0;
+    }
+    return destinationBedDetails.some(bed => String(bed.id) === planOnlyBedFilter);
+  });
+
+  const getPlacementNavigationDate = (start: IndoorSeedStart): string => {
+    const todayDate = parseLocalDate(today);
+    const transplantDate = start.expectedTransplantDate
+      ? parseLocalDate(start.expectedTransplantDate)
+      : null;
+
+    if (
+      start.status === 'hardening' ||
+      !transplantDate ||
+      Number.isNaN(transplantDate.getTime()) ||
+      transplantDate < todayDate
+    ) {
+      return today;
+    }
+
+    return formatLocalDate(transplantDate);
+  };
 
   const activeStarts = seedStarts.filter(s => s.status !== 'transplanted' && s.status !== 'failed');
   const transplantedCount = seedStarts.filter(s => s.status === 'transplanted').length;
@@ -455,18 +804,83 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
               {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
             </button>
           ))}
+          {hasBedFilterableRows && (
+            <label className="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700">
+              <span>Bed</span>
+              <select
+                data-testid="indoor-start-bed-filter"
+                value={planOnlyBedFilter}
+                onChange={(event) => setPlanOnlyBedFilter(event.target.value)}
+                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-800 focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+              >
+                <option value="all">All planned beds</option>
+                <option value="unassigned">Not assigned</option>
+                {bedFilterOptions.map(bed => (
+                  <option key={bed.id} value={bed.id}>
+                    {bed.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700">
+            <span>Start from</span>
+            <input
+              type="date"
+              data-testid="indoor-start-date-from"
+              value={startDateFromFilter}
+              onChange={(event) => setStartDateFromFilter(event.target.value)}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-800 focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+            />
+          </label>
+          <label className="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700">
+            <span>To</span>
+            <input
+              type="date"
+              data-testid="indoor-start-date-to"
+              value={startDateToFilter}
+              onChange={(event) => setStartDateToFilter(event.target.value)}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-800 focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+            />
+          </label>
+          {hasStartDateFilter && (
+            <button
+              type="button"
+              data-testid="indoor-start-clear-date-filter"
+              onClick={() => {
+                setStartDateFromFilter('');
+                setStartDateToFilter('');
+              }}
+              className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+            >
+              Clear dates
+            </button>
+          )}
+          {canDeleteFilteredPlannedItems && (
+            <button
+              type="button"
+              data-testid="delete-filtered-planned-items"
+              onClick={() => setDeletePlanOnlyConfirmOpen(true)}
+              disabled={deletePlanOnlyInFlight}
+              className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              {planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED
+                ? 'Delete not assigned planned'
+                : 'Delete filtered events'}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Slice B: Plan-only seedings banner. Renders above the card grid /
           empty state when there are PlantingEvents with weeksIndoors > 0 +
           transplant_date set + no linked IndoorSeedStart. Hidden when zero. */}
-      {visibleBannerRows.length > 0 && (
+      {undismissedBannerRows.length > 0 && (
         <div
           data-testid="plan-only-seedings-banner"
           className="bg-amber-50 border border-amber-200 rounded-lg shadow-sm mb-6"
         >
-          <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 flex-wrap">
             <div className="flex items-center gap-2">
               <svg
                 className="w-5 h-5 text-amber-600 flex-shrink-0"
@@ -483,30 +897,57 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                 />
               </svg>
               <p className="text-sm text-amber-900">
-                <strong>{visibleBannerRows.length}</strong> planned seeding
-                {visibleBannerRows.length === 1 ? '' : 's'} from your garden plan
-                {visibleBannerRows.length === 1 ? ' is' : ' are'} not yet tracked
+                {visibleBannerRows.length > 0 ? (
+                  <>
+                    <strong>{visibleBannerRows.length}</strong> planned seeding
+                    {visibleBannerRows.length === 1 ? '' : 's'} from your garden plan
+                    {visibleBannerRows.length === 1 ? ' is' : ' are'} not yet tracked
+                  </>
+                ) : (
+                  <>
+                    {hasStartDateFilter
+                      ? 'No planned seedings match this date range'
+                      : 'No planned seedings for this bed are currently untracked'}
+                  </>
+                )}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setBannerExpanded(prev => !prev)}
-              className="text-sm font-medium text-amber-700 hover:text-amber-900"
-              aria-expanded={bannerExpanded}
-            >
-              {bannerExpanded ? 'Hide ▴' : 'Show all ▾'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setBannerExpanded(prev => !prev)}
+                className="text-sm font-medium text-amber-700 hover:text-amber-900"
+                aria-expanded={effectiveBannerExpanded}
+              >
+                {effectiveBannerExpanded ? 'Hide ▴' : 'Show all ▾'}
+              </button>
+            </div>
           </div>
 
-          {bannerExpanded && (
+          {effectiveBannerExpanded && (
             <ul className="border-t border-amber-200 divide-y divide-amber-100">
-              {visibleBannerRows.map(event => {
+              {visibleBannerRows.length === 0 ? (
+                <li
+                  data-testid="plan-only-empty-filter"
+                  className="px-4 py-3 text-sm text-amber-900"
+                >
+                  {hasStartDateFilter
+                    ? 'Choose another date range or clear the date filter.'
+                    : 'Choose another bed or switch back to all planned beds.'}
+                </li>
+              ) : visibleBannerRows.map(event => {
                 const inFlight = bannerActionInFlight.has(event.plantingEventId);
                 return (
                   <li
                     key={event.plantingEventId}
+                    ref={registerBannerRef(event.plantingEventId)}
                     data-testid={`plan-only-row-${event.plantingEventId}`}
-                    className="flex items-center justify-between gap-3 px-4 py-3"
+                    data-focus-id={`plan-only-${event.plantingEventId}`}
+                    className={`flex items-center justify-between gap-3 px-4 py-3 ${
+                      highlightedBannerEventId === event.plantingEventId
+                        ? 'ring-2 ring-amber-400 ring-inset transition-all'
+                        : ''
+                    }`}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <PlantIcon
@@ -527,6 +968,12 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                           Start indoors:{' '}
                           <span className="font-medium">
                             {formatSuggestedStartDate(event)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-600 mt-0.5">
+                          Planned bed:{' '}
+                          <span className="font-medium text-green-700">
+                            {event.gardenBedName || 'Not assigned'}
                           </span>
                         </div>
                       </div>
@@ -566,9 +1013,11 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
         <div className="bg-white rounded-lg shadow-md p-12 text-center">
           <div className="text-6xl mb-4">🌱</div>
           <p className="text-lg text-gray-600 mb-4">
-            {filterStatus === 'all'
-              ? "No seed starts yet. Click 'Start Seeds' to begin!"
-              : `No ${filterStatus} seed starts`}
+            {hasStartDateFilter
+              ? `No ${filterStatus === 'all' ? '' : `${filterStatus} `}seed starts in this date range`
+              : filterStatus === 'all'
+                ? "No seed starts yet. Click 'Start Seeds' to begin!"
+                : `No ${filterStatus} seed starts`}
           </p>
         </div>
       ) : (
@@ -576,6 +1025,8 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
           {filteredStarts.map(start => {
             const daysToGermination = getDaysUntil(start.expectedGerminationDate);
             const daysToTransplant = getDaysUntil(start.expectedTransplantDate);
+            const placementNavigationDate = getPlacementNavigationDate(start);
+            const chosenPlacement = hasChosenPlacement(start);
             const germinationRate = start.seedsStarted > 0
               ? Math.round(((start.seedsGerminated || 0) / start.seedsStarted) * 100)
               : 0;
@@ -607,9 +1058,28 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                       )}
                     </div>
                   </div>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(start.status)}`}>
-                    {start.status}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    {(() => {
+                      const pill = getPlacementPill(start);
+                      if (!pill) return null;
+                      return (
+                        <span
+                          data-testid={`iss-placement-pill-${start.id}`}
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${pill.className}`}
+                          title={
+                            pill.label === 'has spot'
+                              ? 'A cell has been chosen for this start in the garden bed.'
+                              : 'No cell has been picked yet. Click "Plan Placement" to choose one.'
+                          }
+                        >
+                          <span aria-hidden="true">{pill.icon}</span> {pill.label}
+                        </span>
+                      );
+                    })()}
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(start.status)}`}>
+                      {start.status}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Details */}
@@ -675,6 +1145,18 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                       </span>
                     </div>
                   )}
+                  {start.remainingToPlant !== undefined && start.seedsGerminated !== undefined && start.seedsGerminated > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Remaining to plant:</span>
+                      <span
+                        data-testid={`iss-remaining-to-plant-${start.id}`}
+                        className="font-medium text-blue-700"
+                        title={`${start.placedCount ?? 0} planted in planned bed${(start.placedCount ?? 0) === 1 ? '' : 's'}`}
+                      >
+                        {start.remainingToPlant} of {start.seedsGerminated} remaining to plant
+                      </span>
+                    </div>
+                  )}
                   {start.actualGerminationDate && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Germinated on:</span>
@@ -735,9 +1217,9 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                             {idx > 0 && ', '}
                             {onNavigateToBed ? (
                               <button
-                                onClick={() => onNavigateToBed(bed.id, start.expectedTransplantDate || undefined)}
+                                onClick={() => onNavigateToBed(bed.id, placementNavigationDate)}
                                 className="text-green-700 hover:text-green-900 underline decoration-dotted hover:decoration-solid cursor-pointer"
-                                title={`Open ${bed.name} in Garden Designer${start.expectedTransplantDate ? ` on ${parseLocalDate(start.expectedTransplantDate).toLocaleDateString()}` : ''}`}
+                                title={`Open ${bed.name} in Garden Designer on ${parseLocalDate(placementNavigationDate).toLocaleDateString()}`}
                               >
                                 {bed.name}
                               </button>
@@ -761,25 +1243,21 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                   )}
                 </div>
 
-                {/* Placement confirmation — shown after the cell-picker flow
-                    flips status to 'transplanted'. The actual bed the user
-                    picked isn't directly exposed on IndoorSeedStart; for the
-                    typical single-destination case the planned destination
-                    IS the bed where the placement landed, so we use
-                    destinationBedDetails[0]. For multi-destination cards
-                    this may show the first planned destination rather than
-                    the literal bed picked — acceptable as a clear positive
-                    affordance until backend exposes the linked bed name. */}
-                {start.status === 'transplanted' && (
+                {/* Placement confirmation: status='transplanted' means the
+                    plant is in the bed; hasPlannedPlacement means a future
+                    cell has been chosen but the start is not transplanted yet. */}
+                {chosenPlacement && (
                   <div
                     data-testid={`iss-placement-confirmation-${start.id}`}
                     className="mt-4 flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm font-medium text-green-700"
                   >
                     <span className="text-base leading-none" aria-hidden="true">✓</span>
                     {start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
-                      <span>Placed in {start.destinationBedDetails[0].name}</span>
+                      <span>
+                        {start.status === 'transplanted' ? 'Placed' : 'Spot chosen'} in {start.destinationBedDetails[0].name}
+                      </span>
                     ) : (
-                      <span>Placement chosen</span>
+                      <span>{start.status === 'transplanted' ? 'Placement chosen' : 'Planned placement chosen'}</span>
                     )}
                   </div>
                 )}
@@ -787,15 +1265,19 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
                 {/* Actions */}
                 <div className="mt-4 flex gap-2">
                   {start.status !== 'transplanted' && start.status !== 'failed' && onNavigateToBed && (() => {
-                    const transplantActionLabel = start.status === 'hardening' ? 'Transplant Now' : 'Plan Placement';
+                    const transplantActionLabel = chosenPlacement
+                      ? 'View Planned Spot'
+                      : start.status === 'hardening'
+                        ? 'Transplant Now'
+                        : 'Plan Placement';
                     return start.destinationBedDetails && start.destinationBedDetails.length > 0 ? (
                       <button
                         onClick={() => {
                           const firstBed = start.destinationBedDetails![0];
                           onNavigateToBed(
                             firstBed.id,
-                            start.expectedTransplantDate || undefined,
-                            start.id
+                            placementNavigationDate,
+                            chosenPlacement ? undefined : start.id
                           );
                         }}
                         className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -896,6 +1378,29 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({ onNavigateToBed, fo
           showError={showError}
         />
       )}
+
+      {/* Delete Filtered Planned Events Confirmation */}
+      <ConfirmDialog
+        isOpen={deletePlanOnlyConfirmOpen}
+        onClose={() => setDeletePlanOnlyConfirmOpen(false)}
+        onConfirm={handleDeleteFilteredPlannedItems}
+        title="Delete Planned Events"
+        message={
+          planOnlyBedFilter === PLAN_ONLY_BED_FILTER_UNASSIGNED
+            ? `Delete ${selectedDeleteTotal} not assigned planned item${
+                selectedDeleteTotal === 1 ? '' : 's'
+              }?\n\nThis is permanent. It removes unassigned planned calendar events and planned indoor seed starts, including linked calendar records and auto plan entries.`
+            : `Delete ${visibleBannerEventIds.length} planned calendar event${
+                visibleBannerEventIds.length === 1 ? '' : 's'
+              } for ${selectedBedFilterLabel}?\n\nThis is permanent. It removes those planned planting events from the calendar and deletes linked indoor tracking records if any exist.`
+        }
+        confirmText="Delete planned"
+        variant="danger"
+        loading={deletePlanOnlyInFlight}
+        requiredConfirmationText="delete"
+        confirmationLabel='Type "delete" to confirm'
+        confirmationHelpText="This cannot be undone."
+      />
 
       {/* Delete Confirmation */}
       <ConfirmDialog

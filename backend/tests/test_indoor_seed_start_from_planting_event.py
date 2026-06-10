@@ -63,11 +63,17 @@ def bed_b_other_user(full_db, user_b):
     return bed
 
 
-def _make_event(user, garden_bed_id=None, transplant_date=datetime(2026, 5, 15)):
+def _make_event(
+    user,
+    garden_bed_id=None,
+    transplant_date=datetime(2026, 5, 15),
+    plant_id=PLANT_ID,
+    variety=None,
+):
     event = PlantingEvent(
         user_id=user.id,
-        plant_id=PLANT_ID,
-        variety=None,
+        plant_id=plant_id,
+        variety=variety,
         quantity=4,
         transplant_date=transplant_date,
         expected_harvest_date=transplant_date + timedelta(days=70),
@@ -76,6 +82,113 @@ def _make_event(user, garden_bed_id=None, transplant_date=datetime(2026, 5, 15))
     db.session.add(event)
     db.session.commit()
     return event
+
+
+def _make_seed_start(user, event):
+    seed_start = IndoorSeedStart(
+        user_id=user.id,
+        plant_id=PLANT_ID,
+        variety=None,
+        start_date=datetime(2026, 4, 1),
+        expected_transplant_date=event.transplant_date,
+        seeds_started=4,
+        status='planned',
+        planting_event_id=event.id,
+    )
+    db.session.add(seed_start)
+    db.session.commit()
+    return seed_start
+
+
+class TestFromPlantingEventIdentityInvariant:
+    def test_matching_linked_event_variety_is_persisted(
+        self, auth_client_a, user_a, bed_a
+    ):
+        event = _make_event(user_a, garden_bed_id=bed_a.id, variety='Brandywine')
+
+        resp = auth_client_a.post('/api/indoor-seed-starts/from-planting-event', json={
+            'plantingEventId': event.id,
+            'plantId': PLANT_ID,
+            'variety': 'Brandywine',
+            'transplantDate': '2026-05-15T00:00:00Z',
+            'desiredQuantity': 4,
+            'overdueMode': 'import_anyway',
+        })
+
+        assert resp.status_code == 201, resp.get_json()
+        seed_start_id = resp.get_json()['indoorSeedStart']['id']
+        seed_start = IndoorSeedStart.query.get(seed_start_id)
+        assert seed_start.plant_id == PLANT_ID
+        assert seed_start.variety == 'Brandywine'
+
+    def test_mismatched_linked_event_variety_is_rejected(
+        self, auth_client_a, user_a, bed_a
+    ):
+        event = _make_event(user_a, garden_bed_id=bed_a.id, variety='Waltham')
+
+        resp = auth_client_a.post('/api/indoor-seed-starts/from-planting-event', json={
+            'plantingEventId': event.id,
+            'plantId': PLANT_ID,
+            'variety': 'De Cicco',
+            'transplantDate': '2026-05-15T00:00:00Z',
+            'desiredQuantity': 4,
+            'overdueMode': 'import_anyway',
+        })
+
+        assert resp.status_code == 400, resp.get_json()
+        body = resp.get_json()
+        assert 'variety must match' in body['error']
+        assert body['details']['variety'] == 'De Cicco'
+        assert body['details']['linkedVariety'] == 'Waltham'
+        assert IndoorSeedStart.query.filter_by(user_id=user_a.id).count() == 0
+
+        db.session.expire_all()
+        unchanged_event = PlantingEvent.query.get(event.id)
+        assert unchanged_event.variety == 'Waltham'
+        assert unchanged_event.seed_start_date is None
+
+    def test_missing_variety_is_rejected_when_linked_event_has_variety(
+        self, auth_client_a, user_a, bed_a
+    ):
+        event = _make_event(user_a, garden_bed_id=bed_a.id, variety='Waltham')
+
+        resp = auth_client_a.post('/api/indoor-seed-starts/from-planting-event', json={
+            'plantingEventId': event.id,
+            'plantId': PLANT_ID,
+            'transplantDate': '2026-05-15T00:00:00Z',
+            'desiredQuantity': 4,
+            'overdueMode': 'import_anyway',
+        })
+
+        assert resp.status_code == 400, resp.get_json()
+        assert 'variety must match' in resp.get_json()['error']
+        assert IndoorSeedStart.query.filter_by(user_id=user_a.id).count() == 0
+
+    def test_mismatched_linked_event_plant_id_is_rejected(
+        self, auth_client_a, user_a, bed_a
+    ):
+        event = _make_event(
+            user_a,
+            garden_bed_id=bed_a.id,
+            plant_id='broccoli-1',
+            variety='Waltham',
+        )
+
+        resp = auth_client_a.post('/api/indoor-seed-starts/from-planting-event', json={
+            'plantingEventId': event.id,
+            'plantId': PLANT_ID,
+            'variety': 'Waltham',
+            'transplantDate': '2026-05-15T00:00:00Z',
+            'desiredQuantity': 4,
+            'overdueMode': 'import_anyway',
+        })
+
+        assert resp.status_code == 400, resp.get_json()
+        body = resp.get_json()
+        assert 'plantId must match' in body['error']
+        assert body['details']['plantId'] == PLANT_ID
+        assert body['details']['linkedPlantId'] == 'broccoli-1'
+        assert IndoorSeedStart.query.filter_by(user_id=user_a.id).count() == 0
 
 
 class TestFromPlantingEventDestinationBedIds:
@@ -137,6 +250,22 @@ class TestFromPlantingEventDestinationBedIds:
         details = payload['indoorSeedStart']['destinationBedDetails']
         assert len(details) == 1
         assert details[0]['id'] == bed_a.id
+
+    def test_legacy_seed_start_resolves_destination_from_linked_event(
+        self, user_a, bed_a
+    ):
+        """Older rows may lack destination_bed_ids but still link to a bedded event."""
+        event = _make_event(user_a, garden_bed_id=bed_a.id)
+        seed_start = _make_seed_start(user_a, event)
+        seed_start.destination_bed_ids = None
+        db.session.commit()
+
+        payload = seed_start.to_dict()
+
+        assert payload['destinationBedIds'] is None
+        assert payload['destinationBedDetails'] == [
+            {'id': bed_a.id, 'name': bed_a.name}
+        ]
 
     def test_no_bed_anywhere_leaves_destination_null(
         self, auth_client_a, user_a

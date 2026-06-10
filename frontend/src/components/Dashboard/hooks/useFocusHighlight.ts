@@ -20,16 +20,32 @@ export function useFocusHighlight<T extends string | number>(
   const refsMap = useRef<Map<T, HTMLElement>>(new Map());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onConsumedRef = useRef(onConsumed);
+  const focusIdRef = useRef<T | null | undefined>(focusId);
+  const lastScrolledFocusRef = useRef<T | null>(null);
   const [highlightedId, setHighlightedId] = useState<T | null>(null);
 
   useEffect(() => {
     onConsumedRef.current = onConsumed;
   }, [onConsumed]);
 
+  useEffect(() => {
+    focusIdRef.current = focusId;
+    if (focusId == null) {
+      lastScrolledFocusRef.current = null;
+    }
+  }, [focusId]);
+
   const registerRef = useCallback(
     (id: T) => (el: HTMLElement | null) => {
       if (el != null) {
         refsMap.current.set(id, el);
+        if (
+          focusIdRef.current === id &&
+          lastScrolledFocusRef.current !== id
+        ) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          lastScrolledFocusRef.current = id;
+        }
       } else {
         refsMap.current.delete(id);
       }
@@ -50,6 +66,7 @@ export function useFocusHighlight<T extends string | number>(
     const el = refsMap.current.get(focusId);
     if (el != null) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      lastScrolledFocusRef.current = focusId;
     }
     setHighlightedId(focusId);
 

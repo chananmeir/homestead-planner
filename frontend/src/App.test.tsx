@@ -92,6 +92,9 @@ jest.mock('./components/GardenDesigner', () => (props: any) => (
     data-planting-event-id={props.plantingEventId ?? ''}
   >
     MOCK_GARDEN_DESIGNER
+    <button type="button" onClick={props.onPlantingComplete}>
+      MOCK_PLANTING_COMPLETE
+    </button>
   </div>
 ));
 jest.mock('./components/PropertyDesigner', () => () => <div>MOCK_PROPERTY_DESIGNER</div>);
@@ -124,6 +127,11 @@ import App from './App';
 // but we still install a benign fetch mock to keep console clean.
 // ---------------------------------------------------------------------------
 beforeEach(() => {
+  window.history.replaceState({}, '', '/');
+  Object.defineProperty(window, 'open', {
+    writable: true,
+    value: jest.fn(),
+  });
   (global as any).fetch = jest.fn(async () => ({
     ok: false,
     status: 404,
@@ -134,6 +142,7 @@ beforeEach(() => {
 afterEach(() => {
   delete (global as any).fetch;
   localStorage.clear();
+  jest.restoreAllMocks();
 });
 
 describe('App.tsx nav restructure', () => {
@@ -155,13 +164,20 @@ describe('App.tsx nav restructure', () => {
     expect(await screen.findByText('MOCK_DASHBOARD')).toBeInTheDocument();
   });
 
-  test('clicking the header date opens Planting Calendar', async () => {
+  test('clicking the header date opens Planting Calendar in a new tab', async () => {
     render(<App />);
     expect(await screen.findByText('MOCK_DASHBOARD')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Open Planting Calendar for Tue, Apr 14, 2026/ }));
-    expect(await screen.findByText('MOCK_PLANTING_CALENDAR')).toBeInTheDocument();
-    expect(screen.getByTestId('mock-planting-calendar')).toHaveAttribute('data-preferred-view-mode', 'grid');
+    expect(window.open).toHaveBeenCalledTimes(1);
+    const [href, target, features] = (window.open as jest.Mock).mock.calls[0];
+    const url = new URL(href);
+    expect(target).toBe('_blank');
+    expect(features).toBe('noopener,noreferrer');
+    expect(url.searchParams.get('tab')).toBe('planting-calendar');
+    expect(url.searchParams.get('group')).toBe('grow');
+    expect(url.searchParams.get('calendarView')).toBe('grid');
+    expect(screen.queryByText('MOCK_PLANTING_CALENDAR')).not.toBeInTheDocument();
   });
 
   test('clicking "Plan" opens Garden Plans (first sub-item of the Plan group)', async () => {
@@ -181,15 +197,71 @@ describe('App.tsx nav restructure', () => {
     expect(await screen.findByText('MOCK_GARDEN_DESIGNER')).toBeInTheDocument();
   });
 
-  test('Needs Attention harvest bed target opens Garden Designer with bed focus', async () => {
+  test('Needs Attention harvest bed target opens Garden Designer in a new tab with bed focus', async () => {
     render(<App />);
     expect(await screen.findByText('MOCK_DASHBOARD')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /MOCK_HARVEST_BED_NAV/ }));
 
+    expect(window.open).toHaveBeenCalledTimes(1);
+    const [href, target, features] = (window.open as jest.Mock).mock.calls[0];
+    const url = new URL(href);
+    expect(target).toBe('_blank');
+    expect(features).toBe('noopener,noreferrer');
+    expect(url.searchParams.get('tab')).toBe('designer');
+    expect(url.searchParams.get('group')).toBe('design');
+    expect(url.searchParams.get('bedId')).toBe('3');
+    expect(url.searchParams.has('plantingEventId')).toBe(false);
+    expect(screen.queryByText('MOCK_GARDEN_DESIGNER')).not.toBeInTheDocument();
+  });
+
+  test('deep-linked Garden Designer URL restores bed focus in the new tab', async () => {
+    window.history.replaceState({}, '', '/?tab=designer&group=design&bedId=3&plantingEventId=7');
+    render(<App />);
+
     const designer = await screen.findByTestId('mock-garden-designer');
     expect(designer).toHaveAttribute('data-initial-bed-id', '3');
     expect(designer).toHaveAttribute('data-planting-event-id', '7');
+  });
+
+  test('planting-mode completion clears the planting event from the current URL', async () => {
+    window.history.replaceState({}, '', '/?tab=designer&group=design&bedId=3&plantingEventId=7');
+    render(<App />);
+
+    expect(await screen.findByTestId('mock-garden-designer')).toHaveAttribute('data-planting-event-id', '7');
+
+    await userEvent.click(screen.getByRole('button', { name: /MOCK_PLANTING_COMPLETE/ }));
+
+    expect(window.location.search).toContain('bedId=3');
+    expect(window.location.search).not.toContain('plantingEventId');
+    expect(await screen.findByTestId('mock-garden-designer')).toHaveAttribute('data-planting-event-id', '');
+  });
+
+  test('returning to Dashboard clears bed-focused Designer navigation state', async () => {
+    window.history.replaceState({}, '', '/?tab=designer&group=design&bedId=3&plantingEventId=7');
+    render(<App />);
+
+    expect(await screen.findByTestId('mock-garden-designer')).toHaveAttribute('data-planting-event-id', '7');
+
+    const nav = await screen.findByRole('navigation');
+    const dashboardBtn = Array.from(nav.querySelectorAll('button')).find(b => /Dashboard/.test(b.textContent || ''));
+    await userEvent.click(dashboardBtn!);
+    expect(await screen.findByText('MOCK_DASHBOARD')).toBeInTheDocument();
+
+    const designBtn = Array.from(nav.querySelectorAll('button')).find(b => /Design/.test(b.textContent || ''));
+    await userEvent.click(designBtn!);
+
+    const genericDesigner = await screen.findByTestId('mock-garden-designer');
+    expect(genericDesigner).toHaveAttribute('data-initial-bed-id', '');
+    expect(genericDesigner).toHaveAttribute('data-planting-event-id', '');
+  });
+
+  test('deep-linked Planting Calendar URL restores requested grid view in the new tab', async () => {
+    window.history.replaceState({}, '', '/?tab=planting-calendar&group=grow&calendarView=grid');
+    render(<App />);
+
+    expect(await screen.findByText('MOCK_PLANTING_CALENDAR')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-planting-calendar')).toHaveAttribute('data-preferred-view-mode', 'grid');
   });
 
   test('clicking "Grow" opens Planting Calendar (first sub-item of Grow)', async () => {

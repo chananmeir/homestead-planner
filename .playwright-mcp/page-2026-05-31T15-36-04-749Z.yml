@@ -1,0 +1,7 @@
+- generic [ref=e2]:
+  - generic [ref=e9]:
+    - generic [ref=e47]: ✓
+    - heading "Registration Request Received" [level=2] [ref=e48]
+    - paragraph [ref=e49]: Registration request received. If your request can be completed, you will receive next steps after review.
+    - paragraph [ref=e50]: You will be redirected to the login page.
+  - region "Notifications Alt+T"

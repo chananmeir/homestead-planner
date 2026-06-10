@@ -180,6 +180,271 @@ def _auto_create_garden_plan_item(seed_start, destination_bed_ids, desired_plant
     return item
 
 
+def _normalize_to_datetime(value):
+    """Return a datetime for date/datetime values used in range queries."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    return value
+
+
+def _variety_matches(column, variety):
+    if variety is None:
+        return column.is_(None)
+    return column == variety
+
+
+def _normalize_variety_value(value):
+    return value or None
+
+
+def _collect_destination_bed_ids(seed_start, plan_items=None):
+    bed_ids = set()
+
+    if seed_start.destination_bed_ids:
+        try:
+            for bid in json.loads(seed_start.destination_bed_ids):
+                if bid is not None:
+                    bed_ids.add(int(bid))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    for item in plan_items or []:
+        for field in (item.bed_assignments, item.beds_allocated):
+            if not field:
+                continue
+            try:
+                parsed = json.loads(field)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if isinstance(parsed, list):
+                for entry in parsed:
+                    if isinstance(entry, dict):
+                        bid = entry.get('bedId')
+                    else:
+                        bid = entry
+                    if bid is not None:
+                        try:
+                            bed_ids.add(int(bid))
+                        except (TypeError, ValueError):
+                            continue
+
+    if not bed_ids and seed_start.planting_event_id is not None:
+        linked_event = PlantingEvent.query.filter_by(
+            id=seed_start.planting_event_id,
+            user_id=seed_start.user_id,
+        ).first()
+        if linked_event is not None and linked_event.garden_bed_id is not None:
+            bed_ids.add(linked_event.garden_bed_id)
+
+    return sorted(bed_ids)
+
+
+def _sync_events_for_planted_items(planted_items, user_id, old_variety, new_variety):
+    updated_event_ids = set()
+    for item in planted_items:
+        planted_date = _normalize_to_datetime(item.planted_date)
+        if planted_date is None:
+            continue
+
+        date_min = planted_date - timedelta(days=1)
+        date_max = planted_date + timedelta(days=1)
+
+        events = PlantingEvent.query.filter(
+            PlantingEvent.user_id == user_id,
+            PlantingEvent.plant_id == item.plant_id,
+            PlantingEvent.garden_bed_id == item.garden_bed_id,
+            PlantingEvent.position_x == item.position_x,
+            PlantingEvent.position_y == item.position_y,
+            _variety_matches(PlantingEvent.variety, old_variety),
+            db.or_(
+                PlantingEvent.transplant_date.between(date_min, date_max),
+                PlantingEvent.direct_seed_date.between(date_min, date_max),
+            ),
+        ).all()
+
+        for event in events:
+            event.variety = new_variety
+            updated_event_ids.add(event.id)
+
+    return updated_event_ids
+
+
+def _sync_indoor_seed_start_planning_links(seed_start, old_variety, old_seed_inventory_id):
+    """
+    Keep an edited indoor seed start's variety/seed lot aligned with the
+    planning records that represent the same future transplant.
+
+    Direct links are exact. The legacy placement repair is intentionally narrow:
+    same user, crop, old variety, destination bed, transplant date, planned
+    status, and source plan item. This covers older Plan Placement records that
+    predate explicit indoor-start plan-item linkage without rewriting unrelated
+    plantings for the same crop.
+    """
+    user_id = seed_start.user_id
+    new_variety = seed_start.variety
+    new_seed_inventory_id = seed_start.seed_inventory_id
+    old_variety = old_variety or None
+    legacy_old_varieties = set()
+    if old_variety not in (None, ''):
+        legacy_old_varieties.add(old_variety)
+
+    updated_plan_item_ids = set()
+    updated_planted_item_ids = set()
+    updated_event_ids = set()
+
+    if seed_start.planting_event_id is not None:
+        linked_event = PlantingEvent.query.filter_by(
+            id=seed_start.planting_event_id,
+            user_id=user_id,
+        ).first()
+        if linked_event is not None:
+            if linked_event.variety not in (None, '', new_variety):
+                legacy_old_varieties.add(linked_event.variety)
+            linked_event.variety = new_variety
+            updated_event_ids.add(linked_event.id)
+
+    linked_plan_items = (
+        GardenPlanItem.query
+        .join(GardenPlan, GardenPlanItem.garden_plan_id == GardenPlan.id)
+        .filter(
+            GardenPlanItem.indoor_seed_start_id == seed_start.id,
+            GardenPlan.user_id == user_id,
+        )
+        .all()
+    )
+
+    for item in linked_plan_items:
+        if item.variety not in (None, '', new_variety):
+            legacy_old_varieties.add(item.variety)
+        item.variety = new_variety
+        item.seed_inventory_id = new_seed_inventory_id
+        item.source = 'indoor-seed-start'
+        updated_plan_item_ids.add(item.id)
+
+    if updated_plan_item_ids:
+        linked_placed = PlantedItem.query.filter(
+            PlantedItem.user_id == user_id,
+            PlantedItem.source_plan_item_id.in_(updated_plan_item_ids),
+        ).all()
+        for item in linked_placed:
+            item.variety = new_variety
+            updated_planted_item_ids.add(item.id)
+
+        for plan_item_id in updated_plan_item_ids:
+            events = PlantingEvent.query.filter(
+                PlantingEvent.user_id == user_id,
+                PlantingEvent.export_key.like(f"{user_id}_{plan_item_id}_%"),
+            ).all()
+            for event in events:
+                event.variety = new_variety
+                updated_event_ids.add(event.id)
+
+    variety_changed = old_variety != new_variety
+    seed_inventory_changed = old_seed_inventory_id != new_seed_inventory_id
+    if seed_inventory_changed and old_variety not in (None, ''):
+        legacy_old_varieties.add(old_variety)
+
+    if not (variety_changed or seed_inventory_changed or legacy_old_varieties):
+        return
+
+    # Legacy repair only runs when we have a concrete old variety to match.
+    # With an unvaried record there is not enough information to distinguish
+    # one unlinked planned placement from another safely.
+    legacy_old_varieties.discard(None)
+    legacy_old_varieties.discard('')
+    legacy_old_varieties.discard(new_variety)
+    if seed_inventory_changed and old_variety not in (None, ''):
+        legacy_old_varieties.add(old_variety)
+    if not legacy_old_varieties:
+        return
+
+    destination_bed_ids = _collect_destination_bed_ids(seed_start, linked_plan_items)
+    transplant_date = _normalize_to_datetime(
+        seed_start.actual_transplant_date or seed_start.expected_transplant_date
+    )
+    if not destination_bed_ids or transplant_date is None:
+        return
+
+    date_min = transplant_date - timedelta(days=1)
+    date_max = transplant_date + timedelta(days=1)
+
+    for legacy_variety in legacy_old_varieties:
+        legacy_placed = PlantedItem.query.filter(
+            PlantedItem.user_id == user_id,
+            PlantedItem.plant_id == seed_start.plant_id,
+            PlantedItem.garden_bed_id.in_(destination_bed_ids),
+            PlantedItem.source_plan_item_id.isnot(None),
+            PlantedItem.status == 'planned',
+            PlantedItem.planted_date.between(date_min, date_max),
+            _variety_matches(PlantedItem.variety, legacy_variety),
+        ).all()
+
+        candidate_plan_item_ids = {
+            item.source_plan_item_id
+            for item in legacy_placed
+            if item.source_plan_item_id is not None
+        }
+        if not candidate_plan_item_ids:
+            continue
+
+        candidate_plan_items = (
+            GardenPlanItem.query
+            .join(GardenPlan, GardenPlanItem.garden_plan_id == GardenPlan.id)
+            .filter(
+                GardenPlanItem.id.in_(candidate_plan_item_ids),
+                GardenPlan.user_id == user_id,
+                GardenPlanItem.plant_id == seed_start.plant_id,
+                _variety_matches(GardenPlanItem.variety, legacy_variety),
+            )
+            .all()
+        )
+
+        eligible_plan_item_ids = set()
+        for item in candidate_plan_items:
+            if item.indoor_seed_start_id not in (None, seed_start.id):
+                continue
+            item.variety = new_variety
+            item.seed_inventory_id = new_seed_inventory_id
+            item.source = 'indoor-seed-start'
+            item.indoor_seed_start_id = seed_start.id
+            updated_plan_item_ids.add(item.id)
+            eligible_plan_item_ids.add(item.id)
+
+        if not eligible_plan_item_ids:
+            continue
+
+        legacy_items_to_update = [
+            item for item in legacy_placed
+            if item.source_plan_item_id in eligible_plan_item_ids
+        ]
+        for item in legacy_items_to_update:
+            item.variety = new_variety
+            updated_planted_item_ids.add(item.id)
+
+        updated_event_ids.update(
+            _sync_events_for_planted_items(
+                legacy_items_to_update,
+                user_id,
+                legacy_variety,
+                new_variety,
+            )
+        )
+
+    if updated_plan_item_ids or updated_planted_item_ids or updated_event_ids:
+        logger.info(
+            "[INDOOR-SEED-SYNC] Seed start #%s synced variety/seed lot to "
+            "%s plan item(s), %s planted item(s), %s planting event(s)",
+            seed_start.id,
+            len(updated_plan_item_ids),
+            len(updated_planted_item_ids),
+            len(updated_event_ids),
+        )
+
+
 # ==================== HELPER FUNCTIONS ====================
 
 
@@ -960,6 +1225,9 @@ def indoor_seed_start_detail(id):
     if request.method == 'PUT':
         try:
             data = request.json
+            old_variety = seed_start.variety
+            old_seed_inventory_id = seed_start.seed_inventory_id
+            sync_planning_links = False
 
             # Update fields
             if 'seedsStarted' in data:
@@ -987,7 +1255,10 @@ def indoor_seed_start_detail(id):
 
                     # Sync updated dates to linked PlantingEvent
                     if seed_start.planting_event_id:
-                        linked_event = PlantingEvent.query.get(seed_start.planting_event_id)
+                        linked_event = PlantingEvent.query.filter_by(
+                            id=seed_start.planting_event_id,
+                            user_id=current_user.id,
+                        ).first()
                         if linked_event:
                             linked_event.seed_start_date = new_start_date
                             linked_event.transplant_date = seed_start.expected_transplant_date
@@ -1022,10 +1293,14 @@ def indoor_seed_start_detail(id):
                     seed_start.actual_germination_date = None
 
             if 'variety' in data:
-                seed_start.variety = data['variety'] or None
+                new_variety = data['variety'] or None
+                sync_planning_links = True
+                seed_start.variety = new_variety
 
             if 'seedInventoryId' in data:
-                seed_start.seed_inventory_id = data['seedInventoryId']
+                new_seed_inventory_id = data['seedInventoryId']
+                sync_planning_links = True
+                seed_start.seed_inventory_id = new_seed_inventory_id
 
             if 'notes' in data:
                 seed_start.notes = data['notes']
@@ -1049,6 +1324,13 @@ def indoor_seed_start_detail(id):
                     if seed_start.expected_germination_rate is not None and seed_start.expected_germination_rate > 0:
                         desired_plants = max(1, round(seed_start.seeds_started * seed_start.expected_germination_rate / 100))
                     _auto_create_garden_plan_item(seed_start, bed_id_list, desired_plants)
+
+            if sync_planning_links:
+                _sync_indoor_seed_start_planning_links(
+                    seed_start,
+                    old_variety,
+                    old_seed_inventory_id,
+                )
 
             db.session.commit()
             return jsonify(seed_start.to_dict())
@@ -1096,6 +1378,7 @@ def uncancel_indoor_seed_start(id):
         'id': seed_start.id,
         'cancelledAt': None,
     }), 200
+
 
 @utilities_bp.route('/indoor-seed-starts/<int:id>/mark-failed', methods=['POST'])
 @login_required
@@ -1382,9 +1665,56 @@ def create_indoor_start_from_planting_event():
     """
     try:
         data = request.json
+        planting_event_id = data.get('plantingEventId')
+        requested_plant_id = data.get('plantId')
+        seed_start_plant_id = requested_plant_id
+        seed_start_variety = data.get('variety')
+        linked_event = None
+
+        if planting_event_id:
+            linked_event = PlantingEvent.query.filter_by(
+                id=planting_event_id,
+                user_id=current_user.id
+            ).first()
+            if linked_event is None:
+                return jsonify({'error': 'Planting event not found'}), 404
+            if linked_event.event_type != 'planting':
+                return jsonify({
+                    'error': 'Linked event must be a planting event'
+                }), 400
+            if linked_event.cancelled_at is not None:
+                return jsonify({
+                    'error': 'Cannot create an indoor seed start from a cancelled planting event'
+                }), 400
+            if requested_plant_id != linked_event.plant_id:
+                return jsonify({
+                    'error': 'plantId must match the linked planting event',
+                    'details': {
+                        'plantId': requested_plant_id,
+                        'linkedPlantId': linked_event.plant_id,
+                        'plantingEventId': linked_event.id,
+                    }
+                }), 400
+
+            requested_variety = _normalize_variety_value(data.get('variety'))
+            linked_variety = _normalize_variety_value(linked_event.variety)
+            if requested_variety != linked_variety:
+                return jsonify({
+                    'error': 'variety must match the linked planting event',
+                    'details': {
+                        'variety': requested_variety,
+                        'linkedVariety': linked_variety,
+                        'plantingEventId': linked_event.id,
+                    }
+                }), 400
+
+            # Treat the linked PlantingEvent as authoritative for the new
+            # IndoorSeedStart's identity once the request is proven consistent.
+            seed_start_plant_id = linked_event.plant_id
+            seed_start_variety = linked_event.variety
 
         # Get plant data
-        plant = get_plant_by_id(data['plantId'])
+        plant = get_plant_by_id(seed_start_plant_id)
         if not plant:
             return jsonify({'error': 'Plant not found'}), 404
 
@@ -1409,16 +1739,6 @@ def create_indoor_start_from_planting_event():
         #     resolver in IndoorSeedStart.get_current_garden_plan_count()
         #     can still fall through to GardenPlanItem-based inference.
         # -------------------------------------------------------------------
-        planting_event_id = data.get('plantingEventId')
-        linked_event = None
-        if planting_event_id:
-            linked_event = PlantingEvent.query.filter_by(
-                id=planting_event_id,
-                user_id=current_user.id
-            ).first()
-            if linked_event is None:
-                return jsonify({'error': 'Planting event not found'}), 404
-
         destination_bed_ids_json = None  # will be written to seed_start.destination_bed_ids
         explicit_bed_id_list = None      # None = not provided; [] = provided-but-empty
 
@@ -1518,7 +1838,7 @@ def create_indoor_start_from_planting_event():
         # Calculate expected dates. When rescheduled, germination/transplant
         # slide forward too so the downstream dates stay coherent.
         germination_days = _get_predicted_germination_days(
-            current_user.id, data['plantId'], data.get('location')
+            current_user.id, seed_start_plant_id, data.get('location')
         )
         expected_germination_date = indoor_start_date + timedelta(days=germination_days)
         expected_transplant_date = indoor_start_date + timedelta(weeks=weeks_indoors)
@@ -1572,8 +1892,8 @@ def create_indoor_start_from_planting_event():
         initial_status = 'planned'
         seed_start = IndoorSeedStart(
             user_id=current_user.id,
-            plant_id=data['plantId'],
-            variety=data.get('variety'),
+            plant_id=seed_start_plant_id,
+            variety=seed_start_variety,
             seed_inventory_id=data.get('seedInventoryId'),
             start_date=indoor_start_date,
             expected_germination_date=expected_germination_date,

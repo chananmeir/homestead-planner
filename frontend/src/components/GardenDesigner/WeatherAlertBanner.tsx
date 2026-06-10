@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Plant, PlantingEvent, FrostTolerance, GardenBed } from '../../types';
 import { API_BASE_URL } from '../../config';
 
@@ -25,6 +25,8 @@ interface ForecastDay {
 }
 
 type HeatTolerance = 'low' | 'medium' | 'high' | 'excellent';
+type AlertType = 'cold' | 'heat';
+type RiskBedMap = Map<number, { bedName: string; plants: AtRiskPlant[] }>;
 
 interface AtRiskPlant extends Plant {
   isAtRisk: boolean;
@@ -79,6 +81,10 @@ const WeatherAlertBanner: React.FC<WeatherAlertBannerProps> = ({
   const [forecastDay, setForecastDay] = useState<ForecastDay | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedAlerts, setExpandedAlerts] = useState<Record<AlertType, boolean>>({
+    cold: false,
+    heat: false,
+  });
 
   useEffect(() => {
     const fetchWeather = async () => {
@@ -248,6 +254,28 @@ const WeatherAlertBanner: React.FC<WeatherAlertBannerProps> = ({
   const hasColdRisk = forecastDay && forecastDay.lowTemp <= 32 && atRiskPlants.length > 0;
   const hasHeatRisk = forecastDay && forecastDay.highTemp >= 80 && heatRiskPlants.length > 0;
 
+  const toggleAlert = (alertType: AlertType) => {
+    setExpandedAlerts((current) => ({
+      ...current,
+      [alertType]: !current[alertType],
+    }));
+  };
+
+  const getRiskSummary = (...riskMaps: RiskBedMap[]) => {
+    const bedIds = new Set<number>();
+    const plantCount = riskMaps.reduce((total, riskMap) => {
+      riskMap.forEach((bedData, bedId) => {
+        bedIds.add(bedId);
+        total += bedData.plants.length;
+      });
+      return total;
+    }, 0);
+
+    const plantLabel = plantCount === 1 ? 'plant type' : 'plant types';
+    const bedLabel = bedIds.size === 1 ? 'bed' : 'beds';
+    return `${plantCount} ${plantLabel} across ${bedIds.size} ${bedLabel}`;
+  };
+
   // Don't show banner if no risk
   if (loading || error || !forecastDay || (!hasColdRisk && !hasHeatRisk)) {
     return null;
@@ -298,51 +326,69 @@ const WeatherAlertBanner: React.FC<WeatherAlertBannerProps> = ({
             style={{ backgroundColor: alertStyle.backgroundColor, borderColor: alertStyle.borderColor }}
           >
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-6 h-6 flex-shrink-0" style={{ color: alertStyle.borderColor }} />
-              <div className="flex-1">
-                <h4 className={`font-bold text-lg ${alertStyle.textColor}`}>
-                  {alertStyle.icon} {alertStyle.title} - {Math.round(forecastDay!.lowTemp)}°F Low
-                </h4>
-                <p className={`text-sm mt-1 ${alertStyle.textColor}`}>
-                  Protect these plants on {formatDate()}:
-                </p>
-                <div className="mt-2 space-y-2">
-                  {criticalByBed.size > 0 && (
-                    <div>
-                      <div className="font-bold text-red-900 mb-1">Critical Risk:</div>
-                      {Array.from(criticalByBed.values()).map((bedData, idx) => (
-                        <div key={idx} className="ml-3 text-red-800">
-                          <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
-                          <span className="text-xs ml-2">(very-tender/tender)</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {warningByBed.size > 0 && (
-                    <div>
-                      <div className="font-bold text-orange-900 mb-1">At Risk:</div>
-                      {Array.from(warningByBed.values()).map((bedData, idx) => (
-                        <div key={idx} className="ml-3 text-orange-800">
-                          <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
-                          <span className="text-xs ml-2">
-                            ({bedData.plants.map(p => p.frostTolerance).filter((v, i, a) => a.indexOf(v) === i).join(', ')})
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              <AlertTriangle className="w-6 h-6 flex-shrink-0 mt-0.5" style={{ color: alertStyle.borderColor }} />
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h4 className={`font-bold text-lg ${alertStyle.textColor}`}>
+                      {alertStyle.icon} {alertStyle.title} - {Math.round(forecastDay!.lowTemp)}°F Low
+                    </h4>
+                    <p className={`text-sm mt-1 ${alertStyle.textColor}`}>
+                      Protect these plants on {formatDate()}: <span className="font-semibold">{getRiskSummary(criticalByBed, warningByBed)}</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-expanded={expandedAlerts.cold}
+                    aria-label={`${expandedAlerts.cold ? 'Hide' : 'Show'} cold weather alert details`}
+                    className={`inline-flex h-8 shrink-0 items-center gap-1 rounded px-2 text-sm font-semibold ${alertStyle.textColor} hover:bg-white/40 focus:outline-none focus:ring-2 focus:ring-offset-1`}
+                    onClick={() => toggleAlert('cold')}
+                  >
+                    {expandedAlerts.cold ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    <span>{expandedAlerts.cold ? 'Hide details' : 'Show details'}</span>
+                  </button>
                 </div>
-                <div className={`mt-3 text-sm ${alertStyle.textColor}`}>
-                  <strong>Recommendations:</strong>
-                  <ul className="list-disc ml-5 mt-1">
-                    {forecastDay!.lowTemp <= 28 && <li>Cover plants with row covers or frost blankets</li>}
-                    {Array.from(criticalByBed.values()).some((bedData) =>
-                      bedData.plants.some((p) => p.category === 'vegetable')
-                    ) && <li>Harvest mature vegetables before nightfall</li>}
-                    <li>Water soil before evening (moist soil retains heat)</li>
-                    {forecastDay!.lowTemp <= 24 && <li>Consider moving container plants indoors</li>}
-                  </ul>
-                </div>
+                {expandedAlerts.cold && (
+                  <>
+                    <div className="mt-2 space-y-2">
+                      {criticalByBed.size > 0 && (
+                        <div>
+                          <div className="font-bold text-red-900 mb-1">Critical Risk:</div>
+                          {Array.from(criticalByBed.values()).map((bedData, idx) => (
+                            <div key={idx} className="ml-3 text-red-800">
+                              <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
+                              <span className="text-xs ml-2">(very-tender/tender)</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {warningByBed.size > 0 && (
+                        <div>
+                          <div className="font-bold text-orange-900 mb-1">At Risk:</div>
+                          {Array.from(warningByBed.values()).map((bedData, idx) => (
+                            <div key={idx} className="ml-3 text-orange-800">
+                              <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
+                              <span className="text-xs ml-2">
+                                ({bedData.plants.map(p => p.frostTolerance).filter((v, i, a) => a.indexOf(v) === i).join(', ')})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className={`mt-3 text-sm ${alertStyle.textColor}`}>
+                      <strong>Recommendations:</strong>
+                      <ul className="list-disc ml-5 mt-1">
+                        {forecastDay!.lowTemp <= 28 && <li>Cover plants with row covers or frost blankets</li>}
+                        {Array.from(criticalByBed.values()).some((bedData) =>
+                          bedData.plants.some((p) => p.category === 'vegetable')
+                        ) && <li>Harvest mature vegetables before nightfall</li>}
+                        <li>Water soil before evening (moist soil retains heat)</li>
+                        {forecastDay!.lowTemp <= 24 && <li>Consider moving container plants indoors</li>}
+                      </ul>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -358,52 +404,70 @@ const WeatherAlertBanner: React.FC<WeatherAlertBannerProps> = ({
             style={{ backgroundColor: alertStyle.backgroundColor, borderColor: alertStyle.borderColor }}
           >
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-6 h-6 flex-shrink-0" style={{ color: alertStyle.borderColor }} />
-              <div className="flex-1">
-                <h4 className={`font-bold text-lg ${alertStyle.textColor}`}>
-                  {alertStyle.icon} {alertStyle.title} - {Math.round(forecastDay!.highTemp)}°F High
-                </h4>
-                <p className={`text-sm mt-1 ${alertStyle.textColor}`}>
-                  Heat-sensitive plants at risk on {formatDate()}:
-                </p>
-                <div className="mt-2 space-y-2">
-                  {heatCriticalByBed.size > 0 && (
-                    <div>
-                      <div className="font-bold text-red-900 mb-1">Critical Heat Stress:</div>
-                      {Array.from(heatCriticalByBed.values()).map((bedData, idx) => (
-                        <div key={idx} className="ml-3 text-red-800">
-                          <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
-                          <span className="text-xs ml-2">
-                            ({bedData.plants.map(p => p.heatTolerance || 'medium').filter((v, i, a) => a.indexOf(v) === i).join(', ')} heat tolerance)
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {heatWarningByBed.size > 0 && (
-                    <div>
-                      <div className="font-bold text-orange-900 mb-1">Heat Stress Risk:</div>
-                      {Array.from(heatWarningByBed.values()).map((bedData, idx) => (
-                        <div key={idx} className="ml-3 text-orange-800">
-                          <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
-                          <span className="text-xs ml-2">
-                            ({bedData.plants.map(p => p.heatTolerance || 'medium').filter((v, i, a) => a.indexOf(v) === i).join(', ')} heat tolerance)
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              <AlertTriangle className="w-6 h-6 flex-shrink-0 mt-0.5" style={{ color: alertStyle.borderColor }} />
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h4 className={`font-bold text-lg ${alertStyle.textColor}`}>
+                      {alertStyle.icon} {alertStyle.title} - {Math.round(forecastDay!.highTemp)}°F High
+                    </h4>
+                    <p className={`text-sm mt-1 ${alertStyle.textColor}`}>
+                      Heat-sensitive plants at risk on {formatDate()}: <span className="font-semibold">{getRiskSummary(heatCriticalByBed, heatWarningByBed)}</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-expanded={expandedAlerts.heat}
+                    aria-label={`${expandedAlerts.heat ? 'Hide' : 'Show'} heat alert details`}
+                    className={`inline-flex h-8 shrink-0 items-center gap-1 rounded px-2 text-sm font-semibold ${alertStyle.textColor} hover:bg-white/40 focus:outline-none focus:ring-2 focus:ring-offset-1`}
+                    onClick={() => toggleAlert('heat')}
+                  >
+                    {expandedAlerts.heat ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    <span>{expandedAlerts.heat ? 'Hide details' : 'Show details'}</span>
+                  </button>
                 </div>
-                <div className={`mt-3 text-sm ${alertStyle.textColor}`}>
-                  <strong>Recommendations:</strong>
-                  <ul className="list-disc ml-5 mt-1">
-                    <li>Install shade cloth (50% recommended for vegetables)</li>
-                    <li>Water deeply in the early morning</li>
-                    <li>Apply mulch to keep soil cool and retain moisture</li>
-                    {forecastDay!.highTemp >= 95 && <li>Harvest heat-sensitive crops before peak heat</li>}
-                    {forecastDay!.highTemp >= 90 && <li>Avoid transplanting until temperatures moderate</li>}
-                  </ul>
-                </div>
+                {expandedAlerts.heat && (
+                  <>
+                    <div className="mt-2 space-y-2">
+                      {heatCriticalByBed.size > 0 && (
+                        <div>
+                          <div className="font-bold text-red-900 mb-1">Critical Heat Stress:</div>
+                          {Array.from(heatCriticalByBed.values()).map((bedData, idx) => (
+                            <div key={idx} className="ml-3 text-red-800">
+                              <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
+                              <span className="text-xs ml-2">
+                                ({bedData.plants.map(p => p.heatTolerance || 'medium').filter((v, i, a) => a.indexOf(v) === i).join(', ')} heat tolerance)
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {heatWarningByBed.size > 0 && (
+                        <div>
+                          <div className="font-bold text-orange-900 mb-1">Heat Stress Risk:</div>
+                          {Array.from(heatWarningByBed.values()).map((bedData, idx) => (
+                            <div key={idx} className="ml-3 text-orange-800">
+                              <strong>{bedData.bedName}:</strong> {bedData.plants.map((p) => p.name).join(', ')}
+                              <span className="text-xs ml-2">
+                                ({bedData.plants.map(p => p.heatTolerance || 'medium').filter((v, i, a) => a.indexOf(v) === i).join(', ')} heat tolerance)
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className={`mt-3 text-sm ${alertStyle.textColor}`}>
+                      <strong>Recommendations:</strong>
+                      <ul className="list-disc ml-5 mt-1">
+                        <li>Install shade cloth (50% recommended for vegetables)</li>
+                        <li>Water deeply in the early morning</li>
+                        <li>Apply mulch to keep soil cool and retain moisture</li>
+                        {forecastDay!.highTemp >= 95 && <li>Harvest heat-sensitive crops before peak heat</li>}
+                        {forecastDay!.highTemp >= 90 && <li>Avoid transplanting until temperatures moderate</li>}
+                      </ul>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

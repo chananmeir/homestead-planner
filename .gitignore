@@ -64,3 +64,8 @@ logs/
 .coverage
 htmlcov/
 .pytest_cache/
+frontend/playwright-report/
+frontend/test-results/
+
+# Local shortcuts
+*.lnk

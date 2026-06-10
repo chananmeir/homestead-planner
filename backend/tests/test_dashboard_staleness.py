@@ -394,6 +394,8 @@ class TestHarvestReadyStaleFlag:
             plant_id='lettuce-1',
             variety='Buttercrunch',
             expected_harvest_date=datetime.combine(TODAY - timedelta(days=3), datetime.min.time()),
+            quantity_completed=4,
+            completed=True,
         )
         body = _body(auth_client_a)
         rows = body['signals']['harvestReady']
@@ -406,6 +408,8 @@ class TestHarvestReadyStaleFlag:
             user_a.id,
             plant_id='lettuce-1',
             expected_harvest_date=datetime.combine(TODAY - timedelta(days=14), datetime.min.time()),
+            quantity_completed=4,
+            completed=True,
         )
         body = _body(auth_client_a)
         rows = body['signals']['harvestReady']
@@ -419,6 +423,8 @@ class TestHarvestReadyStaleFlag:
             plant_id='lettuce-1',
             variety='OldHarvest',
             expected_harvest_date=datetime.combine(TODAY - timedelta(days=30), datetime.min.time()),
+            quantity_completed=4,
+            completed=True,
         )
         body = _body(auth_client_a)
         rows = body['signals']['harvestReady']
@@ -435,6 +441,8 @@ class TestHarvestReadyStaleFlag:
             user_a.id,
             plant_id='tomato-1',
             expected_harvest_date=datetime(2026, 2, 1),
+            quantity_completed=4,
+            completed=True,
         )
         body = _body(auth_client_a)
         rows = body['signals']['harvestReady']

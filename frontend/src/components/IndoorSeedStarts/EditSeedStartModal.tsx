@@ -34,6 +34,8 @@ export interface IndoorSeedStart {
   destinationBedDetails?: { id: number; name: string }[];
   hasManualDestination?: boolean;
   destinationBedIds?: number[] | null;
+  placedCount?: number;
+  remainingToPlant?: number;
 }
 
 interface Plant {
@@ -152,7 +154,7 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
     try {
       const payload: Record<string, unknown> = {
         status: formData.status,
-        variety: formData.variety || undefined,
+        variety: formData.variety || null,
         startDate: formData.startDate || undefined,
         seedsStarted: formData.seedsStarted,
         seedsGerminated: formData.seedsGerminated,
@@ -161,12 +163,9 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
         temperature: formData.temperature,
         humidity: formData.humidity,
         notes: formData.notes || undefined,
+        seedInventoryId: formData.seedInventoryId ? parseInt(formData.seedInventoryId) : null,
         destinationBedIds: formData.destinationBedIds.length > 0 ? formData.destinationBedIds : null,
       };
-
-      if (formData.seedInventoryId) {
-        payload.seedInventoryId = parseInt(formData.seedInventoryId);
-      }
 
       const response = await apiPut(`/api/indoor-seed-starts/${seedStart.id}`, payload);
 

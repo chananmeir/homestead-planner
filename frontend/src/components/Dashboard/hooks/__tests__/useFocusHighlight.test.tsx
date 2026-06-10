@@ -180,6 +180,24 @@ describe('useFocusHighlight', () => {
     expect(result.current.highlightedId).toBe(42);
   });
 
+  test('scrolls when a matching ref registers after focusId was already set', () => {
+    const { result, rerender } = renderHook(
+      ({ id }) => useFocusHighlight<number>(id),
+      { initialProps: { id: null as number | null } }
+    );
+
+    act(() => { rerender({ id: 42 }); });
+
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    expect(result.current.highlightedId).toBe(42);
+
+    const el = document.createElement('div');
+    act(() => { result.current.registerRef(42)(el); });
+
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+  });
+
   test('unregistering a ref (passing null) removes it', () => {
     const { result, rerender } = renderHook(
       ({ id }) => useFocusHighlight<number>(id),

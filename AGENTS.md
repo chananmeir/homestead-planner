@@ -1,8 +1,12 @@
 # Repository Guidelines
 
+## Codex Startup
+
+Codex agents should read `CODEX.md` before starting work. Use `CLAUDE.md` as the full safety reference and this file for agent routing.
+
 ## Agent System (9 Agents)
 
-This project uses a multi-agent system for autonomous development. See `.claude/Agents/README.md` for full details.
+This project uses a multi-agent system for autonomous development. See `.claude/agents/README.md` for full details.
 
 ### Agent Routing Quick Reference
 

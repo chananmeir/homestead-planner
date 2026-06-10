@@ -64,11 +64,12 @@ const BedSummaryCard: React.FC<BedSummaryCardProps> = ({
   const getStatus = (): { label: string; color: string } => {
     if (plantCount === 0) return { label: 'Empty', color: 'bg-gray-100 text-gray-600' };
     const statuses = activePlantedItems.map(i => i.status);
-    const growing = statuses.filter(s => s === 'growing' || s === 'transplanted').length;
-    const planned = statuses.filter(s => s === 'planned' || s === 'seeded').length;
-    if (growing > plantCount * 0.5) return { label: 'Growing', color: 'bg-green-100 text-green-700' };
-    if (planned > plantCount * 0.5) return { label: 'Planned', color: 'bg-blue-100 text-blue-700' };
-    return { label: 'Active', color: 'bg-emerald-100 text-emerald-700' };
+    const savingSeed = statuses.filter(s => s === 'saving-seed').length;
+    const harvested = statuses.filter(s => s === 'harvested').length;
+    if (savingSeed > plantCount * 0.5) return { label: 'Saving seed', color: 'bg-purple-100 text-purple-700' };
+    if (harvested > plantCount * 0.5) return { label: 'Harvested', color: 'bg-amber-100 text-amber-700' };
+    // These are already date-filtered placed plants, so avoid "Planned" here.
+    return { label: 'Growing', color: 'bg-green-100 text-green-700' };
   };
   const status = getStatus();
 

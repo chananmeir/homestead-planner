@@ -137,6 +137,44 @@ describe('IndoorSeedStarts placement confirmation', () => {
     expect(screen.getByText(/Plan Placement/i)).toBeInTheDocument();
   });
 
+  test('growing start with hasPlannedPlacement renders planned placement confirmation', async () => {
+    installFetchMock([
+      {
+        match: '/api/planting-events/needs-indoor-starts',
+        response: { events: [], count: 0 },
+      },
+      {
+        match: '/api/indoor-seed-starts',
+        response: [
+          {
+            id: 89,
+            plantId: 'tomato',
+            variety: 'Cherokee Purple',
+            startDate: '2026-04-01',
+            seedsStarted: 12,
+            status: 'growing',
+            plantingEventId: 456,
+            hasPlannedPlacement: true,
+            destinationBedDetails: [{ id: 9, name: 'Bed Iota' }],
+          },
+        ],
+      },
+      {
+        match: '/api/plants',
+        response: [{ id: 'tomato', name: 'Tomato', icon: 'ðŸ…' }],
+      },
+      { match: '/api/seeds', response: [] },
+    ]);
+
+    renderComponent();
+
+    const confirmation = await screen.findByTestId('iss-placement-confirmation-89');
+    expect(confirmation).toBeInTheDocument();
+    expect(confirmation.textContent).toContain('Spot chosen in Bed Iota');
+    expect(screen.getByText(/View Planned Spot/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Plan Placement/i)).not.toBeInTheDocument();
+  });
+
   test('status="transplanted" with no destinationBedDetails falls back to "Placement chosen"', async () => {
     installFetchMock([
       {

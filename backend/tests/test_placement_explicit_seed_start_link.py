@@ -90,6 +90,161 @@ class TestExplicitIndoorSeedStartLinkage:
         assert payload.get('indoorSeedStartCreated') in (False, None)
         assert payload.get('indoorSeedStartId') == ss.id
 
+    def test_explicit_plan_action_records_planned_placement_without_transplant(
+        self, auth_client_a, user_a, bed_a
+    ):
+        """Plan Placement chooses a future bed cell without recording an actual
+        transplant. The IndoorSeedStart stays planned/growing, but links to
+        the newly positioned PlantingEvent so the placement is tracked."""
+        original_event = PlantingEvent(
+            user_id=user_a.id,
+            plant_id=PLANT_ID,
+            garden_bed_id=bed_a.id,
+            seed_start_date=datetime(2026, 3, 20),
+            transplant_date=datetime(2026, 5, 1),
+            expected_harvest_date=datetime(2026, 8, 1),
+            quantity=5,
+            completed=False,
+            quantity_completed=0,
+        )
+        db.session.add(original_event)
+        db.session.flush()
+        ss = _make_seed_start(
+            user_a,
+            status='planned',
+            expected_transplant=datetime(2026, 5, 1),
+        )
+        ss.planting_event_id = original_event.id
+        db.session.commit()
+
+        resp = auth_client_a.post('/api/planted-items', json={
+            'plantId': PLANT_ID,
+            'gardenBedId': bed_a.id,
+            'plantedDate': '2026-05-01',
+            'position': {'x': 0, 'y': 0},
+            'quantity': 1,
+            'status': 'planned',
+            'sourceIndoorSeedStartId': ss.id,
+            'sourceIndoorSeedStartAction': 'plan',
+        })
+        assert resp.status_code == 201, resp.get_json()
+        payload = resp.get_json()
+
+        db.session.expire_all()
+        ss_refreshed = IndoorSeedStart.query.get(ss.id)
+        assert ss_refreshed.status == 'planned'
+        assert ss_refreshed.planting_event_id != original_event.id
+        assert ss_refreshed.planting_event_id is not None
+        assert ss_refreshed.actual_transplant_date is None
+        assert ss_refreshed.to_dict()['hasPlannedPlacement'] is True
+
+        planned_event = PlantingEvent.query.get(ss_refreshed.planting_event_id)
+        assert planned_event.garden_bed_id == bed_a.id
+        assert planned_event.position_x == 0
+        assert planned_event.position_y == 0
+        assert planned_event.seed_start_date == ss_refreshed.start_date
+
+        assert payload.get('indoorSeedStartId') == ss.id
+        assert payload.get('indoorSeedStartLinked') is False
+        assert payload.get('indoorSeedStartCreated') is False
+        assert payload.get('indoorSeedStartPlacementPlanned') is True
+
+    def test_explicit_plan_action_rejects_duplicate_planned_placement(
+        self, auth_client_a, user_a, bed_a
+    ):
+        """Once a planned placement is linked, repeating Plan Placement for
+        the same IndoorSeedStart must not create another PlantedItem."""
+        ss = _make_seed_start(
+            user_a,
+            status='growing',
+            expected_transplant=datetime(2026, 5, 1),
+        )
+
+        first = auth_client_a.post('/api/planted-items', json={
+            'plantId': PLANT_ID,
+            'gardenBedId': bed_a.id,
+            'plantedDate': '2026-05-01',
+            'position': {'x': 0, 'y': 0},
+            'quantity': 1,
+            'status': 'planned',
+            'sourceIndoorSeedStartId': ss.id,
+            'sourceIndoorSeedStartAction': 'plan',
+        })
+        assert first.status_code == 201, first.get_json()
+        assert PlantedItem.query.filter_by(user_id=user_a.id).count() == 1
+
+        second = auth_client_a.post('/api/planted-items', json={
+            'plantId': PLANT_ID,
+            'gardenBedId': bed_a.id,
+            'plantedDate': '2026-05-01',
+            'position': {'x': 1, 'y': 0},
+            'quantity': 1,
+            'status': 'planned',
+            'sourceIndoorSeedStartId': ss.id,
+            'sourceIndoorSeedStartAction': 'plan',
+        })
+
+        assert second.status_code == 409, second.get_json()
+        assert 'already has a planned garden placement' in second.get_json()['error']
+        assert PlantedItem.query.filter_by(user_id=user_a.id).count() == 1
+
+    def test_batch_plan_action_does_not_heuristically_transplant_seed_start(
+        self, auth_client_a, user_a, bed_a
+    ):
+        """The multi-cell Garden Designer path must also keep Plan Placement
+        from advancing the selected IndoorSeedStart."""
+        ss = _make_seed_start(
+            user_a,
+            status='planned',
+            expected_transplant=datetime(2026, 5, 1),
+        )
+
+        resp = auth_client_a.post('/api/planted-items/batch', json={
+            'plantId': PLANT_ID,
+            'gardenBedId': bed_a.id,
+            'plantedDate': '2026-05-01',
+            'plantingMethod': 'transplant',
+            'status': 'planned',
+            'positions': [
+                {'x': 0, 'y': 0, 'quantity': 1},
+                {'x': 1, 'y': 0, 'quantity': 1},
+            ],
+            'sourceIndoorSeedStartId': ss.id,
+            'sourceIndoorSeedStartAction': 'plan',
+        })
+        assert resp.status_code == 201, resp.get_json()
+        payload = resp.get_json()
+
+        db.session.expire_all()
+        ss_refreshed = IndoorSeedStart.query.get(ss.id)
+        assert ss_refreshed.status == 'planned'
+        assert ss_refreshed.planting_event_id is not None
+        assert ss_refreshed.actual_transplant_date is None
+        assert ss_refreshed.to_dict()['hasPlannedPlacement'] is True
+        linked_event = PlantingEvent.query.get(ss_refreshed.planting_event_id)
+        assert linked_event.garden_bed_id == bed_a.id
+        assert (linked_event.position_x, linked_event.position_y) in ((0, 0), (1, 0))
+        assert IndoorSeedStart.query.filter_by(user_id=user_a.id).count() == 1
+        assert payload.get('indoorSeedStartPlacementPlanned') is True
+        assert payload.get('indoorSeedStartId') == ss.id
+
+    def test_invalid_source_seed_start_action_rejected(
+        self, auth_client_a, user_a, bed_a
+    ):
+        ss = _make_seed_start(user_a)
+
+        resp = auth_client_a.post('/api/planted-items', json={
+            'plantId': PLANT_ID,
+            'gardenBedId': bed_a.id,
+            'plantedDate': '2026-05-01',
+            'position': {'x': 0, 'y': 0},
+            'quantity': 1,
+            'sourceIndoorSeedStartId': ss.id,
+            'sourceIndoorSeedStartAction': 'later',
+        })
+        assert resp.status_code == 400, resp.get_json()
+        assert 'sourceIndoorSeedStartAction' in resp.get_json().get('error', '')
+
     def test_missing_field_falls_through_to_heuristic(
         self, auth_client_a, user_a, bed_a
     ):

@@ -500,10 +500,12 @@ class TestHarvestReadyGrouping:
         e1 = _make_event(
             user_a.id, plant_id='tomato-1', variety='Roma',
             garden_bed_id=bed.id, expected_harvest_date=same_date, quantity=3,
+            quantity_completed=3, completed=True,
         )
         e2 = _make_event(
             user_a.id, plant_id='tomato-1', variety='Roma',
             garden_bed_id=bed.id, expected_harvest_date=same_date, quantity=2,
+            quantity_completed=2, completed=True,
         )
         body = _body(auth_client_a)
         rows = body['signals']['harvestReady']
@@ -524,10 +526,12 @@ class TestHarvestReadyGrouping:
         _make_event(
             user_a.id, plant_id='tomato-1', variety='Roma',
             garden_bed_id=bed.id, expected_harvest_date=fresh_date, quantity=4,
+            quantity_completed=4, completed=True,
         )
         _make_event(
             user_a.id, plant_id='tomato-1', variety='Roma',
             garden_bed_id=bed.id, expected_harvest_date=fresh_date, quantity=4,
+            quantity_completed=4, completed=True,
         )
         rows = _body(auth_client_a)['signals']['harvestReady']
         assert len(rows) == 1
@@ -543,10 +547,10 @@ class TestHarvestReadyGrouping:
         )
         _make_event(user_a.id, plant_id='tomato-1', variety='Roma',
                     garden_bed_id=bed_a.id, expected_harvest_date=date_dt,
-                    quantity=4)
+                    quantity=4, quantity_completed=4, completed=True)
         _make_event(user_a.id, plant_id='tomato-1', variety='Roma',
                     garden_bed_id=bed_b.id, expected_harvest_date=date_dt,
-                    quantity=4)
+                    quantity=4, quantity_completed=4, completed=True)
         rows = _body(auth_client_a)['signals']['harvestReady']
         assert len(rows) == 2
 
@@ -607,6 +611,8 @@ class TestBackwardCompatPayloadShape:
             expected_harvest_date=datetime.combine(
                 TODAY - timedelta(days=2), datetime.min.time()
             ),
+            quantity_completed=4,
+            completed=True,
         )
         _make_event(
             user_a.id, plant_id='pepper-1', variety='Jalapeno',

@@ -129,6 +129,44 @@ def test_two_plans_same_crop_variety_date_no_longer_merge(auth_client_a, user_a)
     assert by_plan[plan_b.id]['plantingEventIds'] == [ev_b.id]
 
 
+def test_same_plan_same_crop_date_different_beds_no_longer_merge(auth_client_a, user_a):
+    """Plan-only Indoor Starts rows must stay separable by destination bed.
+
+    The frontend planned-bed filter depends on each emitted row carrying the
+    bed-specific event ids and bed name. If the backend merges same crop/date
+    rows across beds, filtering would hide or show the wrong plan-only seedings.
+    """
+    plan = _make_plan(user_a, 'Plan Alpha')
+    item = _make_plan_item(plan)
+    bed_a = GardenBed(user_id=user_a.id, name='North Bed', width=4.0, length=8.0)
+    bed_b = GardenBed(user_id=user_a.id, name='South Bed', width=4.0, length=8.0)
+    db.session.add_all([bed_a, bed_b])
+    db.session.flush()
+
+    shared_date = datetime(2027, 5, 15)
+    ev_a = _make_event(
+        user_a,
+        plan_item=item,
+        transplant_date=shared_date,
+        garden_bed_id=bed_a.id,
+    )
+    ev_b = _make_event(
+        user_a,
+        plan_item=item,
+        transplant_date=shared_date,
+        garden_bed_id=bed_b.id,
+    )
+
+    rows = _get_rows(auth_client_a)
+
+    assert len(rows) == 2
+    by_bed = {r['gardenBedId']: r for r in rows}
+    assert by_bed[bed_a.id]['gardenBedName'] == 'North Bed'
+    assert by_bed[bed_b.id]['gardenBedName'] == 'South Bed'
+    assert by_bed[bed_a.id]['plantingEventIds'] == [ev_a.id]
+    assert by_bed[bed_b.id]['plantingEventIds'] == [ev_b.id]
+
+
 # ---------------------------------------------------------------------------
 # Test 2: Two plans with different crops → each row attributed correctly
 # ---------------------------------------------------------------------------

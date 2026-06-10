@@ -48,6 +48,7 @@ export interface PendingPlant {
   bedId: number;
   sourcePlanItemId?: number;
   initialVariety?: string;
+  initialPlantingMethod?: 'direct' | 'transplant';
 }
 
 export interface RemoveAllByPlantConfirm {

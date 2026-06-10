@@ -319,7 +319,7 @@ def get_user_planted_items(user_id, filters=None):
     Returns:
         list[PlantedItem]: List of planted item objects
     """
-    query = PlantedItem.query.filter_by(user_id=user_id)
+    query = PlantedItem.query.filter_by(user_id=user_id).filter(PlantedItem.cancelled_at.is_(None))
 
     if filters:
         if 'garden_bed_id' in filters:

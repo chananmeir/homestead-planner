@@ -38,6 +38,8 @@ import { installFetchMock, clearFetchMock } from '../Dashboard/testUtils';
 import { ToastProvider } from '../common/Toast';
 import IndoorSeedStarts from '../IndoorSeedStarts';
 
+type IndoorStartFocusTarget = React.ComponentProps<typeof IndoorSeedStarts>['focusIndoorStartTarget'];
+
 describe('IndoorSeedStarts focus integration', () => {
   beforeEach(() => {
     (Element.prototype as any).scrollIntoView = jest.fn();
@@ -48,11 +50,12 @@ describe('IndoorSeedStarts focus integration', () => {
     jest.restoreAllMocks();
   });
 
-  function renderComponent(focusId: number | null) {
+  function renderComponent(focusId: number | null, focusTarget?: IndoorStartFocusTarget) {
     return render(
       <ToastProvider>
         <IndoorSeedStarts
           focusIndoorStartId={focusId}
+          focusIndoorStartTarget={focusTarget}
           onFocusConsumed={() => {}}
         />
       </ToastProvider>
@@ -110,6 +113,165 @@ describe('IndoorSeedStarts focus integration', () => {
     const highlighted = screen.getByTestId('iss-card-42');
     expect(highlighted.className).toMatch(/ring-2/);
     expect(highlighted.className).toMatch(/ring-amber-400/);
+  });
+
+  test('when focusIndoorStartId matches a planting event for a linked card, it scrolls after loading finishes', async () => {
+    let resolvePlants: (response: any) => void = () => {};
+    const response = (body: any) => ({
+      ok: true,
+      status: 200,
+      json: async () => body,
+    });
+    const fetchMock = jest.fn((url: RequestInfo | URL) => {
+      const href = typeof url === 'string' ? url : url.toString();
+      if (href.includes('/api/planting-events/needs-indoor-starts')) {
+        return Promise.resolve(response({ count: 0, events: [] }));
+      }
+      if (href.includes('/api/indoor-seed-starts')) {
+        return Promise.resolve(response([
+          {
+            id: 112,
+            plantId: 'squash-1',
+            variety: 'Spaghetti Squash',
+            startDate: '2026-04-29T00:00:00',
+            expectedTransplantDate: '2026-05-20T00:00:00',
+            seedsStarted: 5,
+            status: 'planned',
+            plantingEventId: 5990,
+            destinationBedDetails: [{ id: 43, name: 'Permaculture Bed' }],
+          },
+        ]));
+      }
+      if (href.includes('/api/plants')) {
+        return new Promise(resolve => {
+          resolvePlants = () => resolve(response([
+            { id: 'squash-1', name: 'Squash', icon: '🌱' },
+          ]));
+        });
+      }
+      if (href.includes('/api/seeds')) {
+        return Promise.resolve(response([]));
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: 'not mocked', url: href }),
+      });
+    });
+    (global as any).fetch = fetchMock;
+
+    renderComponent(5990, { plantingEventIds: [5990] });
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/plants'))).toBe(true);
+    });
+    expect(screen.getByText('Loading seed starts...')).toBeInTheDocument();
+    expect((Element.prototype as any).scrollIntoView).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePlants(null);
+    });
+
+    const card = await screen.findByTestId('iss-card-112');
+    await waitFor(() => {
+      expect((Element.prototype as any).scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+    expect((Element.prototype as any).scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'center',
+    });
+    expect(card.className).toMatch(/ring-2/);
+    expect(card.className).toMatch(/ring-amber-400/);
+  });
+
+  test('when focusIndoorStartId matches a plan-only planting event, banner expands and row is highlighted', async () => {
+    installFetchMock([
+      {
+        match: '/api/planting-events/needs-indoor-starts',
+        response: {
+          count: 1,
+          events: [
+            {
+              plantingEventId: 901,
+              plantingEventIds: [901],
+              plantId: 'tomato',
+              plantName: 'Tomato',
+              plantIcon: '🍅',
+              variety: 'Brandywine',
+              gardenBedId: 11,
+              gardenBedName: 'North Bed',
+              transplantDate: '2026-05-15T00:00:00',
+              weeksIndoors: 6,
+              germinationDays: 7,
+              suggestedIndoorStartDate: '2026-04-03T00:00:00',
+              expectedGerminationDate: '2026-04-10T00:00:00',
+              daysUntilStart: -11,
+              timingStatus: 'past',
+              canStartIndoors: true,
+              spaceRequired: 4,
+            },
+          ],
+        },
+      },
+      { match: '/api/indoor-seed-starts', response: [] },
+      { match: '/api/plants', response: [{ id: 'tomato', name: 'Tomato', icon: '🍅' }] },
+      { match: '/api/seeds', response: [] },
+    ]);
+
+    renderComponent(901);
+
+    const row = await screen.findByTestId('plan-only-row-901');
+    await waitFor(() => {
+      expect((Element.prototype as any).scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+    expect(row.className).toMatch(/ring-2/);
+    expect(row.className).toMatch(/ring-amber-400/);
+    expect(screen.getByTestId('indoor-start-bed-filter')).toHaveValue('11');
+  });
+
+  test('when focus target contains a grouped plan-only planting event, representative row is highlighted', async () => {
+    installFetchMock([
+      {
+        match: '/api/planting-events/needs-indoor-starts',
+        response: {
+          count: 1,
+          events: [
+            {
+              plantingEventId: 901,
+              plantingEventIds: [901, 902, 903],
+              plantId: 'squash',
+              plantName: 'Squash',
+              plantIcon: '🌱',
+              variety: 'Spaghetti Squash',
+              gardenBedId: null,
+              gardenBedName: null,
+              transplantDate: '2026-05-15T00:00:00',
+              weeksIndoors: 4,
+              germinationDays: 7,
+              suggestedIndoorStartDate: '2026-04-03T00:00:00',
+              expectedGerminationDate: '2026-04-10T00:00:00',
+              daysUntilStart: -11,
+              timingStatus: 'past',
+              canStartIndoors: true,
+              spaceRequired: 4,
+            },
+          ],
+        },
+      },
+      { match: '/api/indoor-seed-starts', response: [] },
+      { match: '/api/plants', response: [{ id: 'squash', name: 'Squash', icon: '🌱' }] },
+      { match: '/api/seeds', response: [] },
+    ]);
+
+    renderComponent(902, { plantingEventIds: [902, 901, 903] });
+
+    const row = await screen.findByTestId('plan-only-row-901');
+    await waitFor(() => {
+      expect((Element.prototype as any).scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+    expect(row.className).toMatch(/ring-2/);
+    expect(row.className).toMatch(/ring-amber-400/);
+    expect(screen.getByTestId('indoor-start-bed-filter')).toHaveValue('unassigned');
   });
 
   test('filter is auto-reset to "all" when the focused row is in a different status', async () => {

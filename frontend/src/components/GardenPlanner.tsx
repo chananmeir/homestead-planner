@@ -993,6 +993,10 @@ const GardenPlanner: React.FC = () => {
       clearTimeout(timeoutId);
       abortController.abort();
     };
+    // `now` is intentionally excluded: it only tags the request with the current year and
+    // its Date identity changes every render, so keying on it would re-run this debounced
+    // fetch every render. The fetch should re-run only on the data deps below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manualQuantities, seedInventory, perSeedSuccession]);
 
   const toggleSeedSelection = (seedId: number) => {
@@ -1712,6 +1716,9 @@ const GardenPlanner: React.FC = () => {
         })),
       },
     ].filter(group => group.options.length > 0); // Only show groups with options
+    // isExpired/isExpiringSoon are pure given `now` (excluded — its Date identity changes
+    // every render); the option counts recompute when baseFilteredSeeds changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseFilteredSeeds, getPlantInfo]);
 
   // Phase 3: Final filtered and sorted
@@ -1786,6 +1793,9 @@ const GardenPlanner: React.FC = () => {
     });
 
     return result;
+    // isExpired/isExpiringSoon are pure given `now` (excluded — its Date identity changes
+    // every render); results recompute when baseFilteredSeeds/activeFilters/sort change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseFilteredSeeds, activeFilters, sortBy, sortDirection, getPlantInfo, getPlantName]);
 
   // Handler functions

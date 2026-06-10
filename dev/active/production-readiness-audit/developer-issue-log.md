@@ -1,7 +1,7 @@
 # Production Readiness Audit - Developer Issue Log
 
 **Created**: 2026-04-23
-**Last Updated**: 2026-04-25 (added AUDIT-016 calendar / indoor-starts consistency A1)
+**Last Updated**: 2026-04-30 (added AUDIT-023 local API port conflict fix)
 
 ## Purpose
 
@@ -426,6 +426,175 @@ Copy this block for each new issue:
   - [x] No backend changes, no schema changes, no paired-file sync triggered.
   - [x] `Plan only` predicate uses `== null` (not falsy) on `indoorSeedStartStatus`.
 - Notes: A1 of two product options. **A2 (auto-create `IndoorSeedStart` on Export to Calendar) was explicitly deferred** — see `calendar-indoor-start-consistency-decision.md` for reasoning; do not propose A2 again without revisiting that decision. 16 frontend tests added across DayDetailModal, EventMarker, GroupedEventsModal, ListView, and the IndoorSeedStarts banner. `code-review` returned LGTM; an R1 SearchBar/sort scope creep was flagged and reverted in the parent session before ship. Banner data source: existing `GET /api/planting-events/needs-indoor-starts` endpoint. Source bed name omitted from banner per locked default. Banner dismissal is client-only (no backend write).
+
+## AUDIT-017
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: User report on 2026-04-29
+- Area: Garden Designer / Garden Beds / Planning data cleanup
+- Summary: Users needed a safe way to permanently delete accidental extra beds and all planning data attached to those beds.
+- Expected: Deleting a bed should require deliberate confirmation and remove bed-owned records, planning events, plan allocations, linked indoor-start records, property placement, trellises, photos, and harvest references tied to the deleted bed.
+- Actual: Existing `DELETE /api/garden-beds/<id>` deleted only the bed row through a narrow ORM path and had no typed confirmation guard.
+- Impact: Users who over-created beds, such as making a 9-bed plan when they only have 5 beds, had no trustworthy cleanup path and risked stale events/allocations lingering across planner, designer, calendar, and indoor starts.
+- Repro steps:
+  1. Create more garden beds than the real property has.
+  2. Export or create plan allocations/events tied to the extra bed.
+  3. Try to remove the bed and observe missing confirmation/cascade cleanup behavior.
+- Evidence: User report plus focused regression coverage in `backend/tests/test_garden_bed_delete_cascade.py` and `frontend/src/components/common/__tests__/ConfirmDialog.test.tsx`.
+- Suspected files / systems: `backend/blueprints/gardens_bp.py`, `frontend/src/components/GardenDesigner.tsx`, `frontend/src/components/common/ConfirmDialog.tsx`
+- Acceptance criteria:
+  - [x] Bed deletion requires typing `delete` before the destructive action is enabled.
+  - [x] Backend rejects permanent bed deletes without `confirmation: "delete"`.
+  - [x] Backend removes or detaches bed-linked `PlantedItem`, `PlantingEvent`, `IndoorSeedStart`, `HarvestRecord`, `Photo`, `PlacedStructure`, `TrellisStructure`, `GardenPlanItem`, and `SeedInventory.source_planted_item_id` references as appropriate.
+  - [x] Cross-user bed delete protection still returns 403 before confirmation state matters.
+  - [x] Garden Designer refreshes bed, planting-event, future-event, and active-plan state after deletion.
+- Notes: Implemented on 2026-04-29. No schema change or migration required. Verification: `python -m pytest tests/test_garden_bed_delete_cascade.py -q`; `python -m pytest tests/test_auth_isolation.py::TestOwnershipProtection::test_cannot_delete_other_users_bed -q`; `CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/components/common/__tests__/ConfirmDialog.test.tsx`; `npm run build` (compiled with existing hook warnings and known stale `baseline-browser-mapping` notice).
+
+## AUDIT-018
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: User report on 2026-04-29
+- Area: Dashboard / Needs Attention / Indoor Seed Starts deep-linking
+- Summary: Clicking a grouped `Indoor start due` dashboard row opened the Indoor Seed Starting tab but did not expand or highlight the exact planned seed row.
+- Expected: Dashboard indoor-start rows should carry enough focus data for Indoor Seed Starts to scroll to and highlight the matching tracked card or plan-only banner row, including grouped rows such as multiple Spaghetti Squash planned events.
+- Actual: The click target only sent one representative ID. Grouped rows already had `plantingEventIds` / `indoorSeedStartIds` for snooze and dismiss, but those arrays were dropped from navigation.
+- Impact: Users landed on the correct page but still had to manually hunt through many planned seedings, making the dashboard action feel broken.
+- Repro steps:
+  1. Load a plan with grouped indoor-start reminders, such as `Squash (Spaghetti Squash) (3)`.
+  2. Click the dashboard `Indoor start due` row.
+  3. Observe Indoor Seed Starting opens without expanding/highlighting the matching planned row.
+- Evidence: User screenshot plus focused regression coverage in `frontend/src/components/Dashboard/__tests__/NeedsAttentionPanel.test.tsx` and `frontend/src/components/__tests__/IndoorSeedStarts.focus.test.tsx`.
+- Suspected files / systems: `frontend/src/components/Dashboard/NeedsAttentionPanel.tsx`, `frontend/src/components/Dashboard/types.ts`, `frontend/src/App.tsx`, `frontend/src/components/IndoorSeedStarts.tsx`
+- Acceptance criteria:
+  - [x] Dashboard indoor-start and indoor-germination targets include grouped `plantingEventIds` / `indoorSeedStartIds` when present.
+  - [x] App preserves grouped indoor focus IDs when navigating to Indoor Starts.
+  - [x] Indoor Starts matches focus against all grouped planting-event IDs and indoor-seed-start IDs.
+  - [x] Plan-only banner expands, applies the needed bed filter, scrolls, and highlights the representative row when any grouped event ID matches.
+  - [x] Linked IndoorSeedStart cards still scroll when focus resolves before the loading spinner has been replaced by the card grid.
+- Notes: Implemented on 2026-04-29. No backend or schema changes required. Verification: `CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/components/__tests__/IndoorSeedStarts.focus.test.tsx src/components/Dashboard/__tests__/NeedsAttentionPanel.test.tsx`; `CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/components/Dashboard/hooks/__tests__/useFocusHighlight.test.tsx src/components/__tests__/IndoorSeedStarts.focus.test.tsx src/components/__tests__/Livestock.focus.test.tsx`; `npm run build` (compiled with existing unrelated hook warnings and stale `baseline-browser-mapping` notice).
+
+## AUDIT-019
+
+- Status: `Verified closed`
+- Priority: `P1`
+- Source: User report on 2026-04-29
+- Area: Indoor Seed Starts / Garden Designer placement
+- Summary: `Plan Placement` for an indoor seed start that was still `planned` showed a warning that placement would mark it transplanted, and the backend did in fact advance explicitly linked seed starts to `transplanted`.
+- Expected: `Plan Placement` should only choose the future garden cell and leave the IndoorSeedStart status/linkage unchanged. Only `Transplant Now` for hardening starts should mark the seed start transplanted.
+- Actual: The Garden Designer sent `sourceIndoorSeedStartId` for both planning and real transplant flows, and the backend treated any explicit seed-start source as an actual transplant.
+- Impact: Users could accidentally convert not-yet-started seedlings into transplanted records while merely laying out where they should go later.
+- Repro steps:
+  1. Open a planned Indoor Seed Start.
+  2. Click `Plan Placement`.
+  3. In Garden Designer, click `Pick cell`.
+  4. Observe `Place before ready?` warning saying it will mark the seed start transplanted.
+- Evidence: User screenshot plus regression coverage in `backend/tests/test_placement_explicit_seed_start_link.py`.
+- Suspected files / systems: `frontend/src/components/GardenDesigner.tsx`, `backend/blueprints/gardens_bp.py`
+- Acceptance criteria:
+  - [x] Planned/growing indoor starts no longer show the `Place before ready?` modal when choosing a placement cell.
+  - [x] Garden Designer sends `sourceIndoorSeedStartAction: "plan"` for non-hardening `Plan Placement`.
+  - [x] Backend creates the planned garden placement without changing IndoorSeedStart `status`, `planting_event_id`, or `actual_transplant_date`.
+  - [x] Existing actual-transplant behavior remains intact for hardening/manual transplant placement.
+- Notes: Implemented on 2026-04-29. No schema change. Verification: `python -m pytest tests/test_placement_explicit_seed_start_link.py -q`; `python -m pytest tests/test_placement_indoor_start_dedup.py -q`; `npm run build` (compiled with existing unrelated hook warnings and stale `baseline-browser-mapping` notice).
+
+## AUDIT-020
+
+- Status: `Verified closed`
+- Priority: `P2`
+- Source: User request on 2026-04-29
+- Area: Indoor Seed Starts / Planned filtering
+- Summary: Indoor Seed Starts needed a date range filter so planned seed work could be narrowed by start date without manually scanning the full list.
+- Expected: Users can set a start-date range while viewing planned indoor starts, and both regular tracked cards and plan-only garden-plan rows respect that range.
+- Actual: The page had status and bed filters, but no date filter for planned indoor-start work.
+- Impact: Large plans made it difficult to focus on only the seed-start work due in a specific window.
+- Evidence: Focused regression coverage in `frontend/src/components/__tests__/IndoorSeedStarts.banner.test.tsx`.
+- Suspected files / systems: `frontend/src/components/IndoorSeedStarts.tsx`
+- Acceptance criteria:
+  - [x] Indoor Seed Starts exposes `Start from` and `To` date controls with a clear action.
+  - [x] Tracked seed-start cards are filtered by `startDate`.
+  - [x] Plan-only garden-plan banner rows are filtered by `suggestedIndoorStartDate`.
+  - [x] Empty states explain when a date range has hidden all matching rows.
+- Notes: Implemented on 2026-04-29. No backend or schema change. Verification: `npm test -- --watchAll=false --runInBand --runTestsByPath src/components/__tests__/IndoorSeedStarts.banner.test.tsx src/components/__tests__/IndoorSeedStarts.focus.test.tsx`; `npm run build` (compiled with existing unrelated hook warnings and stale `baseline-browser-mapping` notice after sandbox `spawn EPERM` retry outside the sandbox).
+
+## AUDIT-021
+
+- Status: `Verified closed`
+- Priority: `P2`
+- Source: User request on 2026-04-29
+- Area: App navigation / cross-module deep links
+- Summary: Action clicks that moved from Dashboard, Calendar, or Indoor Seed Starts into another module replaced the current view, making it hard to refer back to the original page.
+- Expected: Cross-module action clicks should open a deep-linked browser tab so the source page remains available.
+- Actual: The app stored destination/focus state only in React state and navigated in-place, so the source context was lost.
+- Impact: Users had to manually navigate back after inspecting or completing a task, especially from Needs Attention and seed-start placement flows.
+- Evidence: Focused regression coverage in `frontend/src/App.test.tsx`.
+- Suspected files / systems: `frontend/src/App.tsx`
+- Acceptance criteria:
+  - [x] Dashboard quick actions and Needs Attention rows open a new browser tab via `_blank`.
+  - [x] Header date opens Planting Calendar grid in a new browser tab.
+  - [x] Calendar-to-Designer and Indoor-Starts-to-Designer actions open Designer in a new browser tab.
+  - [x] Destination tabs restore the intended app view and focus context from URL query parameters.
+  - [x] Top-level app navigation still changes the current tab in place.
+- Notes: Implemented on 2026-04-29. No backend or schema change. Verification: `npm test -- --watchAll=false --runInBand --runTestsByPath src/App.test.tsx`; `npm run build` (compiled with existing unrelated hook warnings and stale `baseline-browser-mapping` notice after sandbox `spawn EPERM` retry outside the sandbox).
+
+## AUDIT-022
+
+- Status: `Verified closed`
+- Priority: `P2`
+- Source: User report on 2026-04-30
+- Area: Garden Designer / Plant configuration / Indoor-start scheduling
+- Summary: Transplant configuration warned that a late indoor start would produce fewer days indoors instead of automatically shifting the transplant date later.
+- Expected: If an indoor-start crop is started later than the recommended seed-start date, the program should preserve the recommended indoor growing duration by moving the transplant date later when possible.
+- Actual: The modal kept the transplant date fixed and displayed a confusing warning that the crop would get fewer indoor days.
+- Impact: Users were asked to accept a worse schedule even though the practical fix is to leave seedlings indoors longer and transplant later.
+- Evidence: User screenshot for Pumpkin on 2026-04-30 and regression coverage in `frontend/src/components/GardenDesigner/__tests__/PlantConfigModal.test.tsx`.
+- Suspected files / systems: `frontend/src/components/GardenDesigner/PlantConfigModal.tsx`
+- Acceptance criteria:
+  - [x] Transplant date auto-shifts later when the recommended indoor seed-start date is already in the past.
+  - [x] Auto-shift preserves the plant's configured `weeksIndoors`.
+  - [x] The old warning no longer frames the normal path as losing indoor growing time.
+  - [x] Dates that already preserve indoor growing time are not changed.
+- Notes: Implemented on 2026-04-30. No backend or schema change. Verification: `npm test -- --watchAll=false --runInBand --runTestsByPath src/components/GardenDesigner/__tests__/PlantConfigModal.test.tsx`; `npm run build` (compiled with existing unrelated hook warnings and stale `baseline-browser-mapping` notice).
+
+## AUDIT-023
+
+- Status: `Verified closed`
+- Priority: `P2`
+- Source: User report on 2026-04-30
+- Area: Local development / API connectivity
+- Summary: The app often showed `Failed to fetch` during local use.
+- Expected: The frontend should talk to a single, stable Homestead backend process.
+- Actual: Local port inspection showed multiple Python processes plus another local service (`MedXM.Api`) listening on backend port `5000`, causing dropped or misrouted HTTP responses.
+- Impact: Frontend API calls intermittently failed even when the React dev server was compiled successfully.
+- Evidence: `netstat -ano | findstr :5000` showed multiple listeners; `Invoke-WebRequest http://localhost:5000/api/plants` returned a connection-closed error.
+- Suspected files / systems: `backend/app.py`, `start-backend.bat`, `start-app.bat`, `frontend/.env.local`
+- Acceptance criteria:
+  - [x] Backend startup script uses a Homestead-specific local API port that is free on this machine.
+  - [x] Backend app can read `HOMESTEAD_BACKEND_PORT` while preserving default direct `python app.py` behavior.
+  - [x] Frontend local environment points to the matching backend URL.
+  - [x] Temporary backend verification on the new port returns `/api/plants` successfully.
+- Notes: Implemented on 2026-04-30. Chosen local API port: `5051`. Verification: temporary backend on `127.0.0.1:5051` returned `200` for `/api/plants`; `npm run build` compiled with existing unrelated hook warnings and stale `baseline-browser-mapping` notice.
+
+## AUDIT-024
+
+- Status: `Verified closed`
+- Priority: `P2`
+- Source: User report on 2026-04-30
+- Area: Indoor Seed Starts / Garden Designer planned placements
+- Summary: Updating an Indoor Seed Start's seed type/variety did not update the planned garden-bed placement that had already been created from that start.
+- Expected: Changing the indoor start variety/seed lot should keep linked planning records, bed placements, and matching calendar planting events aligned.
+- Actual: The PUT `/api/indoor-seed-starts/<id>` handler updated only the indoor start. Older Plan Placement flows could also create an unlinked Designer plan item, leaving the bed card on the old variety.
+- Impact: A user could see Charleston Grey in Indoor Seed Starts while the garden bed still showed Dixie Queen for the same planned transplant.
+- Evidence: User screenshot/report for Watermelon on 2026-04-30 and regression coverage in `backend/tests/test_indoor_seed_start_variety_sync.py`.
+- Suspected files / systems: `backend/blueprints/utilities_bp.py`, `backend/blueprints/garden_planner_bp.py`, `frontend/src/components/GardenDesigner.tsx`, `frontend/src/components/IndoorSeedStarts/EditSeedStartModal.tsx`
+- Acceptance criteria:
+  - [x] Indoor seed-start updates propagate variety/seed inventory to directly linked planting events and plan items.
+  - [x] Legacy unlinked planned placements are repaired only when user, crop, old variety, destination bed, transplant date, planned status, and source plan item all match.
+  - [x] Matching bed PlantedItems and their same-cell calendar PlantingEvents update together.
+  - [x] Future Designer Plan Placement records store the source indoor seed-start id on the plan item.
+  - [x] Clearing a seed lot from the edit modal sends `seedInventoryId: null` so stale seed-lot links do not remain.
+- Notes: Implemented on 2026-04-30. No schema change. Verification: `python -m pytest tests/test_indoor_seed_start_variety_sync.py tests/test_placement_explicit_seed_start_link.py tests/test_indoor_seed_start_delete_cascade.py -q`; `npm run build` (compiled with existing unrelated hook warnings and stale `baseline-browser-mapping` notice).
 
 ## Closed / Non-Developer Action Items
 

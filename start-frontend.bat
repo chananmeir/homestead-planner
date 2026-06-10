@@ -33,6 +33,8 @@ cd frontend
 echo [2/2] Starting React development server...
 echo.
 echo Frontend will be available at: http://localhost:3000
+set "REACT_APP_API_URL=http://localhost:5051"
+echo API requests will use: %REACT_APP_API_URL%
 echo Browser will open automatically...
 echo.
 echo Press Ctrl+C to stop the server

@@ -13,7 +13,7 @@ echo.
 echo This will start both the backend and frontend servers
 echo in separate console windows.
 echo.
-echo Backend: http://localhost:5000
+echo Backend: http://localhost:5051
 echo Frontend: http://localhost:3000
 echo.
 echo ============================================================
@@ -24,7 +24,7 @@ cd /d "%~dp0"
 
 REM Start backend in a new window
 echo [1/3] Starting backend server...
-start "Homestead Planner - Backend (Port 5000)" cmd /k "%~dp0start-backend.bat"
+start "Homestead Planner - Backend (Port 5051)" cmd /k "%~dp0start-backend.bat"
 
 REM Wait for backend to initialize
 echo [2/3] Waiting for backend to initialize (5 seconds)...
@@ -41,7 +41,7 @@ echo  SUCCESS! Application is starting...
 echo ============================================================
 echo.
 echo Two console windows have been opened:
-echo   - Backend Server (Flask) on port 5000
+echo   - Backend Server (Flask) on port 5051
 echo   - Frontend Server (React) on port 3000
 echo.
 echo Your browser should open automatically to:

@@ -303,6 +303,7 @@ class TestHarvestCompletion:
             assert data['actualHarvestDate'] is not None
             # Phase 2: harvest sets completion
             assert data['completed'] is True
+            assert data['harvestCompleted'] is True
             assert data['quantityCompleted'] == 10
 
     def test_harvest_preserves_existing_completed(self, full_app, full_db, user_a, auth_client_a):
@@ -316,6 +317,7 @@ class TestHarvestCompletion:
             assert resp.status_code == 200
             data = resp.get_json()
             assert data['completed'] is True
+            assert data['harvestCompleted'] is True
             assert data['quantityCompleted'] == 10
 
 
@@ -350,6 +352,7 @@ class TestCrossModelIndependence:
             # Check that the linked PlantingEvent is now completed
             ev = PlantingEvent.query.get(event.id)
             assert ev.completed is True
+            assert ev.harvest_completed is True
             if ev.quantity is not None:
                 assert ev.quantity_completed == ev.quantity
 

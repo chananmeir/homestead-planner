@@ -28,7 +28,7 @@ import logging
 import json
 import math
 
-from models import db, GardenPlan, GardenPlanItem, SeedInventory, PlantedItem, GardenBed
+from models import db, GardenPlan, GardenPlanItem, SeedInventory, PlantedItem, GardenBed, IndoorSeedStart
 from sqlalchemy import func, or_, and_
 from plant_database import get_plant_by_id
 from services.space_calculator import calculate_space_requirement
@@ -975,6 +975,7 @@ def api_season_progress():
         ).filter(
             PlantedItem.source_plan_item_id.in_(plan_item_ids),
             PlantedItem.user_id == current_user.id,
+            PlantedItem.cancelled_at.is_(None),
             date_filter
         ).group_by(PlantedItem.source_plan_item_id).all()
 
@@ -989,6 +990,7 @@ def api_season_progress():
         ).filter(
             PlantedItem.source_plan_item_id.in_(plan_item_ids),
             PlantedItem.user_id == current_user.id,
+            PlantedItem.cancelled_at.is_(None),
             date_filter
         ).group_by(PlantedItem.source_plan_item_id, PlantedItem.garden_bed_id).all()
 
@@ -1037,6 +1039,7 @@ def api_season_progress():
                     ~PlantedItem.source_plan_item_id.in_(plan_item_ids)
                 ),
                 PlantedItem.user_id == current_user.id,
+                PlantedItem.cancelled_at.is_(None),
                 date_filter
             ).group_by(
                 PlantedItem.plant_id, PlantedItem.variety, PlantedItem.garden_bed_id
@@ -1280,6 +1283,7 @@ def api_garden_snapshot():
         # - For normal plants: harvest_date IS NULL OR harvest_date >= target_date
         items = PlantedItem.query.filter(
             PlantedItem.user_id == current_user.id,
+            PlantedItem.cancelled_at.is_(None),
             PlantedItem.planted_date <= target_date,
             db.or_(
                 # Non-seed-saving plants: use harvest_date
@@ -1462,6 +1466,7 @@ def api_designer_sync(plan_id):
         bed_id = data.get('bedId')
         quantity = data.get('quantity', 1)
         seed_inventory_id = data.get('seedInventoryId')
+        indoor_seed_start_id = data.get('indoorSeedStartId')
 
         if not plant_id:
             return jsonify({'error': 'plantId is required'}), 400
@@ -1469,9 +1474,29 @@ def api_designer_sync(plan_id):
             return jsonify({'error': 'bedId is required'}), 400
 
         # Validate bed ownership
-        bed = GardenBed.query.get(bed_id)
-        if not bed or bed.user_id != current_user.id:
+        bed = GardenBed.query.filter_by(id=bed_id, user_id=current_user.id).first()
+        if not bed:
             return jsonify({'error': 'Garden bed not found or unauthorized'}), 404
+
+        source_seed_start = None
+        if indoor_seed_start_id is not None:
+            if (
+                isinstance(indoor_seed_start_id, bool)
+                or not isinstance(indoor_seed_start_id, int)
+                or indoor_seed_start_id <= 0
+            ):
+                return jsonify({'error': 'indoorSeedStartId must be a positive integer'}), 400
+
+            source_seed_start = IndoorSeedStart.query.filter_by(
+                id=indoor_seed_start_id,
+                user_id=current_user.id,
+            ).first()
+            if source_seed_start is None:
+                return jsonify({'error': 'Indoor seed start not found'}), 404
+            if source_seed_start.plant_id != plant_id:
+                return jsonify({'error': 'Indoor seed start plant does not match placement plant'}), 400
+            if seed_inventory_id is None:
+                seed_inventory_id = source_seed_start.seed_inventory_id
 
         # ---- ACTION: REMOVE ----
         if action == 'remove':
@@ -1499,6 +1524,11 @@ def api_designer_sync(plan_id):
         existing_match = None
         for item in existing_items:
             if (item.variety or None) == (variety or None):
+                if (
+                    source_seed_start is not None
+                    and item.indoor_seed_start_id not in (None, source_seed_start.id)
+                ):
+                    continue
                 existing_match = item
                 break  # Use first match (prefer exact variety match)
 
@@ -1507,7 +1537,14 @@ def api_designer_sync(plan_id):
             _adjust_auto_plan_item(existing_match, bed_id, +quantity)
 
             # Set seed_inventory_id if provided and currently null
-            if seed_inventory_id is not None and existing_match.seed_inventory_id is None:
+            if source_seed_start is not None:
+                existing_match.source = 'indoor-seed-start'
+                existing_match.indoor_seed_start_id = source_seed_start.id
+
+            if (
+                seed_inventory_id is not None
+                and (existing_match.seed_inventory_id is None or source_seed_start is not None)
+            ):
                 existing_match.seed_inventory_id = seed_inventory_id
 
             db.session.commit()
@@ -1532,6 +1569,8 @@ def api_designer_sync(plan_id):
             status='auto',
             succession_enabled=False,
             succession_count=1,
+            source='indoor-seed-start' if source_seed_start is not None else None,
+            indoor_seed_start_id=source_seed_start.id if source_seed_start is not None else None,
         )
 
         if seed_inventory_id is not None:

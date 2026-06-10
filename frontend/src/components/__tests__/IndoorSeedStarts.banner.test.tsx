@@ -143,6 +143,401 @@ describe('IndoorSeedStarts — plan-only seedings banner', () => {
     expect(screen.getByTestId('plan-only-row-103')).toBeInTheDocument();
   });
 
+  test('filters expanded plan-only rows by planned bed', async () => {
+    const rows = [
+      planOnlyRow({
+        plantingEventId: 601,
+        variety: 'Brandywine',
+        gardenBedId: 11,
+        gardenBedName: 'North Bed',
+      }),
+      planOnlyRow({
+        plantingEventId: 602,
+        variety: 'Roma',
+        gardenBedId: 22,
+        gardenBedName: 'South Bed',
+      }),
+      planOnlyRow({
+        plantingEventId: 603,
+        variety: 'Cherokee Purple',
+        gardenBedId: 11,
+        gardenBedName: 'North Bed',
+      }),
+    ];
+    installFetchMock(makeOrderedRoutes(rows));
+
+    renderPage();
+
+    const banner = await screen.findByTestId('plan-only-seedings-banner');
+    fireEvent.click(within(banner).getByRole('button', { name: /Show all/i }));
+
+    expect(screen.getByTestId('plan-only-row-601')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-602')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-603')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('indoor-start-bed-filter'), {
+      target: { value: '22' },
+    });
+
+    expect(banner).toHaveTextContent(
+      /1\s+planned seeding from your garden plan\s+is\s+not yet tracked/i
+    );
+    expect(screen.queryByTestId('plan-only-row-601')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-602')).toBeInTheDocument();
+    expect(screen.queryByTestId('plan-only-row-603')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-602')).toHaveTextContent(/Planned bed:\s+South Bed/i);
+
+    fireEvent.change(screen.getByTestId('indoor-start-bed-filter'), {
+      target: { value: 'all' },
+    });
+
+    expect(screen.getByTestId('plan-only-row-601')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-602')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-603')).toBeInTheDocument();
+  });
+
+  test('filters tracked seed-start cards by planned bed', async () => {
+    installFetchMock(
+      makeOrderedRoutes([], [
+        {
+          match: '/api/indoor-seed-starts',
+          response: [
+            {
+              id: 801,
+              plantId: 'tomato-1',
+              variety: 'Brandywine',
+              startDate: '2026-03-29',
+              seedsStarted: 8,
+              status: 'planned',
+              destinationBedDetails: [{ id: 11, name: 'North Bed' }],
+            },
+            {
+              id: 802,
+              plantId: 'tomato-1',
+              variety: 'Roma',
+              startDate: '2026-03-29',
+              seedsStarted: 8,
+              status: 'planned',
+              destinationBedDetails: [{ id: 22, name: 'South Bed' }],
+            },
+          ],
+        },
+      ])
+    );
+
+    renderPage();
+
+    await screen.findByTestId('iss-card-801');
+    expect(screen.getByTestId('iss-card-802')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('indoor-start-bed-filter'), {
+      target: { value: '22' },
+    });
+
+    expect(screen.queryByTestId('iss-card-801')).not.toBeInTheDocument();
+    expect(screen.getByTestId('iss-card-802')).toBeInTheDocument();
+  });
+
+  test('filters planned rows and tracked seed-start cards by start date range', async () => {
+    const rows = [
+      planOnlyRow({
+        plantingEventId: 831,
+        variety: 'Early Plan',
+        suggestedIndoorStartDate: '2026-04-01',
+        gardenBedId: 11,
+        gardenBedName: 'North Bed',
+      }),
+      planOnlyRow({
+        plantingEventId: 832,
+        variety: 'Late Plan',
+        suggestedIndoorStartDate: '2026-04-20',
+        gardenBedId: 11,
+        gardenBedName: 'North Bed',
+      }),
+    ];
+    installFetchMock(
+      makeOrderedRoutes(rows, [
+        {
+          match: '/api/indoor-seed-starts',
+          response: [
+            {
+              id: 841,
+              plantId: 'tomato-1',
+              variety: 'Early Card',
+              startDate: '2026-04-01T00:00:00',
+              seedsStarted: 4,
+              status: 'planned',
+              destinationBedDetails: [{ id: 11, name: 'North Bed' }],
+            },
+            {
+              id: 842,
+              plantId: 'tomato-1',
+              variety: 'Late Card',
+              startDate: '2026-04-20T00:00:00',
+              seedsStarted: 4,
+              status: 'planned',
+              destinationBedDetails: [{ id: 11, name: 'North Bed' }],
+            },
+          ],
+        },
+      ])
+    );
+
+    renderPage();
+
+    const banner = await screen.findByTestId('plan-only-seedings-banner');
+    fireEvent.click(within(banner).getByRole('button', { name: /Show all/i }));
+    expect(screen.getByTestId('plan-only-row-831')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-832')).toBeInTheDocument();
+    expect(await screen.findByTestId('iss-card-841')).toBeInTheDocument();
+    expect(screen.getByTestId('iss-card-842')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('indoor-start-date-from'), {
+      target: { value: '2026-04-10' },
+    });
+    fireEvent.change(screen.getByTestId('indoor-start-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+
+    expect(banner).toHaveTextContent(
+      /1\s+planned seeding from your garden plan\s+is\s+not yet tracked/i
+    );
+    expect(screen.queryByTestId('plan-only-row-831')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-832')).toBeInTheDocument();
+    expect(screen.queryByTestId('iss-card-841')).not.toBeInTheDocument();
+    expect(screen.getByTestId('iss-card-842')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('indoor-start-clear-date-filter'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('plan-only-row-831')).toBeInTheDocument();
+      expect(screen.getByTestId('iss-card-841')).toBeInTheDocument();
+    });
+  });
+
+  test('shows Not assigned option even when all current planned rows have beds', async () => {
+    const rows = [
+      planOnlyRow({
+        plantingEventId: 611,
+        variety: 'Brandywine',
+        gardenBedId: 11,
+        gardenBedName: 'North Bed',
+      }),
+    ];
+    installFetchMock(makeOrderedRoutes(rows));
+
+    renderPage();
+
+    const banner = await screen.findByTestId('plan-only-seedings-banner');
+    const bedFilter = screen.getByTestId('indoor-start-bed-filter');
+    expect(within(bedFilter).getByRole('option', { name: 'Not assigned' })).toBeInTheDocument();
+
+    fireEvent.click(within(banner).getByRole('button', { name: /Show all/i }));
+    fireEvent.change(bedFilter, { target: { value: 'unassigned' } });
+
+    expect(screen.queryByTestId('plan-only-row-611')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-empty-filter')).toHaveTextContent(
+      /Choose another bed or switch back to all planned beds/i
+    );
+  });
+
+  test('filters expanded plan-only rows to unassigned planned rows', async () => {
+    const rows = [
+      planOnlyRow({
+        plantingEventId: 701,
+        variety: 'Roma',
+        gardenBedId: 11,
+        gardenBedName: 'North Bed',
+      }),
+      planOnlyRow({
+        plantingEventId: 702,
+        variety: 'Unassigned Tomato',
+        gardenBedId: undefined,
+        gardenBedName: undefined,
+      }),
+    ];
+    installFetchMock(makeOrderedRoutes(rows));
+
+    renderPage();
+
+    const banner = await screen.findByTestId('plan-only-seedings-banner');
+    fireEvent.click(within(banner).getByRole('button', { name: /Show all/i }));
+
+    expect(screen.getByTestId('plan-only-row-701')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-702')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('indoor-start-bed-filter'), {
+      target: { value: 'unassigned' },
+    });
+
+    expect(screen.queryByTestId('plan-only-row-701')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-702')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-only-row-702')).toHaveTextContent(/Planned bed:\s+Not assigned/i);
+  });
+
+  test('deletes filtered planned events only after typed confirmation', async () => {
+    const rows = [
+      planOnlyRow({
+        plantingEventId: 901,
+        plantingEventIds: [901, 902],
+        variety: 'Brandywine',
+        gardenBedId: 11,
+        gardenBedName: 'North Bed',
+      }),
+      planOnlyRow({
+        plantingEventId: 903,
+        variety: 'Roma',
+        gardenBedId: 22,
+        gardenBedName: 'South Bed',
+      }),
+    ];
+    const fetchMock = installFetchMock(
+      makeOrderedRoutes(rows, [
+        {
+          match: '/api/planting-events/bulk-delete',
+          response: {
+            deleted: 2,
+            deletedEventIds: [901, 902],
+            deletedIndoorSeedStarts: 0,
+            deletedAutoPlanItems: 0,
+            planItemsReset: 1,
+          },
+        },
+      ])
+    );
+
+    renderPage();
+
+    const banner = await screen.findByTestId('plan-only-seedings-banner');
+    fireEvent.click(within(banner).getByRole('button', { name: /Show all/i }));
+    fireEvent.change(screen.getByTestId('indoor-start-bed-filter'), {
+      target: { value: '11' },
+    });
+
+    fireEvent.click(screen.getByTestId('delete-filtered-planned-items'));
+    expect(screen.getByText(/Delete 2 planned calendar events for North Bed/i)).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-dialog-confirm')).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId('confirm-dialog-confirmation-input'), {
+      target: { value: 'delete' },
+    });
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => {
+      const deleteCall = fetchMock.mock.calls.find(c => {
+        const url = typeof c[0] === 'string' ? c[0] : String(c[0]);
+        return url.includes('/api/planting-events/bulk-delete');
+      });
+      expect(deleteCall).toBeTruthy();
+    });
+
+    const deleteCall = fetchMock.mock.calls.find(c => {
+      const url = typeof c[0] === 'string' ? c[0] : String(c[0]);
+      return url.includes('/api/planting-events/bulk-delete');
+    })!;
+    expect((deleteCall[1] as RequestInit).method).toBe('POST');
+    expect(JSON.parse((deleteCall[1] as RequestInit).body as string)).toEqual({
+      eventIds: [901, 902],
+      confirmation: 'delete',
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('plan-only-row-901')).not.toBeInTheDocument();
+    });
+  });
+
+  test('deletes not assigned planned events and planned seed starts together', async () => {
+    const rows = [
+      planOnlyRow({
+        plantingEventId: 950,
+        variety: 'Unassigned Tomato',
+        gardenBedId: undefined,
+        gardenBedName: undefined,
+      }),
+    ];
+    const fetchMock = installFetchMock(
+      makeOrderedRoutes(rows, [
+        {
+          match: '/api/planned-items/unassigned/bulk-delete',
+          response: {
+            deletedEventIds: [950],
+            deletedSeedStartIds: [777],
+            deletedPlantingEvents: 1,
+            deletedIndoorSeedStarts: 1,
+            deletedPlantedItems: 0,
+            deletedPlanItems: 0,
+            deletedAutoPlanItems: 0,
+            planItemsReset: 0,
+          },
+        },
+        {
+          match: '/api/indoor-seed-starts',
+          response: [
+            {
+              id: 777,
+              plantId: 'tomato-1',
+              variety: 'No Bed Planned',
+              startDate: '2026-03-29',
+              seedsStarted: 8,
+              status: 'planned',
+              destinationBedDetails: [],
+            },
+            {
+              id: 778,
+              plantId: 'tomato-1',
+              variety: 'Already Seeded',
+              startDate: '2026-03-29',
+              seedsStarted: 8,
+              status: 'seeded',
+              destinationBedDetails: [],
+            },
+          ],
+        },
+      ])
+    );
+
+    renderPage();
+
+    const banner = await screen.findByTestId('plan-only-seedings-banner');
+    await screen.findByTestId('iss-card-777');
+    fireEvent.click(within(banner).getByRole('button', { name: /Show all/i }));
+    fireEvent.change(screen.getByTestId('indoor-start-bed-filter'), {
+      target: { value: 'unassigned' },
+    });
+
+    fireEvent.click(screen.getByTestId('delete-filtered-planned-items'));
+    expect(screen.getByText(/Delete 2 not assigned planned items/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('confirm-dialog-confirmation-input'), {
+      target: { value: 'delete' },
+    });
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => {
+      const cleanupCall = fetchMock.mock.calls.find(c => {
+        const url = typeof c[0] === 'string' ? c[0] : String(c[0]);
+        return url.includes('/api/planned-items/unassigned/bulk-delete');
+      });
+      expect(cleanupCall).toBeTruthy();
+    });
+
+    const cleanupCall = fetchMock.mock.calls.find(c => {
+      const url = typeof c[0] === 'string' ? c[0] : String(c[0]);
+      return url.includes('/api/planned-items/unassigned/bulk-delete');
+    })!;
+    expect(JSON.parse((cleanupCall[1] as RequestInit).body as string)).toEqual({
+      eventIds: [950],
+      seedStartIds: [777],
+      confirmation: 'delete',
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('plan-only-row-950')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('iss-card-777')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('iss-card-778')).toBeInTheDocument();
+  });
+
   test('banner is NOT in the DOM when /needs-indoor-starts returns empty events array', async () => {
     installFetchMock(makeOrderedRoutes([]));
 

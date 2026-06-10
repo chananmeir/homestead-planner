@@ -2,7 +2,8 @@
 REM ===================================================================
 REM Homestead Planner - Backend Startup Script
 REM ===================================================================
-REM This script starts the Flask backend server on port 5000
+REM This script starts the Flask backend server on port 5051.
+REM Port 5000 is commonly used by other local development services.
 REM ===================================================================
 
 echo.
@@ -40,7 +41,8 @@ call venv\Scripts\activate.bat
 
 echo [3/3] Starting Flask backend server...
 echo.
-echo Backend will be available at: http://localhost:5000
+set HOMESTEAD_BACKEND_PORT=5051
+echo Backend will be available at: http://localhost:%HOMESTEAD_BACKEND_PORT%
 echo.
 echo Press Ctrl+C to stop the server
 echo ========================================
