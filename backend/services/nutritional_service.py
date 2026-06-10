@@ -10,9 +10,6 @@ Key calculations:
 - Trees: Tree counts × yields × nutritional data (Phase 3)
 """
 import sqlite3
-# [UNUSED-2026-06-10] Tuple and datetime unused in this module.
-# from typing import Dict, List, Optional, Tuple
-# from datetime import datetime
 from typing import Dict, List, Optional
 import os
 from services.breed_service import BreedService
@@ -993,25 +990,3 @@ class NutritionalService:
             },
             'year': year or get_now().year
         }
-
-
-# [UNUSED-2026-06-10] Module-level convenience wrappers never imported or called;
-# nutrition_bp instantiates NutritionalService and calls its methods directly.
-# (The CLASS method NutritionalService.get_nutritional_data remains in active use.)
-# # Convenience functions for direct use
-# def get_garden_nutrition(user_id: int, year: Optional[int] = None) -> Dict:
-#     """Get garden nutritional output for a user"""
-#     service = NutritionalService()
-#     return service.calculate_garden_nutrition(user_id, year)
-#
-#
-# def get_total_nutrition(user_id: int, year: Optional[int] = None) -> Dict:
-#     """Get total nutritional output from all sources"""
-#     service = NutritionalService()
-#     return service.calculate_total_nutrition(user_id, year)
-#
-#
-# def get_nutritional_data(plant_id: str, user_id: Optional[int] = None) -> Optional[Dict]:
-#     """Get nutritional data for a plant"""
-#     service = NutritionalService()
-#     return service.get_nutritional_data(plant_id, user_id)

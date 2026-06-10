@@ -19,8 +19,6 @@ from models import (
     TrellisStructure, Livestock, Chicken, Beehive, HealthRecord,
     CompostPile, HarvestRecord, PlantingEvent,
 )
-# [UNUSED-2026-06-10] import never used
-# from tests.conftest import login_as
 
 
 # =====================================================================

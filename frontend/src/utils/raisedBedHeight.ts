@@ -185,14 +185,6 @@ export const HEIGHT_PRESETS: HeightPreset[] = [
   }
 ];
 
-// [UNUSED-2026-06-10] Never imported anywhere (getNearestPreset below does not call it).
-// /**
-//  * Get height preset by height value
-//  */
-// export function getHeightPreset(height: number): HeightPreset | undefined {
-//   return HEIGHT_PRESETS.find(preset => preset.height === height);
-// }
-
 /**
  * Get nearest height preset
  */
@@ -366,58 +358,3 @@ export function getWateringConsideration(heightInches: number): {
     };
   }
 }
-
-// [UNUSED-2026-06-10] Never imported anywhere.
-// /**
-//  * Get construction recommendation based on height
-//  */
-// export function getConstructionRecommendation(heightInches: number): {
-//   difficulty: 'easy' | 'moderate' | 'challenging' | 'complex';
-//   materials: string[];
-//   considerations: string[];
-// } {
-//   if (heightInches <= 8) {
-//     return {
-//       difficulty: 'easy',
-//       materials: ['Single 2×6 or 2×8 boards', 'Corner posts', 'Deck screws'],
-//       considerations: [
-//         'Simple construction',
-//         'No structural reinforcement needed',
-//         'Can use untreated cedar or pine with liner'
-//       ]
-//     };
-//   } else if (heightInches <= 12) {
-//     return {
-//       difficulty: 'moderate',
-//       materials: ['Two stacked 2×6 boards', 'Corner posts', 'Brackets', 'Deck screws'],
-//       considerations: [
-//         'Stack and screw two boards',
-//         'Optional corner brackets for stability',
-//         'Consider rot-resistant wood (cedar, redwood)'
-//       ]
-//     };
-//   } else if (heightInches <= 18) {
-//     return {
-//       difficulty: 'challenging',
-//       materials: ['2×12 or three 2×6 boards', 'Posts every 4 feet', 'Brackets', 'Screws/bolts'],
-//       considerations: [
-//         'Requires corner posts and mid-span posts',
-//         'Brackets or diagonal bracing recommended',
-//         'Use rot-resistant or treated lumber',
-//         'May need landscape fabric liner'
-//       ]
-//     };
-//   } else {
-//     return {
-//       difficulty: 'complex',
-//       materials: ['2×12 boards', 'Posts every 3-4 feet', 'Metal brackets', 'Structural reinforcement'],
-//       considerations: [
-//         'Engineered design recommended',
-//         'Requires internal/external bracing',
-//         'Must use rot-resistant lumber',
-//         'Consider concrete footing for posts',
-//         'Professional construction advised for 30"+'
-//       ]
-//     };
-//   }
-// }

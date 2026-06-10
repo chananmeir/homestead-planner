@@ -512,8 +512,6 @@ def get_migardener_spacing(plant_id):
 
 def calculate_plants_per_bed(bed_width, bed_length, plant_id, method='square-foot'):
     """Calculate how many plants fit in a bed based on method"""
-    # [UNUSED-2026-06-10] assigned but never read
-    # bed_area_inches = bed_width * 12 * bed_length * 12
 
     if method == 'square-foot':
         squares = (bed_width * bed_length)  # Number of 1 ft squares
@@ -546,10 +544,6 @@ def calculate_plants_per_bed(bed_width, bed_length, plant_id, method='square-foo
 
     return 1
 
-# [UNUSED-2026-06-10] Never called anywhere; no frontend twin exists either.
-# def get_method_grid_size(method):
-#     """Get the grid cell size in inches for a given method"""
-#     return GARDEN_METHODS.get(method, {}).get('gridSize', 12)
 
 def get_guild_by_id(guild_id):
     """Get a plant guild by ID"""

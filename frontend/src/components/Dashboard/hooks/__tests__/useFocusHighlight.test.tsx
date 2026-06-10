@@ -10,8 +10,6 @@
  *  - registerRef is referentially stable across re-renders.
  *  - focusId pointing to an unknown id is a no-op (no crash, no scrollIntoView).
  */
-// [UNUSED-2026-06-10] React import unused (automatic JSX runtime).
-// import React from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { useFocusHighlight } from '../useFocusHighlight';
 

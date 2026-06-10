@@ -7,9 +7,6 @@ Tracks plant family history in garden beds and warns about rotation violations.
 Based on 3-year rotation principle: Don't plant same botanical family in same bed
 for 3 consecutive years to prevent soil-borne disease buildup and pest accumulation.
 """
-# [UNUSED-2026-06-10] datetime and db unused in this module.
-# from datetime import datetime
-# from models import PlantingEvent, GardenBed, db
 from sqlalchemy import extract, or_
 from models import PlantingEvent, GardenBed
 from plant_database import get_plant_by_id

@@ -73,15 +73,6 @@ function getPrimaryPropertyPromise(): Promise<PrimaryProperty | null> {
   return cachedPropertyPromise;
 }
 
-// [UNUSED-2026-06-10] Test seam that no test ever imported. Restore if a test needs
-// to reset the module-level property cache.
-// /**
-//  * Clears the module-level cache. Intended for tests; not used by app code.
-//  */
-// export function __resetPrimaryPropertyCacheForTests(): void {
-//   cachedPropertyPromise = null;
-// }
-
 /**
  * Returns the user's primary property (or null if they have none / still
  * loading / request failed). Consumers must be prepared for the initial

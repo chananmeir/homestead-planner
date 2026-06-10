@@ -7,14 +7,10 @@ Provides endpoints for calculating nutritional output from gardens, livestock, a
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from datetime import datetime
-# [UNUSED-2026-06-10] sqlite3 and models.db unused; DB access goes through
-# nutritional_service.get_connection().
-# import sqlite3
 import math
 
 from services.nutritional_service import NutritionalService
 from services.usda_api_service import USDAAPIService
-# from models import db
 
 # Create blueprint
 nutrition_bp = Blueprint('nutrition', __name__, url_prefix='/api/nutrition')

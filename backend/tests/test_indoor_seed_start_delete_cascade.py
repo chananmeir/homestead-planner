@@ -13,8 +13,6 @@ When a user deletes an Indoor Seed Starting entry, the handler must:
 
 See plan: snuggly-marinating-canyon.md.
 """
-# [UNUSED-2026-06-10] date unused.
-# from datetime import datetime, date
 from datetime import datetime
 
 import pytest

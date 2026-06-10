@@ -13,8 +13,6 @@ Covers:
 from datetime import datetime
 
 import pytest
-# [UNUSED-2026-06-10] db unused.
-# from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
 from models import GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
 
 

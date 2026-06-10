@@ -10,8 +10,6 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
 from models import db, TrellisStructure, PlantingEvent, Property
-# [UNUSED-2026-06-10] import never used
-# from sqlalchemy import func
 
 trellis_bp = Blueprint('trellis', __name__, url_prefix='/api')
 

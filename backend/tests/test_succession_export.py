@@ -11,9 +11,6 @@ succeed without mocking.
 import json
 from datetime import date, datetime, timedelta
 
-# [UNUSED-2026-06-10] pytest and db unused.
-# import pytest
-# from models import db, GardenPlanItem, PlantingEvent, SeedInventory
 from models import GardenPlanItem, PlantingEvent, SeedInventory
 from services.garden_planner_service import export_to_calendar
 

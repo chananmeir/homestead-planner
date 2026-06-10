@@ -52,10 +52,6 @@ FROST_KILL_THRESHOLDS = {
     'very-hardy': -10,
 }
 
-# [UNUSED-2026-06-10] Only referenced by the dead get_mock_air_temp below.
-# # Default mock air temperature for testing
-# DEFAULT_MOCK_AIR_TEMP = 65.0
-
 
 def calculate_soil_temp(air_temp, soil_type, sun_exposure, mulch_type='none', current_date=None):
     """
@@ -123,20 +119,6 @@ def calculate_soil_temp(air_temp, soil_type, sun_exposure, mulch_type='none', cu
             'mulch_description': mulch_desc
         }
     }
-
-
-# [UNUSED-2026-06-10] Never called anywhere; not among the soil_temperature
-# functions imported by utilities_bp.
-# def get_mock_air_temp():
-#     """
-#     Get mock air temperature for testing when weather API is unavailable.
-#
-#     Returns a reasonable spring/fall temperature suitable for planting season.
-#
-#     Returns:
-#         float: Mock air temperature in Fahrenheit
-#     """
-#     return DEFAULT_MOCK_AIR_TEMP
 
 
 def determine_crop_readiness(estimated_soil_temp, min_soil_temp):

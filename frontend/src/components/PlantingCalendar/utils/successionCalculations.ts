@@ -109,18 +109,6 @@ export function calculateSuggestedInterval(plant: Plant): IntervalSuggestion {
   };
 }
 
-// [UNUSED-2026-06-10] Never imported or called (this file's other exports remain live).
-// /**
-//  * Check if a plant is suitable for succession planting
-//  *
-//  * @param plant - Plant object
-//  * @returns true if plant is suitable for succession planting
-//  */
-// export function isSuitableForSuccession(plant: Plant): boolean {
-//   const suggestion = calculateSuggestedInterval(plant);
-//   return suggestion.recommended !== null && suggestion.recommended > 0;
-// }
-
 /**
  * Get succession count recommendation based on interval and season length
  *

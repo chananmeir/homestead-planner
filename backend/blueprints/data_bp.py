@@ -20,8 +20,6 @@ from flask import Blueprint, jsonify
 from flask_login import login_required, current_user
 
 from plant_database import PLANT_DATABASE, get_plant_by_id
-# [UNUSED-2026-06-10] get_structure_by_id unused here (/structures uses the dicts directly).
-# from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES, get_structure_by_id
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES
 from garden_methods import (
     GARDEN_METHODS,

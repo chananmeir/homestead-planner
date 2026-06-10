@@ -15,8 +15,6 @@ This approach:
 import ast
 import astor  # For pretty-printing AST back to Python code
 from pathlib import Path
-# [UNUSED-2026-06-10] List unused in this module.
-# from typing import Dict, Any, List, Optional
 from typing import Dict, Any, Optional
 
 

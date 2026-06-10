@@ -118,15 +118,3 @@ export function getPrimaryPlantingDate(event: {
 export function calculateDuration(plantDate: Date, harvestDate: Date): number {
   return differenceInDays(harvestDate, plantDate);
 }
-
-// [UNUSED-2026-06-10] Never imported or called (date-fns `format` is still used by
-// getMonthColumns above — leave that import alone).
-// /**
-//  * Format date range for display
-//  * @param startDate - Start date
-//  * @param endDate - End date
-//  * @returns Formatted date range string
-//  */
-// export function formatDateRange(startDate: Date, endDate: Date): string {
-//   return `${format(startDate, 'MMM d')} - ${format(endDate, 'MMM d, yyyy')}`;
-// }

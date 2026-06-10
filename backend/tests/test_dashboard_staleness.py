@@ -24,8 +24,6 @@ Plan: dev/active/production-readiness-audit/dashboard-stale-needs-attention-plan
 """
 from datetime import datetime, date, timedelta
 
-# [UNUSED-2026-06-10] import never used
-# import pytest
 
 from models import (
     db,

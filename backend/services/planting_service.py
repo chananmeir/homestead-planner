@@ -5,8 +5,6 @@ Business logic for planting operations (PlantedItems and PlantingEvents).
 This service provides a single source of truth for planting logic,
 preventing duplication across multiple endpoints.
 """
-# [UNUSED-2026-06-10] datetime unused (timedelta retained).
-# from datetime import datetime, timedelta
 from datetime import timedelta
 from models import db, PlantedItem, PlantingEvent, GardenBed
 from plant_database import get_plant_by_id

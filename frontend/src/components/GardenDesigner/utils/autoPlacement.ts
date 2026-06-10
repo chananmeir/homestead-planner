@@ -1,8 +1,4 @@
 import { Plant, PlantedItem } from '../../../types';
-// [UNUSED-2026-06-10] getSFGCellsRequired and calculateIntensiveCellsRequired were only
-// used by the dead local calculateSpaceRequirement (commented out at end of file).
-// import { getSFGCellsRequired } from '../../../utils/sfgSpacing';
-// import { getIntensiveSpacing, calculateIntensiveCellsRequired, HEX_ROW_OFFSET } from '../../../utils/intensiveSpacing';
 import { getMIGardenerSpacing } from '../../../utils/migardenerSpacing';
 import { getIntensiveSpacing, HEX_ROW_OFFSET } from '../../../utils/intensiveSpacing';
 import { PlantingStyle } from '../../../utils/plantingStyles';
@@ -334,54 +330,3 @@ export function autoPlacePlants(request: PlacementRequest): PlacementResult {
     failed: quantity - positions.length,
   };
 }
-
-// [UNUSED-2026-06-10] Never called: autoPlacePlants does not use it and no module
-// imports it (PlantConfigModal imports only autoPlacePlants + FillDirection).
-// NOTE: name-collides with the live synchronized calculator in
-// frontend/src/utils/gardenPlannerSpaceCalculator.ts — that one is untouched.
-// /**
-//  * Calculate how many grid cells a plant requires based on its spacing
-//  *
-//  * Uses method-aware calculation based on the bed's planning method:
-//  * - Square Foot Gardening: Uses SFG rules (tomato = 1 cell)
-//  * - MIGardener: Uses ultra-dense spacing overrides
-//  * - Row/Traditional: Uses spacing-based calculation
-//  *
-//  * @param plant - Plant to calculate for
-//  * @param gridSize - Grid cell size in inches (default: 12 for SFG)
-//  * @param planningMethod - Bed's planning method ('square-foot', 'row', 'migardener', etc.)
-//  * @returns Number of grid cells needed (as a square area)
-//  */
-// export function calculateSpaceRequirement(
-//   plant: Plant,
-//   gridSize: number = 12,
-//   planningMethod: string = 'row'
-// ): number {
-//   // SQUARE FOOT GARDENING: Use SFG lookup table
-//   if (planningMethod === 'square-foot') {
-//     return getSFGCellsRequired(plant.id);
-//   }
-//
-//   // MIGARDENER: Use existing MIGardener spacing system
-//   if (planningMethod === 'migardener') {
-//     const spacing = getMIGardenerSpacing(plant.id, plant.spacing, plant.rowSpacing);
-//     // Calculate cells needed based on both dimensions
-//     const cellsHorizontal = Math.ceil(spacing.plantSpacing / gridSize);
-//     // For intensive crops (null rowSpacing), use plantSpacing for both dimensions
-//     const cellsVertical = spacing.rowSpacing === null || spacing.rowSpacing === 0
-//       ? Math.ceil(spacing.plantSpacing / gridSize)
-//       : Math.ceil(spacing.rowSpacing / gridSize);
-//     return cellsHorizontal * cellsVertical;
-//   }
-//
-//   // INTENSIVE/BIO-INTENSIVE: Use hexagonal packing with 0.866 offset
-//   if (planningMethod === 'intensive') {
-//     const onCenterSpacing = getIntensiveSpacing(plant.id, plant.spacing);
-//     return calculateIntensiveCellsRequired(onCenterSpacing, gridSize);
-//   }
-//
-//   // ROW / TRADITIONAL / RAISED-BED: Use spacing-based calculation
-//   const spacing = plant.spacing || 12;
-//   const cellsPerSide = Math.ceil(spacing / gridSize);
-//   return cellsPerSide * cellsPerSide;
-// }

@@ -1,5 +1,16 @@
 # Unused-Code Audit — 2026-06-10
 
+> **ADDENDUM (same day): dead code permanently removed.** After review, the user asked
+> for the commented-out code to be deleted. A follow-up commit removed every
+> `[UNUSED-2026-06-10]` block and deleted the 9 fully-dead files outright
+> (~4,700 lines net). Rewritten replacement lines (cleaned-up imports) were kept.
+> Zero markers remain in the codebase. All verification re-run green after removal
+> (backend pytest identical to baseline, frontend tests, tsc, production build).
+> The sections below describe the original comment-out pass; the inventory of WHAT
+> was dead and WHY remains accurate. The flagged-only items (section D) and latent
+> bugs (section E) are still open and untouched.
+> History: checkpoint `88d8503` → comment-out `79c8282` → removal (see git log).
+
 Full-codebase sweep for unused code (backend + frontend), per request: *find code that is
 not needed and comment it out*. Every commented block carries a greppable
 **`[UNUSED-2026-06-10]`** marker. Nothing was deleted; everything is restorable by

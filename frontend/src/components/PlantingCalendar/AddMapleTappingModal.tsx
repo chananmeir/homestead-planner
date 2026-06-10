@@ -23,23 +23,6 @@ interface CollectionRecord {
   notes: string;
 }
 
-// [UNUSED-2026-06-10] Both interfaces had zero references (the eslint-disable markers
-// confirm they were known-unused placeholders).
-// // eslint-disable-next-line @typescript-eslint/no-unused-vars
-// interface SyrupYield {
-//   gallons: number;
-//   grade: 'Golden' | 'Amber' | 'Dark' | 'VeryDark';
-//   boilDate: string;
-//   notes: string;
-// }
-//
-// // eslint-disable-next-line @typescript-eslint/no-unused-vars
-// interface TreeHealth {
-//   tapHealing: 'good' | 'fair' | 'poor';
-//   observations: string;
-//   diameter: number;
-// }
-
 const TREE_TYPE_LABELS: Record<string, string> = {
   'sugar': 'Sugar Maple',
   'red': 'Red Maple',

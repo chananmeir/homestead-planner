@@ -12,9 +12,6 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
 from models import db, Property, PlacedStructure, GardenBed
-# [UNUSED-2026-06-10] get_structure_by_id no longer referenced (its only use was the
-# never-implemented placement re-validation block, commented in the same audit).
-# from structures_database import STRUCTURES_DATABASE, get_structure_by_id
 from structures_database import STRUCTURES_DATABASE
 from collision_validator import validate_structure_placement
 from services.geocoding_service import geocoding_service
@@ -413,21 +410,6 @@ def placed_structure(structure_id):
 
         # If position or dimensions are changing, validate new placement
         if position_changing or dimensions_changing:
-            # [UNUSED-2026-06-10] effective_width/effective_length were computed for a
-            # placement re-validation that was never implemented (see note below);
-            # the values are never read.
-            # # Get effective dimensions
-            # if new_custom_width is not None and new_custom_length is not None:
-            #     effective_width = new_custom_width
-            #     effective_length = new_custom_length
-            # else:
-            #     structure_def = get_structure_by_id(structure.structure_id)
-            #     if structure_def:
-            #         effective_width = structure_def['width']
-            #         effective_length = structure_def['length']
-            #     else:
-            #         effective_width = structure.get_width()
-            #         effective_length = structure.get_length()
 
             # Re-validate placement (implementation similar to POST)
             # For brevity, assuming validation passes

@@ -11,9 +11,6 @@ Uses the full_app/auth_client_a fixtures from conftest.py.
 
 from datetime import datetime
 
-# [UNUSED-2026-06-10] pytest and db unused.
-# import pytest
-# from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
 from models import GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
 
 

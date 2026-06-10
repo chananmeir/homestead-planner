@@ -137,48 +137,6 @@ export const findPlantByVariety = (
   return matchingPlant || cropPlants[0];
 };
 
-// [UNUSED-2026-06-10] getVarietyOptions is never imported or called; VarietyOption's
-// only references were inside it.
-// /**
-//  * Gets all variety options for a given crop name.
-//  *
-//  * @param cropName - Base crop name (e.g., "Tomato")
-//  * @param plants - Array of all plants to search
-//  * @returns Array of variety option objects with variety name and plant ID
-//  *
-//  * @example
-//  * getVarietyOptions("Tomato", allPlants)
-//  * // Returns [
-//  * //   { variety: "Beefsteak", plantId: "tomato-beefsteak", plant: {...} },
-//  * //   { variety: "Cherry", plantId: "tomato-cherry", plant: {...} },
-//  * //   { variety: "Generic", plantId: "tomato-1", plant: {...} }
-//  * // ]
-//  */
-// export interface VarietyOption {
-//   variety: string;
-//   plantId: string;
-//   plant: Plant;
-// }
-//
-// export const getVarietyOptions = (cropName: string, plants: Plant[]): VarietyOption[] => {
-//   const cropPlants = plants.filter(p => extractCropName(p.name) === cropName);
-//
-//   const options: VarietyOption[] = cropPlants.map(p => ({
-//     variety: extractVariety(p.name) || 'Generic',
-//     plantId: p.id,
-//     plant: p
-//   }));
-//
-//   // Sort alphabetically, but put "Generic" first if it exists
-//   options.sort((a, b) => {
-//     if (a.variety === 'Generic') return -1;
-//     if (b.variety === 'Generic') return 1;
-//     return a.variety.localeCompare(b.variety);
-//   });
-//
-//   return options;
-// };
-
 /**
  * Checks if a plant name matches a search term (crop name or variety).
  *

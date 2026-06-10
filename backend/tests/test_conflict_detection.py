@@ -11,11 +11,7 @@ Maps to manual test cases CONF-01 through CONF-08 from TEST_GAP_REPORT.md.
 
 import sys
 import os
-# [UNUSED-2026-06-10] math and pytest imports never used
-# import math
 from datetime import datetime, timedelta
-
-# import pytest
 
 # Ensure backend/ is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

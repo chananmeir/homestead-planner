@@ -19,9 +19,6 @@ If any of these round-trip asserts fails we have regressed the
 persistence contract used by the GardenDesigner seed-saving toggle.
 """
 
-# [UNUSED-2026-06-10] pytest and db unused.
-# import pytest
-# from models import db, GardenBed, PlantedItem
 from models import GardenBed, PlantedItem
 
 

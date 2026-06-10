@@ -4,8 +4,6 @@ Surfaces past-due `planned` PlantedItems (drag-and-dropped placements whose
 planted_date has arrived without the user confirming the seeding). Mirrors the
 direct-seed / transplant signal pattern in `dashboard_service.py`.
 """
-# [UNUSED-2026-06-10] timedelta unused.
-# from datetime import datetime, timedelta
 from datetime import datetime
 
 from models import db, GardenBed, PlantedItem

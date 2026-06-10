@@ -19,8 +19,6 @@ from datetime import datetime
 
 import pytest
 
-# [UNUSED-2026-06-10] PlantedItem unused.
-# from models import db, GardenBed, IndoorSeedStart, PlantedItem, PlantingEvent
 from models import db, GardenBed, IndoorSeedStart, PlantingEvent
 from tests.conftest import login_as
 

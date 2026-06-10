@@ -15,86 +15,16 @@ load_dotenv()
 from flask import Flask, jsonify
 from flask_migrate import Migrate
 from flask_cors import CORS
-# [UNUSED-2026-06-10] current_user was only used by the dead admin_required copy below.
-# from flask_login import LoginManager, current_user
 from flask_login import LoginManager
-# [UNUSED-2026-06-10] Settings import unused; datetime unused (timedelta retained);
-# parse_iso_date unused; wraps only used by dead admin_required below.
-# from models import db, User, Settings
-# from functools import wraps
-# from datetime import datetime, timedelta
-# from utils.helpers import parse_iso_date
 from models import db, User
 from datetime import timedelta
 
-# [UNUSED-2026-06-10] Validation constants never referenced in app.py; nothing imports
-# constants from app (all consumers use utils/constants.py or blueprint-local copies).
-# VALID_SUN_EXPOSURES = ['full', 'partial', 'shade']
-
-# [UNUSED-2026-06-10] Auth regexes unused here; live copies in utils/constants.py
-# (used by utils/validators.py). 're' import only served these.
-# import re
-# EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-# USERNAME_REGEX = re.compile(r'^[a-zA-Z0-9_-]{3,30}$')
 
 # Blueprint URL prefix for testing (set to '' for production)
 # Use '/_bp' for parallel testing (blueprints at /_bp/api/*, old routes at /api/*)
 # Use '' for production (blueprints at /api/*, no wrapper prefix)
 BLUEPRINT_PREFIX = os.environ.get('BLUEPRINT_PREFIX', '')  # PRODUCTION: Blueprints handle real URLs
-# [UNUSED-2026-06-10] Never referenced in app.py; live copy in utils/constants.py
-# (imported by auth_bp/admin_bp).
-# MIN_PASSWORD_LENGTH = 8
 
-# [UNUSED-2026-06-10] Default coordinates never referenced in app.py; live copies are
-# blueprint-local (utilities_bp.py:71-72) and utils/constants.py.
-# # Default coordinates for soil temperature (Milwaukee, WI - 53209)
-# DEFAULT_LATITUDE = 43.1361
-# DEFAULT_LONGITUDE = -87.9456
-
-# [UNUSED-2026-06-10] Dead duplicate. utilities_bp.py defines and calls its own copy
-# (lines 451/696); the canonical version lives in services/garden_bed_service.py.
-# Nothing imports this one from app.
-# def get_mulch_type_on_date(garden_bed_id, user_id, query_date):
-#     """
-#     Get the effective mulch type for a garden bed on a specific date.
-#
-#     This implements temporal mulch tracking by querying the most recent
-#     mulch event as of the query date.
-#
-#     Args:
-#         garden_bed_id (int): Garden bed ID
-#         user_id (int): User ID (for permission check)
-#         query_date (datetime): Date to query mulch state for
-#
-#     Returns:
-#         str: Mulch type ('none', 'straw', 'wood-chips', etc.)
-#     """
-#     # Import here to avoid circular import at module level
-#     # (PlantingEvent uses db which is initialized after app)
-#     from models import PlantingEvent, GardenBed
-#
-#     # Find most recent mulch event as of query_date
-#     recent_event = PlantingEvent.query.filter(
-#         PlantingEvent.garden_bed_id == garden_bed_id,
-#         PlantingEvent.event_type == 'mulch',
-#         PlantingEvent.user_id == user_id,
-#         PlantingEvent.expected_harvest_date <= query_date
-#     ).order_by(
-#         PlantingEvent.expected_harvest_date.desc()
-#     ).first()
-#
-#     if recent_event and recent_event.event_details:
-#         # Parse event details JSON to get mulch type
-#         import json
-#         try:
-#             details = json.loads(recent_event.event_details)
-#             return details.get('mulch_type', 'none')
-#         except (json.JSONDecodeError, AttributeError):
-#             pass  # Fall through to static fallback
-#
-#     # Fallback to static bed property
-#     bed = GardenBed.query.get(garden_bed_id)
-#     return bed.mulch_type if bed else 'none'
 
 app = Flask(__name__)
 # Database: Use instance folder for SQLite (where your actual data lives)
@@ -116,9 +46,6 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # Session expires 
 
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-# [UNUSED-2026-06-10] Never referenced in app.py; live copy in utils/constants.py
-# (used by utils/validators.py allowed_file()).
-# ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # Create upload folder if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -156,19 +83,6 @@ from blueprints import register_blueprints
 register_blueprints(app, wrapper_prefix=BLUEPRINT_PREFIX)
 print(f"[OK] Registered blueprints at {BLUEPRINT_PREFIX or '(no prefix)'}/* for testing")
 
-# [UNUSED-2026-06-10] Dead duplicate. Canonical decorator lives in utils/decorators.py;
-# admin_bp and seeds_bp import it from there. Nothing imports this copy from app.
-# # Admin required decorator
-# def admin_required(f):
-#     """Decorator to require admin privileges for a route"""
-#     @wraps(f)
-#     def decorated_function(*args, **kwargs):
-#         if not current_user.is_authenticated:
-#             return jsonify({'error': 'Authentication required'}), 401
-#         if not current_user.is_admin:
-#             return jsonify({'error': 'Admin privileges required'}), 403
-#         return f(*args, **kwargs)
-#     return decorated_function
 
 # Create database tables
 with app.app_context():

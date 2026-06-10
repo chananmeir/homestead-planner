@@ -8,16 +8,6 @@ Supports multiple crop types with intelligent plant ID mapping and data transfor
 import csv
 import io
 import logging
-# [UNUSED-2026-06-10] Optional, datetime, PLANT_DATABASE, the _validate_plant_id alias,
-# and resolve_alias are all unused in this module.
-# from typing import List, Dict, Tuple, Optional
-# from datetime import datetime
-# from plant_database import PLANT_DATABASE
-# from utils.plant_id_resolver import (
-#     validate_plant_id as _validate_plant_id,
-#     validate_and_resolve_plant_id,
-#     resolve_alias
-# )
 from typing import List, Dict, Tuple
 from utils.plant_id_resolver import validate_and_resolve_plant_id
 

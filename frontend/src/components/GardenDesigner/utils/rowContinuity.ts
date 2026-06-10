@@ -103,20 +103,6 @@ export function determineRowContinuity(
   };
 }
 
-// [UNUSED-2026-06-10] Never called anywhere (PlantConfigModal imports only
-// determineRowContinuity + getRowContinuityMessage from this module).
-// /**
-//  * Calculate total row length from multiple segments
-//  */
-// export function calculateTotalRowLength(
-//   rowGroupId: string,
-//   existingPlantings: PlantedItem[],
-//   uiSegmentLengthInches: number
-// ): number {
-//   const rowPlantings = existingPlantings.filter(p => p.rowGroupId === rowGroupId);
-//   return (rowPlantings.length + 1) * uiSegmentLengthInches;  // +1 for current planting
-// }
-
 /**
  * Get row continuity display message
  */

@@ -490,16 +490,6 @@ export interface WeatherData {
   growingDegreeDays?: number; // For tracking crop development
 }
 
-// [UNUSED-2026-06-10] Never imported anywhere (shadowed the DOM Location global).
-// export interface Location {
-//   name: string;
-//   latitude: number;
-//   longitude: number;
-//   zone: string; // USDA Hardiness Zone
-//   lastFrostDate: Date; // Average last spring frost
-//   firstFrostDate: Date; // Average first fall frost
-// }
-
 // Planting Validation Types
 export interface ValidationWarning {
   type: 'frost_risk' | 'frost_risk_protected' | 'soil_temp_low' | 'soil_temp_protected' | 'soil_temp_marginal' | 'soil_temp_high' | 'heat_risk' | 'heat_risk_protected' | 'no_location' | 'future_cold_danger' | 'sun_exposure_mismatch' | 'seed_start_late';
@@ -514,31 +504,6 @@ export interface DateSuggestion {
   optimal_range: string | null;
   reason: string;
 }
-
-// [UNUSED-2026-06-10] Never imported anywhere (ValidationWarning/DateSuggestion above
-// remain live independently).
-// export interface ValidationResult {
-//   valid: boolean;
-//   warnings: ValidationWarning[];
-//   suggestion?: DateSuggestion;
-// }
-
-// [UNUSED-2026-06-10] Runtime constant never imported anywhere (was shipped in the
-// bundle unused; CompostTracker does not reference it).
-// // Pre-populated data for common compost materials
-// export const COMPOST_MATERIALS: { [key: string]: { type: 'green' | 'brown'; cnRatio: number } } = {
-//   'grass-clippings': { type: 'green', cnRatio: 20 },
-//   'food-scraps': { type: 'green', cnRatio: 15 },
-//   'coffee-grounds': { type: 'green', cnRatio: 20 },
-//   'fresh-manure': { type: 'green', cnRatio: 10 },
-//   'hay-fresh': { type: 'green', cnRatio: 15 },
-//   'dried-leaves': { type: 'brown', cnRatio: 60 },
-//   'straw': { type: 'brown', cnRatio: 80 },
-//   'wood-chips': { type: 'brown', cnRatio: 400 },
-//   'cardboard': { type: 'brown', cnRatio: 350 },
-//   'paper': { type: 'brown', cnRatio: 175 },
-//   'sawdust': { type: 'brown', cnRatio: 500 },
-// };
 
 // ==================== GARDEN PLANNER TYPES ====================
 
@@ -700,15 +665,6 @@ export interface TrellisSpaceUsage {
   }>;
 }
 
-// [UNUSED-2026-06-10] Never imported anywhere (sibling CalculatePlanResponse IS used).
-// export interface CalculatePlanRequest {
-//   seedSelections: SeedInventoryItem[];
-//   strategy: PlanningStrategy;
-//   successionPreference: SuccessionPreference;
-//   manualQuantities?: { [seedId: number]: number };
-//   perSeedSuccession?: { [seedId: number]: SuccessionPreference };
-// }
-
 export interface CalculatePlanResponse {
   items: GardenPlanItem[];
   summary: {
@@ -727,47 +683,7 @@ export interface CalculatePlanResponse {
   };
 }
 
-// [UNUSED-2026-06-10] Never imported anywhere.
-// export interface ShoppingListItem {
-//   plantId: string;
-//   variety?: string;
-//   seedsNeeded: number;
-//   seedsHave: number | null;
-//   packetsToBuy: number;
-//   seedsPerPacket: number;
-//   estimatedCost: number;
-//   note: string;
-// }
-
-// [UNUSED-2026-06-10] Never imported anywhere.
-// export interface ExportToCalendarResponse {
-//   success: boolean;
-//   eventsCreated: number;
-//   eventsUpdated: number;
-//   totalEvents: number;
-//   error?: string;
-// }
-
 // ========== CROP ROTATION TYPES ==========
-
-// [UNUSED-2026-06-10] Dead chain: RotationConflict's only reference was inside
-// BedRotationStatus, which itself is never imported. RotationWarning below is the
-// live rotation type.
-// export interface RotationConflict {
-//   has_conflict: boolean;
-//   conflict_years: number[];
-//   last_planted?: string; // ISO date string
-//   family: string | null;
-//   recommendation: string;
-//   safe_year?: number;
-// }
-//
-// export interface BedRotationStatus {
-//   bed_id: number;
-//   bed_name: string;
-//   rotation_safe: boolean;
-//   conflict_info?: RotationConflict;
-// }
 
 export interface RotationWarning {
   bed_id: number;
@@ -777,16 +693,6 @@ export interface RotationWarning {
   conflict_years: number[];
   safe_year: number;
 }
-
-// [UNUSED-2026-06-10] Never imported anywhere.
-// export interface BedHistoryEntry {
-//   plant_id: string;
-//   plant_name: string;
-//   family: string | null;
-//   year: number;
-//   planted_date: string; // ISO date string
-//   variety?: string;
-// }
 
 // ==================== NUTRITIONAL TRACKING TYPES ====================
 
@@ -832,62 +738,6 @@ export interface NutritionalData {
   lastUpdated?: string;
   userId?: number;  // null for global data
 }
-
-// [UNUSED-2026-06-10] Dead 4-type chain (NutritionSummary -> GardenNutritionSummary ->
-// PlantNutrition -> NutritionBreakdown): none imported anywhere; NutritionalDashboard
-// defines its own local interfaces instead.
-// /**
-//  * Breakdown of nutritional values
-//  */
-// export interface NutritionBreakdown {
-//   calories: number;
-//   proteinG: number;
-//   carbsG: number;
-//   fatG: number;
-//   fiberG: number;
-//   vitaminAIu: number;
-//   vitaminCMg: number;
-//   vitaminKMcg: number;
-//   vitaminEMg: number;
-//   folateMcg: number;
-//   calciumMg: number;
-//   ironMg: number;
-//   magnesiumMg: number;
-//   potassiumMg: number;
-//   zincMg: number;
-// }
-//
-// /**
-//  * Nutritional output per plant type
-//  */
-// export interface PlantNutrition extends NutritionBreakdown {
-//   name: string;
-//   totalYieldLbs: number;
-// }
-//
-// /**
-//  * Garden nutritional summary
-//  */
-// export interface GardenNutritionSummary {
-//   totals: NutritionBreakdown;
-//   byPlant: {
-//     [plantId: string]: PlantNutrition;
-//   };
-//   year: number;
-// }
-//
-// /**
-//  * Complete nutritional summary across all sources
-//  */
-// export interface NutritionSummary {
-//   totals: NutritionBreakdown;
-//   bySource: {
-//     garden: GardenNutritionSummary | null;
-//     livestock: Record<string, unknown> | null;  // Phase 3
-//     trees: Record<string, unknown> | null;      // Phase 3
-//   };
-//   year: number;
-// }
 
 // ==================== GARDEN SNAPSHOT TYPES ====================
 

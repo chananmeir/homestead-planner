@@ -1229,9 +1229,6 @@ def add_planted_item():
         default_method = 'transplant' if weeks_indoors > 0 else 'direct'
         planting_method = data.get('plantingMethod', default_method)
 
-        # [UNUSED-2026-06-10] debug print
-        # print(f"[DRAG-DROP FIX] Plant: {data['plantId']}, weeksIndoors: {weeks_indoors}, method: {planting_method}")
-
         # Validate sourcePlanItemId ownership if provided
         source_plan_item_id = data.get('sourcePlanItemId')
         if source_plan_item_id is not None:
@@ -1475,17 +1472,6 @@ def batch_add_planted_items():
         default_method = 'transplant' if weeks_indoors > 0 else 'direct'
         planting_method = data.get('plantingMethod', default_method)
 
-        # [UNUSED-2026-06-10] debug print
-        # # DEBUG: Log what dates are being used
-        # print(f"[DEBUG] PLANTING METHOD: {planting_method}, plantedDate from request: {data.get('plantedDate')}, parsed: {planted_date}")
-
-        # [UNUSED-2026-06-10] batch-level expected_harvest assigned but never read;
-        # superseded by the per-position pos_expected_harvest computed in the loop below.
-        # # Calculate expected harvest date
-        # expected_harvest = planted_date
-        # if plant and plant.get('daysToMaturity') is not None:
-        #     expected_harvest = planted_date + timedelta(days=plant['daysToMaturity'])
-
         # Compute "today" once per request so per-position completion checks
         # are consistent across all positions in the batch.
         batch_today_now = get_now()
@@ -1496,23 +1482,6 @@ def batch_add_planted_items():
         # Create all items in transaction
         created_items = []
         created_events = []  # Track PlantingEvents for indoor seed start auto-creation
-
-        # [UNUSED-2026-06-10] debug block; the existing_events query existed only to feed
-        # these prints (one wasted DB query per batch request).
-        # # DEBUG: Log incoming positions
-        # print(f"=== BACKEND BATCH DEBUG ===")
-        # print(f"Received {len(data['positions'])} positions:")
-        # for i, pos in enumerate(data['positions']):
-        #     print(f"  Position {i}: x={pos.get('x')}, y={pos.get('y')}, quantity={pos.get('quantity')}")
-        #
-        # # DEBUG: Log existing PlantingEvents in this bed BEFORE creating new ones
-        # existing_events = PlantingEvent.query.filter_by(
-        #     garden_bed_id=data['gardenBedId'],
-        #     user_id=current_user.id
-        # ).all()
-        # print(f"[STATS] BEFORE batch create: {len(existing_events)} existing PlantingEvents in bed {data['gardenBedId']}")
-        # for evt in existing_events[:5]:  # Show first 5
-        #     print(f"  - Event {evt.id}: plant={evt.plant_id}, variety={evt.variety}, pos=({evt.position_x},{evt.position_y}), transplant={evt.transplant_date}")
 
         for i, pos in enumerate(data['positions']):
             if 'x' not in pos or 'y' not in pos:
@@ -1529,8 +1498,6 @@ def batch_add_planted_items():
                 pos_expected_harvest = pos_planted_date + timedelta(days=plant['daysToMaturity'])
 
             # Create PlantedItem
-            # [UNUSED-2026-06-10] debug print (fired once per position)
-            # print(f"Creating PlantedItem {i+1}/{len(data['positions'])} at ({pos['x']}, {pos['y']}) with quantity={pos.get('quantity', 1)}, date={pos_planted_date}")
             item = PlantedItem(
                 user_id=current_user.id,
                 plant_id=data['plantId'],
@@ -1629,14 +1596,6 @@ def batch_add_planted_items():
                 if not is_valid:
                     db.session.rollback()  # Rollback entire batch
                     conflict_details = error_response.get('message', 'Conflict detected')
-                    # [UNUSED-2026-06-10] only read by the commented debug prints below
-                    # conflicts = error_response.get('conflicts', [])
-                    # [UNUSED-2026-06-10] debug prints; conflict details are already
-                    # returned in the 409 JSON response below.
-                    # print(f"[ERROR] CONFLICT at position ({pos['x']}, {pos['y']})")
-                    # print(f"   Details: {conflict_details}")
-                    # print(f"   Conflicts: {conflicts}")
-                    # print(f"   Full error response: {error_response}")
                     return jsonify({
                         **error_response,
                         'failed_at_index': i,  # Which item in batch failed
@@ -1738,21 +1697,6 @@ def batch_add_planted_items():
 
         # Commit transaction (all-or-nothing)
         db.session.commit()
-
-        # [UNUSED-2026-06-10] debug block; the existing_events_after query existed only to
-        # feed these prints (one wasted DB query per batch request).
-        # # DEBUG: Check if existing events were modified
-        # existing_events_after = PlantingEvent.query.filter_by(
-        #     garden_bed_id=data['gardenBedId'],
-        #     user_id=current_user.id
-        # ).all()
-        # print(f"[STATS] AFTER batch create: {len(existing_events_after)} PlantingEvents in bed {data['gardenBedId']}")
-        # for evt in existing_events_after[:5]:  # Show first 5
-        #     print(f"  - Event {evt.id}: plant={evt.plant_id}, variety={evt.variety}, pos=({evt.position_x},{evt.position_y}), transplant={evt.transplant_date}")
-        #
-        # print(f"[SUCCESS] Successfully created {len(created_items)} items")
-        # for item in created_items:
-        #     print(f"  - Item {item.id} at ({item.position_x}, {item.position_y}) with quantity={item.quantity}")
 
         response_data = {
             'created': len(created_items),

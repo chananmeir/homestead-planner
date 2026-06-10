@@ -10,9 +10,6 @@ import math
 import json
 import logging
 from datetime import datetime, timedelta, date
-# [UNUSED-2026-06-10] Tuple and GardenPlanItem imports unused in this module.
-# from typing import Dict, List, Optional, Tuple
-# from models import db, GardenPlan, GardenPlanItem, SeedInventory, GardenBed, PlantingEvent, TrellisStructure
 from typing import Dict, List, Optional
 from models import db, GardenPlan, SeedInventory, GardenBed, PlantingEvent, TrellisStructure
 from plant_database import get_plant_by_id
@@ -306,33 +303,6 @@ def _get_linear_feet_per_plant(plant: Dict) -> float:
     """Get linear feet required per plant for trellis crops."""
     migardener = plant.get('migardener', {})
     return migardener.get('linearFeetPerPlant', 5.0)  # Default 5 feet
-
-
-# [UNUSED-2026-06-10] Never called anywhere; trellis paths use _is_trellis_planting /
-# _get_linear_feet_per_plant directly (both of those remain in active use).
-# def _calculate_trellis_space_for_seed(
-#     plant_id: str,
-#     variety: str,
-#     quantity: int,
-#     succession_count: int
-# ) -> Optional[Dict]:
-#     """Calculate trellis space requirement for a seed."""
-#     plant = get_plant_by_id(plant_id)
-#     if not plant or not _is_trellis_planting(plant):
-#         return None
-#
-#     linear_feet_per_plant = _get_linear_feet_per_plant(plant)
-#     plants_per_planting = quantity / succession_count if succession_count > 0 else quantity
-#     linear_feet_per_planting = plants_per_planting * linear_feet_per_plant
-#
-#     return {
-#         'plantId': plant_id,
-#         'variety': variety,
-#         'linearFeetPerPlant': linear_feet_per_plant,
-#         'plantsPerPlanting': plants_per_planting,
-#         'linearFeetPerPlanting': linear_feet_per_planting,
-#         'totalLinearFeet': linear_feet_per_planting  # Same as per planting since trellis is reused
-#     }
 
 
 def _get_germination_rate(seed: Dict, plant: Dict) -> float:
@@ -992,8 +962,6 @@ def preview_export_conflicts(plan_id: int, user_id: int) -> Dict:
     Returns:
         Dict with 'hasConflicts' (bool) and 'conflicts' (list of conflict dicts)
     """
-    # [UNUSED-2026-06-10] function-local import unused (module imports logging at top)
-    # import logging
 
     plan = GardenPlan.query.get(plan_id)
     if not plan or plan.user_id != user_id:

@@ -23,23 +23,3 @@
  * Note: Restart dev server after changing environment variables.
  */
 export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-// [UNUSED-2026-06-10] All 46 imports of this module use the named API_BASE_URL export;
-// the wrapper object and default export are never imported.
-// /**
-//  * Application configuration object
-//  *
-//  * Extend this with additional configuration as needed:
-//  * - API timeout settings
-//  * - Feature flags
-//  * - Debug logging
-//  * - Analytics IDs
-//  */
-// export const config = {
-//   apiBaseUrl: API_BASE_URL,
-//   // Future configuration options can be added here
-//   // apiTimeout: 30000,
-//   // enableDebugLogging: process.env.NODE_ENV === 'development',
-// };
-//
-// export default config;
