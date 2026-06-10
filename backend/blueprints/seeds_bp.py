@@ -115,7 +115,7 @@ def api_seeds():
             db.session.add(seed)
             db.session.commit()
             return jsonify(seed.to_dict()), 201
-        except Exception as e:
+        except Exception:
             db.session.rollback()
             return jsonify({'error': 'Failed to create seed'}), 500
 
@@ -219,7 +219,7 @@ def seed_item(seed_id):
     try:
         db.session.commit()
         return jsonify(seed.to_dict())
-    except Exception as e:
+    except Exception:
         db.session.rollback()
         return jsonify({'error': 'Failed to update seed'}), 500
 
@@ -387,7 +387,7 @@ def add_seed_from_catalog():
         db.session.add(personal_seed)
         db.session.commit()
         return jsonify(personal_seed.to_dict()), 201
-    except Exception as e:
+    except Exception:
         db.session.rollback()
         return jsonify({'error': 'Failed to add seed to inventory'}), 500
 
@@ -444,7 +444,7 @@ def sync_seed_from_catalog(seed_id):
             'message': 'Seed synced successfully from catalog',
             'seed': personal_seed.to_dict()
         }), 200
-    except Exception as e:
+    except Exception:
         db.session.rollback()
         return jsonify({'error': 'Failed to sync seed'}), 500
 

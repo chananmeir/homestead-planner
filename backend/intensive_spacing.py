@@ -159,4 +159,4 @@ if __name__ == '__main__':
 
     print("\nHexagonal Packing Efficiency:")
     print(f"Row offset factor: {HEX_ROW_OFFSET:.3f}")
-    print(f"~15% more efficient than square packing")
+    print("~15% more efficient than square packing")

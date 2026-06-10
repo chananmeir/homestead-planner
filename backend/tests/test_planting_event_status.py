@@ -233,10 +233,7 @@ class TestBulkUpdateCompletion:
                                            'updates': {'completed': True}
                                        })
             assert resp.status_code == 200
-            # Verify both events
-            r1 = auth_client_a.get(f'/api/planting-events/{e1.id}')
-            # Fetch individual events via the list endpoint
-            # Use direct model query instead
+            # Verify both events via direct model query
             ev1 = PlantingEvent.query.get(e1.id)
             ev2 = PlantingEvent.query.get(e2.id)
             assert ev1.completed is True

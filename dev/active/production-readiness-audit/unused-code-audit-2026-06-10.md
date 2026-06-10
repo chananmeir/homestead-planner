@@ -101,7 +101,19 @@
 >   deliberately retained and secured; their features stay working). All other
 >   removed endpoints were re-verified against backend/templates as well.
 >
-> **The audit is now fully closed** apart from the cosmetic F-10 micro-items.
+> **ADDENDUM 6: F-10 resolved — the audit is now FULLY closed.** A follow-up
+> commit fixed the last cosmetic pyflakes findings:
+> - 6 unused `except ... as e:` bindings → bare `except` clauses
+>   (seeds_bp ×4, nutrition_bp, maple_tapping_calculator)
+> - 6 side-effect-bearing unused test locals: `result = export_to_calendar(...)`
+>   ×5 in test_succession_export and `r1 = client.get(...)` in
+>   test_planting_event_status → bare calls (the calls ARE the tests; only the
+>   bindings were dead — the r1 site also dropped two stale scaffolding comments)
+> - 2 placeholder-less f-strings de-f'd (intensive_spacing demo, breed_service
+>   warning)
+>
+> **pyflakes now reports ZERO findings across the entire non-migration backend,
+> with no filter categories.** Nothing from the original audit remains open.
 
 Full-codebase sweep for unused code (backend + frontend), per request: *find code that is
 not needed and comment it out*. Every commented block carries a greppable

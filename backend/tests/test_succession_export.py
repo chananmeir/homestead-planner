@@ -118,7 +118,7 @@ class TestLegacyExportPath:
             target_value=21, succession_count=4, succession_interval_days=14,
         )
 
-        result = export_to_calendar(sample_plan.id, sample_user.id)
+        export_to_calendar(sample_plan.id, sample_user.id)
         events = _get_events(sample_user.id)
         assert [e.quantity for e in events] == [6, 5, 5, 5]
 
@@ -129,7 +129,7 @@ class TestLegacyExportPath:
             target_value=50, succession_count=8, succession_interval_days=7,
         )
 
-        result = export_to_calendar(sample_plan.id, sample_user.id)
+        export_to_calendar(sample_plan.id, sample_user.id)
         events = _get_events(sample_user.id)
         assert len(events) == 8
         assert [e.quantity for e in events] == [7, 7, 6, 6, 6, 6, 6, 6]
@@ -253,7 +253,7 @@ class TestBedAllocatedExportPath:
             bed_assignments=json.dumps([{"bedId": sample_bed.id, "quantity": 7}]),
         )
 
-        result = export_to_calendar(sample_plan.id, sample_user.id)
+        export_to_calendar(sample_plan.id, sample_user.id)
         events = _get_events(sample_user.id)
         assert [e.quantity for e in events] == [3, 2, 2]
 
@@ -297,7 +297,7 @@ class TestBedAllocatedExportPath:
             ]),
         )
 
-        result = export_to_calendar(sample_plan.id, sample_user.id)
+        export_to_calendar(sample_plan.id, sample_user.id)
         events = _get_events(sample_user.id)
         qty_by_bed = {e.garden_bed_id: e.quantity for e in events}
         assert qty_by_bed[sample_bed.id] == 30
@@ -382,7 +382,7 @@ class TestTrellisExportPath:
             trellis_assignments=json.dumps([sample_trellis.id]),
         )
 
-        result = export_to_calendar(sample_plan.id, sample_user.id)
+        export_to_calendar(sample_plan.id, sample_user.id)
         events = _get_events(sample_user.id)
         assert len(events) == 2
 

@@ -161,7 +161,7 @@ def estimate_nutrition():
             year=year
         )
         return jsonify(result), 200
-    except Exception as e:
+    except Exception:
         current_app.logger.exception('Failed to estimate nutrition')
         return jsonify({'error': 'Failed to estimate nutrition'}), 500
 

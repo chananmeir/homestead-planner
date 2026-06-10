@@ -30,7 +30,7 @@ class BreedService:
             print(f"Warning: Breed data file not found at {data_path}")
             return self._get_fallback_data()
         except json.JSONDecodeError:
-            print(f"Warning: Invalid JSON in breed data file")
+            print("Warning: Invalid JSON in breed data file")
             return self._get_fallback_data()
 
     def _get_fallback_data(self) -> Dict:

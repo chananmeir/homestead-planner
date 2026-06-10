@@ -121,7 +121,7 @@ def calculate_tapping_season(latitude, longitude, year=None):
         else:
             message = f"We're in tapping season ({est_start.strftime('%b %d')} - {est_end.strftime('%b %d')}), but no freeze-thaw cycles in the forecast. Wait for temperatures to fluctuate around freezing."
 
-    except Exception as e:
+    except Exception:
         # Fallback to rough estimates if API fails
         confidence = 'low'
         if not in_season_window:
