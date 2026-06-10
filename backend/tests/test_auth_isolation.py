@@ -10,7 +10,7 @@ Verifies:
 
 Security gaps fixed:
 - /health-records GET now filters by user_id via Livestock join
-- /export-garden-plan/<id> now has @login_required + ownership check
+(The PDF export route /export-garden-plan/<id> was removed Jun 2026 — no callers.)
 """
 
 import pytest
@@ -237,18 +237,12 @@ class TestAuthRequired:
     @pytest.mark.parametrize('url', [
         '/api/auth/check',
         '/api/plants',
-        '/api/garden-methods',
     ], ids=lambda val: val)
     def test_public_endpoint_not_401(self, client, url):
         resp = client.get(url)
         assert resp.status_code != 401, (
             f"GET {url} returned 401 but should be public"
         )
-
-    def test_export_garden_plan_requires_auth(self, client, user_a):
-        bed = _create_bed(user_a.id)
-        resp = client.get(f'/api/export-garden-plan/{bed.id}')
-        assert resp.status_code == 401
 
 
 # =====================================================================

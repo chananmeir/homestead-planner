@@ -82,6 +82,26 @@
 > with no frontend caller — removing public API surface is a product decision)
 > and the F-10 micro-items (`except ... as e` bindings, side-effectful unused
 > test locals), which are cosmetic and intentionally left.
+>
+> **ADDENDUM 5: F-5 resolved (user-directed).** A follow-up commit removed the
+> no-caller endpoints:
+> - `GET /api/plants/<id>`, `GET /api/plant-guilds/<id>` (redundant alias of the
+>   live `/api/guilds/<id>`), `GET /api/garden-methods[/<id>]` (+ the now-dead
+>   `get_methods_list` helper), `GET|DELETE /api/planting-events/orphaned`
+>   (ghost-conflict repair tool), `GET /api/export-garden-plan/<id>` (PDF export
+>   — its removal orphaned the reportlab/io/send_file imports AND the entire
+>   `reportlab` dependency, dropped from requirements.txt).
+> - test_auth_isolation.py updated: the export-route auth test removed with its
+>   route; `/api/garden-methods` dropped from the public-endpoint list.
+> - **CORRECTION found during removal**: `/api/bed-templates[/<id>]` was NOT
+>   uncalled — the legacy `backend/templates/visual_designer.html` template-picker
+>   calls the detail route via jQuery. The original audit grep covered
+>   frontend/src + frontend/tests but not backend/templates. Those two routes,
+>   `BED_TEMPLATES`, and `get_template_by_id` are KEPT (the legacy pages were
+>   deliberately retained and secured; their features stay working). All other
+>   removed endpoints were re-verified against backend/templates as well.
+>
+> **The audit is now fully closed** apart from the cosmetic F-10 micro-items.
 
 Full-codebase sweep for unused code (backend + frontend), per request: *find code that is
 not needed and comment it out*. Every commented block carries a greppable

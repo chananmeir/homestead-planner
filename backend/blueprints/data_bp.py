@@ -5,30 +5,22 @@ Provides static reference data (plants, garden methods, templates, structures)
 
 Routes:
 - GET /api/plants - Get all plants (excluding fruit/nut trees - see Property Designer)
-- GET /api/plants/<id> - Get specific plant
 - GET /api/guilds - Get all plant guilds
 - GET /api/guilds/<id> - Get specific guild
 - GET /api/plant-guilds - Get all plant guilds (alias)
-- GET /api/plant-guilds/<id> - Get specific guild (alias)
-- GET /api/garden-methods - Get all garden planning methods
-- GET /api/garden-methods/<id> - Get specific method
-- GET /api/bed-templates - Get all bed templates
-- GET /api/bed-templates/<id> - Get specific template
+- GET /api/bed-templates - Get all bed templates (used by legacy visual_designer.html)
+- GET /api/bed-templates/<id> - Get a specific bed template
 - GET /api/structures - Get all structures and user's garden beds
+
+(Removed Jun 2026 — no callers anywhere incl. backend/templates:
+/plants/<id>, /plant-guilds/<id>, /garden-methods[/<id>].)
 """
 from flask import Blueprint, jsonify
 from flask_login import login_required, current_user
 
-from plant_database import PLANT_DATABASE, get_plant_by_id
+from plant_database import PLANT_DATABASE
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES
-from garden_methods import (
-    GARDEN_METHODS,
-    BED_TEMPLATES,
-    PLANT_GUILDS,
-    get_methods_list,
-    get_template_by_id,
-    get_guild_by_id
-)
+from garden_methods import PLANT_GUILDS, BED_TEMPLATES, get_guild_by_id, get_template_by_id
 from models import GardenBed
 
 data_bp = Blueprint('data', __name__, url_prefix='/api')
@@ -61,15 +53,6 @@ def get_plants():
     return jsonify([_normalize_plant_keys(p) for p in garden_plants])
 
 
-@data_bp.route('/plants/<plant_id>')
-def get_plant(plant_id):
-    """Get specific plant"""
-    plant = get_plant_by_id(plant_id)
-    if plant:
-        return jsonify(_normalize_plant_keys(plant))
-    return jsonify({'error': 'Plant not found'}), 404
-
-
 # ==================== GUILD DATA ====================
 
 @data_bp.route('/guilds')
@@ -93,36 +76,9 @@ def get_plant_guilds():
     return jsonify(PLANT_GUILDS)
 
 
-@data_bp.route('/plant-guilds/<guild_id>')
-def get_plant_guild(guild_id):
-    """Get a specific plant guild (alias for /guilds/<id>)"""
-    guild = get_guild_by_id(guild_id)
-    if not guild:
-        return jsonify({'error': 'Guild not found'}), 404
-    return jsonify(guild)
-
-
-# ==================== GARDEN METHODS ====================
-
-@data_bp.route('/garden-methods')
-def get_garden_methods():
-    """Get all available garden planning methods"""
-    return jsonify({
-        'methods': get_methods_list(),
-        'details': GARDEN_METHODS
-    })
-
-
-@data_bp.route('/garden-methods/<method_id>')
-def get_garden_method(method_id):
-    """Get details for a specific garden planning method"""
-    method = GARDEN_METHODS.get(method_id)
-    if not method:
-        return jsonify({'error': 'Method not found'}), 404
-    return jsonify(method)
-
-
 # ==================== BED TEMPLATES ====================
+# Kept: the legacy server-rendered visual_designer.html template-picker calls
+# the detail route ($.get('/api/bed-templates/' + templateId)).
 
 @data_bp.route('/bed-templates')
 def get_bed_templates():

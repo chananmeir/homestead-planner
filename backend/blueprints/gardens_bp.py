@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy import or_, and_, cast
+from sqlalchemy import or_, and_
 
 from models import (
     db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, GardenPlanItem,
@@ -2844,67 +2844,6 @@ def uncancel_planted_item(item_id):
     return jsonify({
         'id': item.id,
         'cancelledAt': None,
-    }), 200
-
-
-@gardens_bp.route('/planting-events/orphaned', methods=['GET', 'DELETE'])
-@login_required
-def orphaned_planting_events():
-    """Preview or delete orphaned PlantingEvents.
-
-    Orphaned events have position data but no matching PlantedItem,
-    causing ghost conflicts that block new placements while being
-    invisible on the grid.
-
-    GET: Preview orphaned events (returns list with count)
-    DELETE: Remove orphaned events and return count deleted
-    """
-    user_id = current_user.id
-
-    # Find PlantingEvents with positions that have NO matching PlantedItem
-    orphaned_query = PlantingEvent.query.filter(
-        and_(
-            PlantingEvent.user_id == user_id,
-            PlantingEvent.event_type == 'planting',
-            PlantingEvent.position_x.isnot(None),
-            PlantingEvent.position_y.isnot(None)
-        )
-    ).filter(
-        ~db.session.query(PlantedItem).filter(
-            PlantedItem.garden_bed_id == cast(PlantingEvent.garden_bed_id, db.Integer),
-            PlantedItem.plant_id == PlantingEvent.plant_id,
-            PlantedItem.position_x == PlantingEvent.position_x,
-            PlantedItem.position_y == PlantingEvent.position_y,
-            PlantedItem.user_id == PlantingEvent.user_id
-        ).exists()
-    )
-
-    if request.method == 'GET':
-        orphans = orphaned_query.all()
-        return jsonify({
-            'count': len(orphans),
-            'orphans': [e.to_dict() for e in orphans]
-        }), 200
-
-    # DELETE
-    orphans = orphaned_query.all()
-    count = len(orphans)
-
-    # Delete linked IndoorSeedStarts first
-    orphan_ids = [e.id for e in orphans]
-    if orphan_ids:
-        IndoorSeedStart.query.filter(
-            IndoorSeedStart.planting_event_id.in_(orphan_ids),
-            IndoorSeedStart.user_id == user_id
-        ).delete(synchronize_session=False)
-
-    for orphan in orphans:
-        db.session.delete(orphan)
-
-    db.session.commit()
-    return jsonify({
-        'message': f'Deleted {count} orphaned planting event(s)',
-        'count': count
     }), 200
 
 

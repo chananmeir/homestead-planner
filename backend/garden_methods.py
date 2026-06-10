@@ -550,20 +550,9 @@ def get_guild_by_id(guild_id):
     return PLANT_GUILDS.get(guild_id)
 
 def get_template_by_id(template_id):
-    """Get a bed template by ID"""
+    """Get a bed template by ID (used by /api/bed-templates/<id>, which the
+    legacy visual_designer.html template-picker calls)."""
     for template in BED_TEMPLATES:
         if template['id'] == template_id:
             return template
     return None
-
-def get_methods_list():
-    """Get list of all available garden methods"""
-    return [
-        {
-            'id': method_id,
-            'name': method_data['name'],
-            'description': method_data['description'],
-            'idealFor': method_data['idealFor']
-        }
-        for method_id, method_data in GARDEN_METHODS.items()
-    ]
