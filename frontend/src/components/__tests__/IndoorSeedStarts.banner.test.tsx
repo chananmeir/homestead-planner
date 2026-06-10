@@ -68,19 +68,20 @@ function planOnlyRow(overrides: Partial<any> = {}): any {
   };
 }
 
-// Default routes: empty seeds list, plants list, seed inventory, and
-// configurable needs-indoor-starts payload.
-function makeRoutes(rows: any[]): FetchRoute[] {
-  return [
-    { match: '/api/indoor-seed-starts', response: [] },
-    { match: '/api/plants', response: [{ id: 'tomato-1', name: 'Tomato', icon: '🍅' }] },
-    { match: '/api/seeds', response: [] },
-    {
-      match: '/api/planting-events/needs-indoor-starts',
-      response: { events: rows, count: rows.length },
-    },
-  ];
-}
+// [UNUSED-2026-06-10] Superseded by makeOrderedRoutes below (route-order fix); never called.
+// // Default routes: empty seeds list, plants list, seed inventory, and
+// // configurable needs-indoor-starts payload.
+// function makeRoutes(rows: any[]): FetchRoute[] {
+//   return [
+//     { match: '/api/indoor-seed-starts', response: [] },
+//     { match: '/api/plants', response: [{ id: 'tomato-1', name: 'Tomato', icon: '🍅' }] },
+//     { match: '/api/seeds', response: [] },
+//     {
+//       match: '/api/planting-events/needs-indoor-starts',
+//       response: { events: rows, count: rows.length },
+//     },
+//   ];
+// }
 
 // installFetchMock matches the FIRST matching route, so put the more-specific
 // /needs-indoor-starts route in front of the generic /api/indoor-seed-starts

@@ -5,7 +5,9 @@ Routes for HTML page rendering (server-side templates).
 """
 from flask import Blueprint, render_template
 from flask_login import current_user
-from models import GardenBed, PlantingEvent, Settings, CompostPile, Photo, HarvestRecord, SeedInventory, Property, Chicken, Beehive, Livestock
+# [UNUSED-2026-06-10] Settings import unused in this module.
+# from models import GardenBed, PlantingEvent, Settings, CompostPile, Photo, HarvestRecord, SeedInventory, Property, Chicken, Beehive, Livestock
+from models import GardenBed, PlantingEvent, CompostPile, Photo, HarvestRecord, SeedInventory, Property, Chicken, Beehive, Livestock
 from plant_database import PLANT_DATABASE, COMPOST_MATERIALS
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES
 from frost_date_lookup import get_frost_dates_for_user

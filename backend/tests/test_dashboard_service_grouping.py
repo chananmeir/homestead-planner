@@ -31,7 +31,8 @@ Builders covered:
 """
 from datetime import datetime, date, timedelta
 
-import pytest
+# [UNUSED-2026-06-10] import never used
+# import pytest
 
 from models import (
     db,

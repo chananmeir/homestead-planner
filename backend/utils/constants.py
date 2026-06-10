@@ -11,9 +11,11 @@ EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 USERNAME_REGEX = re.compile(r'^[a-zA-Z0-9_-]{3,30}$')
 MIN_PASSWORD_LENGTH = 8
 
-# Sun exposure validation
-VALID_SUN_EXPOSURES = ['full', 'partial', 'shade']
-
-# Default coordinates for soil temperature (Milwaukee, WI - 53209)
-DEFAULT_LATITUDE = 43.1361
-DEFAULT_LONGITUDE = -87.9456
+# [UNUSED-2026-06-10] Never imported from here; consumers duplicated these locally
+# instead (gardens_bp.py:511 for sun exposures; utilities_bp.py:71-72 for coordinates).
+# # Sun exposure validation
+# VALID_SUN_EXPOSURES = ['full', 'partial', 'shade']
+#
+# # Default coordinates for soil temperature (Milwaukee, WI - 53209)
+# DEFAULT_LATITUDE = 43.1361
+# DEFAULT_LONGITUDE = -87.9456

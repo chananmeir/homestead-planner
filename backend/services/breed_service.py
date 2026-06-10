@@ -8,7 +8,8 @@ age-based production curves to calculate realistic annual yields.
 import json
 import os
 from typing import Dict, Optional, Tuple
-from datetime import datetime
+# [UNUSED-2026-06-10] import never used
+# from datetime import datetime
 
 
 class BreedService:

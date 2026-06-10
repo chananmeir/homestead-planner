@@ -1,8 +1,10 @@
 import React from 'react';
 import { PlantIconSVG } from '../common/PlantIcon';
-import { PlantingEvent, Plant } from '../../types';
-import { calculateSpacingBuffer } from './utils/footprintCalculator';
-import { parseLocalDate } from '../../utils/dateUtils';
+// [UNUSED-2026-06-10] These imports served only the orphaned helper functions
+// commented out at the bottom of this file.
+// import { PlantingEvent, Plant } from '../../types';
+// import { calculateSpacingBuffer } from './utils/footprintCalculator';
+// import { parseLocalDate } from '../../utils/dateUtils';
 
 export interface FuturePlantingPosition {
   x: number;
@@ -267,202 +269,207 @@ export const FuturePlantingsOverlay: React.FC<FuturePlantingsOverlayProps> = ({
   );
 };
 
-/**
- * Helper function to convert PlantingEvents to overlay positions
- *
- * Uses circular spacing buffer for multi-cell plants and optionally
- * filters by harvest window (Quick Harvest Filter integration).
- *
- * When harvestWindowDays is set:
- * - Only shows future plantings that START within that many days
- * - If you're planting lettuce (30d harvest), you don't need to see
- *   a squash scheduled for day 50 - your lettuce will be gone by then
- *
- * @param harvestWindowDays - If set, only show future events within this many days
- */
-export const getFuturePlantingPositions = (
-  events: PlantingEvent[],
-  bedId: number,
-  currentDate: string,
-  plants: Plant[],
-  getPlantIcon: (plantId: string) => string,
-  harvestWindowDays: number | null = null
-): FuturePlantingPosition[] => {
-  const current = parseLocalDate(currentDate);
-  const positions: FuturePlantingPosition[] = [];
-  const occupiedCells = new Set<string>(); // Track which cells are already marked
+// [UNUSED-2026-06-10] Three exported helpers (getFuturePlantingPositions,
+// getFutureEventsAtPosition, getUnpositionedFutureEvents) orphaned by the refactor
+// that moved position computation into GardenDesigner (which imports only the
+// default component + FuturePlantingPosition type). Zero references anywhere.
+// /**
+//  * Helper function to convert PlantingEvents to overlay positions
+//  *
+//  * Uses circular spacing buffer for multi-cell plants and optionally
+//  * filters by harvest window (Quick Harvest Filter integration).
+//  *
+//  * When harvestWindowDays is set:
+//  * - Only shows future plantings that START within that many days
+//  * - If you're planting lettuce (30d harvest), you don't need to see
+//  *   a squash scheduled for day 50 - your lettuce will be gone by then
+//  *
+//  * @param harvestWindowDays - If set, only show future events within this many days
+//  */
+// export const getFuturePlantingPositions = (
+//   events: PlantingEvent[],
+//   bedId: number,
+//   currentDate: string,
+//   plants: Plant[],
+//   getPlantIcon: (plantId: string) => string,
+//   harvestWindowDays: number | null = null
+// ): FuturePlantingPosition[] => {
+//   const current = parseLocalDate(currentDate);
+//   const positions: FuturePlantingPosition[] = [];
+//   const occupiedCells = new Set<string>(); // Track which cells are already marked
 
-  // Calculate the harvest cutoff date (if quick harvest filter is active)
-  let harvestCutoff: Date | null = null;
-  if (harvestWindowDays !== null) {
-    harvestCutoff = new Date(current);
-    harvestCutoff.setDate(harvestCutoff.getDate() + harvestWindowDays);
-  }
+//   // Calculate the harvest cutoff date (if quick harvest filter is active)
+//   let harvestCutoff: Date | null = null;
+//   if (harvestWindowDays !== null) {
+//     harvestCutoff = new Date(current);
+//     harvestCutoff.setDate(harvestCutoff.getDate() + harvestWindowDays);
+//   }
 
-  const filteredEvents = events.filter(event => {
-    // Must be in the specified bed
-    if (event.gardenBedId !== bedId) return false;
+//   const filteredEvents = events.filter(event => {
+//     // Must be in the specified bed
+//     if (event.gardenBedId !== bedId) return false;
 
-    // Must have position data (use loose equality to catch both null and undefined)
-    if (event.positionX == null || event.positionY == null) return false;
+//     // Must have position data (use loose equality to catch both null and undefined)
+//     if (event.positionX == null || event.positionY == null) return false;
 
-    // Must be a planting event (not mulch, fertilizing, etc.)
-    if (event.eventType && event.eventType !== 'planting') return false;
+//     // Must be a planting event (not mulch, fertilizing, etc.)
+//     if (event.eventType && event.eventType !== 'planting') return false;
 
-    // Get the relevant planting date
-    const plantingDateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
-    if (!plantingDateStr) return false;
+//     // Get the relevant planting date
+//     const plantingDateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
+//     if (!plantingDateStr) return false;
 
-    const plantingDate = new Date(plantingDateStr);
-    // Only include future events (after current view date)
-    if (plantingDate <= current) return false;
+//     const plantingDate = new Date(plantingDateStr);
+//     // Only include future events (after current view date)
+//     if (plantingDate <= current) return false;
 
-    // If harvest window is active, only show events that START before harvest cutoff
-    // (these are the ones that would conflict with a crop planted today)
-    if (harvestCutoff && plantingDate > harvestCutoff) return false;
+//     // If harvest window is active, only show events that START before harvest cutoff
+//     // (these are the ones that would conflict with a crop planted today)
+//     if (harvestCutoff && plantingDate > harvestCutoff) return false;
 
-    return true;
-  });
+//     return true;
+//   });
 
-  const gridSize = 12; // Standard SFG grid size in inches
+//   const gridSize = 12; // Standard SFG grid size in inches
 
-  for (const event of filteredEvents) {
-    const plantingDateStr = event.directSeedDate || event.transplantDate || event.seedStartDate || '';
-    const originX = event.positionX!;
-    const originY = event.positionY!;
+//   for (const event of filteredEvents) {
+//     const plantingDateStr = event.directSeedDate || event.transplantDate || event.seedStartDate || '';
+//     const originX = event.positionX!;
+//     const originY = event.positionY!;
 
-    // Get plant spacing in inches - this determines the "no-plant zone" radius
-    let spacingInches = 12; // Default to 1 cell (12")
-    const plant = plants.find(p => p.id === event.plantId);
+//     // Get plant spacing in inches - this determines the "no-plant zone" radius
+//     let spacingInches = 12; // Default to 1 cell (12")
+//     const plant = plants.find(p => p.id === event.plantId);
 
-    if (event.spacing) {
-      // Use spacing from event if available
-      spacingInches = event.spacing;
-    } else if (plant && plant.spacing) {
-      // Otherwise use plant's default spacing
-      spacingInches = plant.spacing;
-    }
+//     if (event.spacing) {
+//       // Use spacing from event if available
+//       spacingInches = event.spacing;
+//     } else if (plant && plant.spacing) {
+//       // Otherwise use plant's default spacing
+//       spacingInches = plant.spacing;
+//     }
 
-    // Calculate all cells within the plant's spacing buffer (circular zone)
-    const bufferCells = calculateSpacingBuffer(originX, originY, spacingInches, gridSize);
+//     // Calculate all cells within the plant's spacing buffer (circular zone)
+//     const bufferCells = calculateSpacingBuffer(originX, originY, spacingInches, gridSize);
 
-    for (const cell of bufferCells) {
-      const cellKey = `${cell.x},${cell.y}`;
+//     for (const cell of bufferCells) {
+//       const cellKey = `${cell.x},${cell.y}`;
 
-      // Skip if this cell is already occupied by another future planting
-      if (occupiedCells.has(cellKey)) continue;
+//       // Skip if this cell is already occupied by another future planting
+//       if (occupiedCells.has(cellKey)) continue;
 
-      occupiedCells.add(cellKey);
+//       occupiedCells.add(cellKey);
 
-      const isOrigin = cell.x === originX && cell.y === originY;
+//       const isOrigin = cell.x === originX && cell.y === originY;
 
-      positions.push({
-        x: cell.x,
-        y: cell.y,
-        plantId: event.plantId,
-        plantIcon: getPlantIcon(event.plantId || ''),
-        variety: event.variety,
-        plantingDate: plantingDateStr,
-        isOrigin,
-        spaceRequired: Math.ceil(spacingInches / gridSize), // For display purposes
-      });
-    }
-  }
+//       positions.push({
+//         x: cell.x,
+//         y: cell.y,
+//         plantId: event.plantId,
+//         plantIcon: getPlantIcon(event.plantId || ''),
+//         variety: event.variety,
+//         plantingDate: plantingDateStr,
+//         isOrigin,
+//         spaceRequired: Math.ceil(spacingInches / gridSize), // For display purposes
+//       });
+//     }
+//   }
 
-  return positions;
-};
+//   return positions;
+// };
 
-/**
- * Get all future planting events at a specific position
- * Checks if the position is within ANY plant's circular spacing buffer
- */
-export const getFutureEventsAtPosition = (
-  events: PlantingEvent[],
-  bedId: number,
-  posX: number,
-  posY: number,
-  currentDate: string,
-  plants: Plant[] = []
-): PlantingEvent[] => {
-  const current = parseLocalDate(currentDate);
-  const gridSize = 12; // Standard SFG grid size in inches
+// /**
+//  * Get all future planting events at a specific position
+//  * Checks if the position is within ANY plant's circular spacing buffer
+//  */
+// export const getFutureEventsAtPosition = (
+//   events: PlantingEvent[],
+//   bedId: number,
+//   posX: number,
+//   posY: number,
+//   currentDate: string,
+//   plants: Plant[] = []
+// ): PlantingEvent[] => {
+//   const current = parseLocalDate(currentDate);
+//   const gridSize = 12; // Standard SFG grid size in inches
 
-  return events
-    .filter(event => {
-      // Must be in the specified bed
-      if (event.gardenBedId !== bedId) return false;
+//   return events
+//     .filter(event => {
+//       // Must be in the specified bed
+//       if (event.gardenBedId !== bedId) return false;
 
-      // Must have position data (use loose equality to catch both null and undefined)
-      if (event.positionX == null || event.positionY == null) return false;
+//       // Must have position data (use loose equality to catch both null and undefined)
+//       if (event.positionX == null || event.positionY == null) return false;
 
-      // Must be a planting event
-      if (event.eventType && event.eventType !== 'planting') return false;
+//       // Must be a planting event
+//       if (event.eventType && event.eventType !== 'planting') return false;
 
-      // Get the relevant planting date
-      const plantingDateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
-      if (!plantingDateStr) return false;
+//       // Get the relevant planting date
+//       const plantingDateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
+//       if (!plantingDateStr) return false;
 
-      const plantingDate = new Date(plantingDateStr);
-      // Only include future events
-      if (plantingDate <= current) return false;
+//       const plantingDate = new Date(plantingDateStr);
+//       // Only include future events
+//       if (plantingDate <= current) return false;
 
-      // Check if position is within this event's spacing buffer
-      const originX = event.positionX!;
-      const originY = event.positionY!;
+//       // Check if position is within this event's spacing buffer
+//       const originX = event.positionX!;
+//       const originY = event.positionY!;
 
-      // Get plant spacing in inches
-      let spacingInches = 12; // Default
-      const plant = plants.find(p => p.id === event.plantId);
+//       // Get plant spacing in inches
+//       let spacingInches = 12; // Default
+//       const plant = plants.find(p => p.id === event.plantId);
 
-      if (event.spacing) {
-        spacingInches = event.spacing;
-      } else if (plant && plant.spacing) {
-        spacingInches = plant.spacing;
-      }
+//       if (event.spacing) {
+//         spacingInches = event.spacing;
+//       } else if (plant && plant.spacing) {
+//         spacingInches = plant.spacing;
+//       }
 
-      // Calculate distance from plant origin to target position (in inches)
-      const dx = posX - originX;
-      const dy = posY - originY;
-      const distanceInches = Math.sqrt(
-        Math.pow(dx * gridSize, 2) +
-        Math.pow(dy * gridSize, 2)
-      );
+//       // Calculate distance from plant origin to target position (in inches)
+//       const dx = posX - originX;
+//       const dy = posY - originY;
+//       const distanceInches = Math.sqrt(
+//         Math.pow(dx * gridSize, 2) +
+//         Math.pow(dy * gridSize, 2)
+//       );
 
-      // Position is affected if it's within the spacing distance
-      return distanceInches < spacingInches;
-    })
-    .sort((a, b) => {
-      // Sort by planting date ascending
-      const dateA = new Date(a.directSeedDate || a.transplantDate || a.seedStartDate || '');
-      const dateB = new Date(b.directSeedDate || b.transplantDate || b.seedStartDate || '');
-      return dateA.getTime() - dateB.getTime();
-    });
-};
+//       // Position is affected if it's within the spacing distance
+//       return distanceInches < spacingInches;
+//     })
+//     .sort((a, b) => {
+//       // Sort by planting date ascending
+//       const dateA = new Date(a.directSeedDate || a.transplantDate || a.seedStartDate || '');
+//       const dateB = new Date(b.directSeedDate || b.transplantDate || b.seedStartDate || '');
+//       return dateA.getTime() - dateB.getTime();
+//     });
+// };
 
-/**
- * Get future planting events assigned to a bed that have NO position data.
- * These are typically created via season planner export and haven't been
- * physically placed on the grid yet.
- */
-export const getUnpositionedFutureEvents = (
-  events: PlantingEvent[],
-  bedId: number,
-  currentDate: string
-): PlantingEvent[] => {
-  const current = parseLocalDate(currentDate);
-  return events.filter(event => {
-    if (event.gardenBedId !== bedId) return false;
-    if (event.eventType && event.eventType !== 'planting') return false;
-    // Only events WITHOUT position data
-    if (event.positionX != null && event.positionY != null) return false;
-    const dateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
-    if (!dateStr) return false;
-    return new Date(dateStr) > current;
-  }).sort((a, b) => {
-    const dA = new Date(a.directSeedDate || a.transplantDate || a.seedStartDate || '');
-    const dB = new Date(b.directSeedDate || b.transplantDate || b.seedStartDate || '');
-    return dA.getTime() - dB.getTime();
-  });
-};
+// /**
+//  * Get future planting events assigned to a bed that have NO position data.
+//  * These are typically created via season planner export and haven't been
+//  * physically placed on the grid yet.
+//  */
+// export const getUnpositionedFutureEvents = (
+//   events: PlantingEvent[],
+//   bedId: number,
+//   currentDate: string
+// ): PlantingEvent[] => {
+//   const current = parseLocalDate(currentDate);
+//   return events.filter(event => {
+//     if (event.gardenBedId !== bedId) return false;
+//     if (event.eventType && event.eventType !== 'planting') return false;
+//     // Only events WITHOUT position data
+//     if (event.positionX != null && event.positionY != null) return false;
+//     const dateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
+//     if (!dateStr) return false;
+//     return new Date(dateStr) > current;
+//   }).sort((a, b) => {
+//     const dA = new Date(a.directSeedDate || a.transplantDate || a.seedStartDate || '');
+//     const dB = new Date(b.directSeedDate || b.transplantDate || b.seedStartDate || '');
+//     return dA.getTime() - dB.getTime();
+//   });
+// };
 
+// (restored — the live component's default export, not part of the dead helpers)
 export default FuturePlantingsOverlay;

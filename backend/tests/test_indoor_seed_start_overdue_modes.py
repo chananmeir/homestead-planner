@@ -15,7 +15,8 @@ get_utc_now() inside the endpoint sees a known "today", then craft
 transplantDate values that fall clearly before / after that today minus
 weeks_indoors to exercise each branch without relying on wall-clock time.
 """
-import json
+# [UNUSED-2026-06-10] import never used
+# import json
 from datetime import date, datetime, timedelta
 
 import pytest

@@ -13,7 +13,9 @@ Covers:
 from datetime import datetime
 
 import pytest
-from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
+# [UNUSED-2026-06-10] db unused.
+# from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
+from models import GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
 
 
 def _create_bed(session, user, name='Test Bed'):

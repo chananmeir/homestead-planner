@@ -31,7 +31,10 @@ from services.seed_import_service import (
     import_seeds_to_database,
 )
 from plant_database import PLANT_DATABASE
-from utils.plant_id_resolver import validate_and_resolve_plant_id, is_deprecated_plant_id
+# [UNUSED-2026-06-10] is_deprecated_plant_id imported but never called
+# (the function itself is commented out in utils/plant_id_resolver.py).
+# from utils.plant_id_resolver import validate_and_resolve_plant_id, is_deprecated_plant_id
+from utils.plant_id_resolver import validate_and_resolve_plant_id
 
 seeds_bp = Blueprint('seeds', __name__, url_prefix='/api')
 

@@ -11,8 +11,10 @@ Uses the full_app/auth_client_a fixtures from conftest.py.
 
 from datetime import datetime
 
-import pytest
-from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
+# [UNUSED-2026-06-10] pytest and db unused.
+# import pytest
+# from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
+from models import GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, HarvestRecord
 
 
 def _create_bed(session, user, name='Test Bed'):

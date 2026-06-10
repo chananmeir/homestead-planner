@@ -52,18 +52,20 @@ export function getPlantById(plantId: string): Plant | undefined {
   return PLANT_DATABASE.find(p => p.id === canonicalId);
 }
 
-/**
- * Check if a plant ID is deprecated (has an alias).
- */
-export function isDeprecatedPlantId(plantId: string): boolean {
-  return plantId in PLANT_ID_ALIASES;
-}
-
-/**
- * Get all deprecated plant IDs that map to a canonical ID.
- */
-export function getAliasesForCanonicalId(canonicalId: string): string[] {
-  return Object.entries(PLANT_ID_ALIASES)
-    .filter(([_, canonical]) => canonical === canonicalId)
-    .map(([deprecated, _]) => deprecated);
-}
+// [UNUSED-2026-06-10] Never imported anywhere (consumers use getPlantById/resolveAlias).
+// Mirrors the equally-dead backend helpers commented out in utils/plant_id_resolver.py.
+// /**
+//  * Check if a plant ID is deprecated (has an alias).
+//  */
+// export function isDeprecatedPlantId(plantId: string): boolean {
+//   return plantId in PLANT_ID_ALIASES;
+// }
+//
+// /**
+//  * Get all deprecated plant IDs that map to a canonical ID.
+//  */
+// export function getAliasesForCanonicalId(canonicalId: string): string[] {
+//   return Object.entries(PLANT_ID_ALIASES)
+//     .filter(([_, canonical]) => canonical === canonicalId)
+//     .map(([deprecated, _]) => deprecated);
+// }

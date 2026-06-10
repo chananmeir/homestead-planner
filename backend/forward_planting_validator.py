@@ -14,8 +14,11 @@ Example:
 
 import logging
 from datetime import date, timedelta
-from typing import Optional, Dict, List, Tuple
-from historical_soil_temp import get_historical_daily_soil_temps, get_historical_daily_air_temps, get_month_name
+# [UNUSED-2026-06-10] List and get_historical_daily_soil_temps unused in this module.
+# from typing import Optional, Dict, List, Tuple
+# from historical_soil_temp import get_historical_daily_soil_temps, get_historical_daily_air_temps, get_month_name
+from typing import Optional, Dict, Tuple
+from historical_soil_temp import get_historical_daily_air_temps, get_month_name
 
 logger = logging.getLogger(__name__)
 

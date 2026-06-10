@@ -10,7 +10,8 @@ Covers:
 - _safe_int / _safe_float NULL semantics
 """
 
-import pytest
+# [UNUSED-2026-06-10] import never used
+# import pytest
 from models import db, SeedInventory
 from services.seed_import_service import (
     resolve_plant_name_to_id,

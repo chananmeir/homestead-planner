@@ -105,10 +105,12 @@ def can_contain(container_category, child_category):
     return child_category in allowed_children
 
 
-def get_collision_rules(category):
-    """Get collision rules for a specific category."""
-    return COLLISION_RULES.get(category, {
-        'is_container': False,
-        'can_overlap': [],
-        'must_not_overlap': []
-    })
+# [UNUSED-2026-06-10] Never called anywhere; collision_validator imports only
+# is_container/can_overlap/can_contain. COLLISION_RULES dict itself stays in use.
+# def get_collision_rules(category):
+#     """Get collision rules for a specific category."""
+#     return COLLISION_RULES.get(category, {
+#         'is_container': False,
+#         'can_overlap': [],
+#         'must_not_overlap': []
+#     })

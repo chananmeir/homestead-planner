@@ -141,26 +141,28 @@ export function getAllZones(): Zone[] {
   return Object.values(PERMACULTURE_ZONES);
 }
 
-/**
- * Get zone color classes for styling
- */
-export function getZoneColors(zoneId: ZoneId | null | undefined): Zone['color'] | null {
-  const zone = getZone(zoneId);
-  return zone ? zone.color : null;
-}
-
-/**
- * Get zone badge text (e.g., "Z1" for zone1)
- */
-export function getZoneBadge(zoneId: ZoneId | null | undefined): string {
-  const zone = getZone(zoneId);
-  return zone ? `Z${zone.number}` : '';
-}
-
-/**
- * Get zone short description
- */
-export function getZoneShortDesc(zoneId: ZoneId | null | undefined): string {
-  const zone = getZone(zoneId);
-  return zone ? zone.description : 'No zone assigned';
-}
+// [UNUSED-2026-06-10] Never imported anywhere (getZone/getAllZones above remain live
+// via BedFormModal).
+// /**
+//  * Get zone color classes for styling
+//  */
+// export function getZoneColors(zoneId: ZoneId | null | undefined): Zone['color'] | null {
+//   const zone = getZone(zoneId);
+//   return zone ? zone.color : null;
+// }
+//
+// /**
+//  * Get zone badge text (e.g., "Z1" for zone1)
+//  */
+// export function getZoneBadge(zoneId: ZoneId | null | undefined): string {
+//   const zone = getZone(zoneId);
+//   return zone ? `Z${zone.number}` : '';
+// }
+//
+// /**
+//  * Get zone short description
+//  */
+// export function getZoneShortDesc(zoneId: ZoneId | null | undefined): string {
+//   const zone = getZone(zoneId);
+//   return zone ? zone.description : 'No zone assigned';
+// }

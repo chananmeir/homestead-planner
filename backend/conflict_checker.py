@@ -511,7 +511,9 @@ def validate_planting_conflict(
         (True, None) - Valid, proceed with creation
         (False, error_dict) - Invalid, return 409 Conflict with error details
     """
-    from models import db, PlantingEvent, PlantedItem, GardenBed
+    # [UNUSED-2026-06-10] db import unused in this function.
+    # from models import db, PlantingEvent, PlantedItem, GardenBed
+    from models import PlantingEvent, PlantedItem, GardenBed
 
     # 1. Skip validation if no position data (timeline-only events)
     # IMPORTANT: Check for None explicitly, not truthiness (0 is valid position!)
@@ -558,13 +560,14 @@ def validate_planting_conflict(
     # Query PlantedItems directly — they are ground truth and can't be orphaned
     candidate_events = query_candidate_items(garden_bed_id, user_id, exclude_item_id)
 
-    # DEBUG: Log candidate items found
-    print(f"[CONFLICT CHECK] pos=({event_data.get('position_x')},{event_data.get('position_y')}), "
-          f"plant={event_data.get('plant_id')}, candidates={len(candidate_events)}")
-    for ce in candidate_events:
-        ce_start = ce.transplant_date or ce.direct_seed_date
-        print(f"  candidate item {ce.id}: plant={ce.plant_id}, pos=({ce.position_x},{ce.position_y}), "
-              f"start={ce_start}, end={ce.expected_harvest_date}")
+    # [UNUSED-2026-06-10] Debug prints fired on every server-side conflict validation.
+    # # DEBUG: Log candidate items found
+    # print(f"[CONFLICT CHECK] pos=({event_data.get('position_x')},{event_data.get('position_y')}), "
+    #       f"plant={event_data.get('plant_id')}, candidates={len(candidate_events)}")
+    # for ce in candidate_events:
+    #     ce_start = ce.transplant_date or ce.direct_seed_date
+    #     print(f"  candidate item {ce.id}: plant={ce.plant_id}, pos=({ce.position_x},{ce.position_y}), "
+    #           f"start={ce_start}, end={ce.expected_harvest_date}")
 
     # 5. Create temporary event object for conflict checking
     temp_event = type('TempEvent', (), {

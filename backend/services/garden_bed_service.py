@@ -4,7 +4,8 @@ Garden Bed Service Layer
 Business logic for garden bed operations, including temporal mulch tracking.
 This service can safely import models (unlike utils/).
 """
-from datetime import datetime
+# [UNUSED-2026-06-10] import never used
+# from datetime import datetime
 import json
 from models import db, GardenBed, PlantingEvent
 

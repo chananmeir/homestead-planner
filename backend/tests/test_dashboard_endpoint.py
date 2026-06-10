@@ -11,7 +11,8 @@ Covers:
 """
 from datetime import datetime, date, timedelta
 
-import pytest
+# [UNUSED-2026-06-10] import never used
+# import pytest
 
 from models import (
     db,
@@ -25,7 +26,8 @@ from models import (
     IndoorSeedStart,
     DashboardSnooze,
 )
-from tests.conftest import login_as
+# [UNUSED-2026-06-10] import never used
+# from tests.conftest import login_as
 
 
 # ---------------------------------------------------------------------------

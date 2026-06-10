@@ -29,13 +29,15 @@ export const PlantIcon: React.FC<PlantIconProps> = ({
 
   // Reset state when plantId changes
   useEffect(() => {
-    console.log(`[PlantIcon] Mounting/Resetting: ${plantId}, useImage=true`);
+    // [UNUSED-2026-06-10] success-path debug logs fired per icon mount/load
+    // (console.warn in the error path below is kept)
+    // console.log(`[PlantIcon] Mounting/Resetting: ${plantId}, useImage=true`);
     setUseImage(true);
     setImageLoaded(false);
 
     // Check if image is already loaded (cached)
     if (imgRef.current?.complete && imgRef.current.naturalHeight !== 0) {
-      console.log(`[PlantIcon] Image already cached: ${imagePath}`);
+      // console.log(`[PlantIcon] Image already cached: ${imagePath}`);
       setImageLoaded(true);
     }
   }, [plantId, imagePath]);
@@ -46,7 +48,8 @@ export const PlantIcon: React.FC<PlantIconProps> = ({
   };
 
   const handleImageLoad = () => {
-    console.log(`[PlantIcon] Successfully loaded: ${imagePath}`);
+    // [UNUSED-2026-06-10] success-path debug log
+    // console.log(`[PlantIcon] Successfully loaded: ${imagePath}`);
     setImageLoaded(true);
   };
 
@@ -117,14 +120,16 @@ export const PlantIconSVG: React.FC<PlantIconSVGProps> = ({
 
   // Reset state when plantId changes
   useEffect(() => {
-    console.log(`[PlantIconSVG] Mounting/Resetting: ${plantId}, useImage=true`);
+    // [UNUSED-2026-06-10] success-path debug logs fired per grid cell, including on a
+    // 100ms timer for every icon (console.warn in the error path below is kept)
+    // console.log(`[PlantIconSVG] Mounting/Resetting: ${plantId}, useImage=true`);
     setUseImage(true);
     setImageLoaded(false);
 
     // For cached SVG images, onLoad might not fire
     // Set a timeout to assume image loaded if no error after 100ms
     const timeoutId = setTimeout(() => {
-      console.log(`[PlantIconSVG] Assuming cached image loaded: ${imagePath}`);
+      // console.log(`[PlantIconSVG] Assuming cached image loaded: ${imagePath}`);
       setImageLoaded(true);
     }, 100);
 
@@ -137,7 +142,8 @@ export const PlantIconSVG: React.FC<PlantIconSVGProps> = ({
   };
 
   const handleImageLoad = () => {
-    console.log(`[PlantIconSVG] Successfully loaded: ${imagePath}`);
+    // [UNUSED-2026-06-10] success-path debug log
+    // console.log(`[PlantIconSVG] Successfully loaded: ${imagePath}`);
     setImageLoaded(true);
   };
 

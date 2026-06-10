@@ -288,12 +288,13 @@ def get_historical_soil_temp_for_date(
     return get_historical_monthly_soil_temp(latitude, longitude, target_date.month)
 
 
-def clear_historical_cache():
-    """Clear the historical data cache (both monthly and daily)."""
-    global _historical_cache, _daily_cache, _daily_air_temp_cache
-    _historical_cache = {}
-    _daily_cache = {}
-    _daily_air_temp_cache = {}
+# [UNUSED-2026-06-10] Cache-busting helper never wired to any test or endpoint.
+# def clear_historical_cache():
+#     """Clear the historical data cache (both monthly and daily)."""
+#     global _historical_cache, _daily_cache, _daily_air_temp_cache
+#     _historical_cache = {}
+#     _daily_cache = {}
+#     _daily_air_temp_cache = {}
 
 
 # Cache for daily historical air temperatures

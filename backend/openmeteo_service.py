@@ -20,7 +20,8 @@ from retry_requests import retry
 from datetime import datetime, timedelta
 from simulation_clock import get_now
 import logging
-import math
+# [UNUSED-2026-06-10] import never used
+# import math
 import os
 import tempfile
 import numpy as np
@@ -149,7 +150,8 @@ def get_soil_temperature_forecast(latitude, longitude, forecast_days=16, depth_c
 
         # Get the start time and interval
         start_time = datetime.utcfromtimestamp(hourly.Time())
-        interval = hourly.Interval()  # seconds between data points
+        # [UNUSED-2026-06-10] assigned but never read
+        # interval = hourly.Interval()  # seconds between data points
 
         # Group hourly temps into days (24 hours each)
         daily_temps = []

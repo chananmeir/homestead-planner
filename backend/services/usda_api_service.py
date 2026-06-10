@@ -15,7 +15,9 @@ API Key Setup:
 import os
 import requests
 import sqlite3
-from typing import Dict, List, Optional
+# [UNUSED-2026-06-10] Optional unused in this module.
+# from typing import Dict, List, Optional
+from typing import Dict, List
 from datetime import datetime
 import time
 
@@ -375,16 +377,18 @@ class USDAAPIService:
         return nutritional_data
 
 
-# Convenience functions
-def search_usda_foods(query: str, page_size: int = 10) -> Dict:
-    """Search USDA database for foods"""
-    service = USDAAPIService()
-    return service.search_foods(query, page_size)
-
-
-def import_usda_food(fdc_id: int, source_id: str, yield_lbs_per_plant: float = None,
-                    yield_lbs_per_sqft: float = None, user_id: int = None) -> Dict:
-    """Import food from USDA and cache in database"""
-    service = USDAAPIService()
-    return service.import_from_usda(fdc_id, source_id, yield_lbs_per_plant,
-                                   yield_lbs_per_sqft, user_id)
+# [UNUSED-2026-06-10] Module-level convenience wrappers never imported or called;
+# nutrition_bp uses the USDAAPIService class methods directly.
+# # Convenience functions
+# def search_usda_foods(query: str, page_size: int = 10) -> Dict:
+#     """Search USDA database for foods"""
+#     service = USDAAPIService()
+#     return service.search_foods(query, page_size)
+#
+#
+# def import_usda_food(fdc_id: int, source_id: str, yield_lbs_per_plant: float = None,
+#                     yield_lbs_per_sqft: float = None, user_id: int = None) -> Dict:
+#     """Import food from USDA and cache in database"""
+#     service = USDAAPIService()
+#     return service.import_from_usda(fdc_id, source_id, yield_lbs_per_plant,
+#                                    yield_lbs_per_sqft, user_id)

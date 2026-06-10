@@ -8,120 +8,127 @@ Checks if planting conditions are appropriate based on:
 
 import logging
 from datetime import datetime, date, timedelta
-from simulation_clock import get_now, get_today, is_simulating
+# [UNUSED-2026-06-10] get_now and db imports unused in this module.
+# from simulation_clock import get_now, get_today, is_simulating
+# from models import Property, db
+from simulation_clock import get_today, is_simulating
 from plant_database import get_plant_by_id
 from soil_temperature import get_soil_temperature_with_adjustments
 from historical_soil_temp import get_historical_soil_temp_for_date, get_historical_daily_soil_temps, get_month_name
-from models import Property, db
+from models import Property
 from services.geocoding_service import geocoding_service
 
 logger = logging.getLogger(__name__)
 
 
-def get_season_from_date(date: datetime) -> str:
-    """Get season name from date (Northern Hemisphere)."""
-    month = date.month
-    if month in [3, 4, 5]:
-        return 'spring'
-    elif month in [6, 7, 8]:
-        return 'summer'
-    elif month in [9, 10, 11]:
-        return 'fall'
-    else:
-        return 'winter'
+# [UNUSED-2026-06-10] Never called anywhere; season labels were deliberately dropped
+# in favor of soil-temperature-based validation (see comment near line ~180).
+# def get_season_from_date(date: datetime) -> str:
+#     """Get season name from date (Northern Hemisphere)."""
+#     month = date.month
+#     if month in [3, 4, 5]:
+#         return 'spring'
+#     elif month in [6, 7, 8]:
+#         return 'summer'
+#     elif month in [9, 10, 11]:
+#         return 'fall'
+#     else:
+#         return 'winter'
 
 
-# Heat threshold map by plant heat_tolerance level (air temperature, °F)
-HEAT_THRESHOLDS = {
-    'low':       {'advisory': 80, 'warning': 85, 'critical': 90},
-    'medium':    {'advisory': 85, 'warning': 90, 'critical': 95},
-    'high':      {'advisory': 90, 'warning': 95, 'critical': 100},
-    'excellent': {'advisory': 95, 'warning': 100, 'critical': 105},
-}
+# [UNUSED-2026-06-10] validate_heat_conditions is never called anywhere (heat alerts are
+# implemented client-side in WeatherAlertBanner.tsx); HEAT_THRESHOLDS is only read by it.
+# # Heat threshold map by plant heat_tolerance level (air temperature, °F)
+# HEAT_THRESHOLDS = {
+#     'low':       {'advisory': 80, 'warning': 85, 'critical': 90},
+#     'medium':    {'advisory': 85, 'warning': 90, 'critical': 95},
+#     'high':      {'advisory': 90, 'warning': 95, 'critical': 100},
+#     'excellent': {'advisory': 95, 'warning': 100, 'critical': 105},
+# }
 
 
-def validate_heat_conditions(
-    plant: dict,
-    forecast_days: list,
-    heat_protection_offset: float = 0
-) -> list:
-    """
-    Validate air temperature heat conditions for a plant against forecast data.
+# def validate_heat_conditions(
+#     plant: dict,
+#     forecast_days: list,
+#     heat_protection_offset: float = 0
+# ) -> list:
+#     """
+#     Validate air temperature heat conditions for a plant against forecast data.
 
-    Args:
-        plant: Plant data dict (must have 'name', optionally 'heat_tolerance')
-        forecast_days: List of forecast dicts with 'highTemp' key
-        heat_protection_offset: Temperature reduction from shade cloth (°F)
+#     Args:
+#         plant: Plant data dict (must have 'name', optionally 'heat_tolerance')
+#         forecast_days: List of forecast dicts with 'highTemp' key
+#         heat_protection_offset: Temperature reduction from shade cloth (°F)
 
-    Returns:
-        List of warning dicts with type, message, severity
-    """
-    warnings = []
-    if not forecast_days:
-        return warnings
+#     Returns:
+#         List of warning dicts with type, message, severity
+#     """
+#     warnings = []
+#     if not forecast_days:
+#         return warnings
 
-    plant_name = plant.get('name', 'Unknown')
-    heat_tolerance = plant.get('heat_tolerance', 'medium')
-    thresholds = HEAT_THRESHOLDS.get(heat_tolerance, HEAT_THRESHOLDS['medium'])
+#     plant_name = plant.get('name', 'Unknown')
+#     heat_tolerance = plant.get('heat_tolerance', 'medium')
+#     thresholds = HEAT_THRESHOLDS.get(heat_tolerance, HEAT_THRESHOLDS['medium'])
 
-    # Find the hottest day in the forecast
-    max_high = max((day.get('highTemp', 0) for day in forecast_days), default=0)
-    if max_high == 0:
-        return warnings
+#     # Find the hottest day in the forecast
+#     max_high = max((day.get('highTemp', 0) for day in forecast_days), default=0)
+#     if max_high == 0:
+#         return warnings
 
-    # Apply shade cloth offset
-    effective_temp = max_high - heat_protection_offset
+#     # Apply shade cloth offset
+#     effective_temp = max_high - heat_protection_offset
 
-    # Check against thresholds
-    if effective_temp >= thresholds['critical']:
-        severity = 'warning'
-        warning_type = 'heat_risk'
-        if heat_protection_offset > 0:
-            warning_type = 'heat_risk_protected' if max_high >= thresholds['critical'] and effective_temp < thresholds['critical'] else 'heat_risk'
-    elif effective_temp >= thresholds['warning']:
-        severity = 'warning'
-        warning_type = 'heat_risk'
-    elif effective_temp >= thresholds['advisory']:
-        severity = 'info'
-        warning_type = 'heat_risk'
-    else:
-        # No heat risk - but check if shade cloth is what saved us
-        if max_high >= thresholds['advisory'] and effective_temp < thresholds['advisory']:
-            warnings.append({
-                'type': 'heat_risk_protected',
-                'message': f"Heat mitigated: {plant_name} ({heat_tolerance} heat tolerance) - forecast high {max_high:.0f}°F reduced to ~{effective_temp:.0f}°F with shade cloth",
-                'severity': 'info'
-            })
-        return warnings
+#     # Check against thresholds
+#     if effective_temp >= thresholds['critical']:
+#         severity = 'warning'
+#         warning_type = 'heat_risk'
+#         if heat_protection_offset > 0:
+#             warning_type = 'heat_risk_protected' if max_high >= thresholds['critical'] and effective_temp < thresholds['critical'] else 'heat_risk'
+#     elif effective_temp >= thresholds['warning']:
+#         severity = 'warning'
+#         warning_type = 'heat_risk'
+#     elif effective_temp >= thresholds['advisory']:
+#         severity = 'info'
+#         warning_type = 'heat_risk'
+#     else:
+#         # No heat risk - but check if shade cloth is what saved us
+#         if max_high >= thresholds['advisory'] and effective_temp < thresholds['advisory']:
+#             warnings.append({
+#                 'type': 'heat_risk_protected',
+#                 'message': f"Heat mitigated: {plant_name} ({heat_tolerance} heat tolerance) - forecast high {max_high:.0f}°F reduced to ~{effective_temp:.0f}°F with shade cloth",
+#                 'severity': 'info'
+#             })
+#         return warnings
 
-    # Determine if shade cloth is providing meaningful protection
-    if heat_protection_offset > 0 and max_high >= thresholds['advisory'] and effective_temp < thresholds['warning']:
-        # Shade cloth brought it below warning level
-        warnings.append({
-            'type': 'heat_risk_protected',
-            'message': f"Heat partially mitigated: {plant_name} ({heat_tolerance} heat tolerance) - forecast high {max_high:.0f}°F reduced to ~{effective_temp:.0f}°F with shade cloth. Monitor closely.",
-            'severity': 'info'
-        })
-    else:
-        # Build message based on severity
-        if severity == 'warning':
-            temp_str = f"{effective_temp:.0f}°F" if heat_protection_offset > 0 else f"{max_high:.0f}°F"
-            shade_note = f" (with shade cloth: {max_high:.0f}°F reduced to ~{effective_temp:.0f}°F)" if heat_protection_offset > 0 else ""
-            tips = "Provide shade cloth, deep watering, and mulch."
-            warnings.append({
-                'type': warning_type,
-                'message': f"Heat stress risk: {plant_name} ({heat_tolerance} heat tolerance) may struggle at {temp_str}{shade_note}. {tips}",
-                'severity': severity
-            })
-        else:
-            # Advisory level
-            warnings.append({
-                'type': warning_type,
-                'message': f"Heat advisory: {plant_name} ({heat_tolerance} heat tolerance) - forecast high {max_high:.0f}°F approaching stress threshold ({thresholds['warning']}°F). Consider shade protection.",
-                'severity': severity
-            })
+#     # Determine if shade cloth is providing meaningful protection
+#     if heat_protection_offset > 0 and max_high >= thresholds['advisory'] and effective_temp < thresholds['warning']:
+#         # Shade cloth brought it below warning level
+#         warnings.append({
+#             'type': 'heat_risk_protected',
+#             'message': f"Heat partially mitigated: {plant_name} ({heat_tolerance} heat tolerance) - forecast high {max_high:.0f}°F reduced to ~{effective_temp:.0f}°F with shade cloth. Monitor closely.",
+#             'severity': 'info'
+#         })
+#     else:
+#         # Build message based on severity
+#         if severity == 'warning':
+#             temp_str = f"{effective_temp:.0f}°F" if heat_protection_offset > 0 else f"{max_high:.0f}°F"
+#             shade_note = f" (with shade cloth: {max_high:.0f}°F reduced to ~{effective_temp:.0f}°F)" if heat_protection_offset > 0 else ""
+#             tips = "Provide shade cloth, deep watering, and mulch."
+#             warnings.append({
+#                 'type': warning_type,
+#                 'message': f"Heat stress risk: {plant_name} ({heat_tolerance} heat tolerance) may struggle at {temp_str}{shade_note}. {tips}",
+#                 'severity': severity
+#             })
+#         else:
+#             # Advisory level
+#             warnings.append({
+#                 'type': warning_type,
+#                 'message': f"Heat advisory: {plant_name} ({heat_tolerance} heat tolerance) - forecast high {max_high:.0f}°F approaching stress threshold ({thresholds['warning']}°F). Consider shade protection.",
+#                 'severity': severity
+#             })
 
-    return warnings
+#     return warnings
 
 
 def get_frost_tolerance_label(tolerance: str) -> str:
@@ -472,8 +479,9 @@ def calculate_optimal_planting_dates(
     optimal_start = None
     optimal_end = None
     earliest_safe = None
-    optimal_start_date = None
-    optimal_end_date = None
+    # [UNUSED-2026-06-10] only written, never read (their assignments below are also commented)
+    # optimal_start_date = None
+    # optimal_end_date = None
 
     # Search forward from current date
     search_date = current_date if isinstance(current_date, date) else current_date.date()
@@ -498,12 +506,14 @@ def calculate_optimal_planting_dates(
         if avg_temp >= soil_temp_min + OPTIMAL_OFFSET:
             if optimal_start is None:
                 optimal_start = check_date.strftime('%Y-%m-%d')
-                optimal_start_date = check_date
+                # [UNUSED-2026-06-10] assigned but never read
+                # optimal_start_date = check_date
 
         # Track end of optimal window
         if optimal_start and avg_temp >= soil_temp_min + OPTIMAL_OFFSET and avg_temp <= soil_temp_min + MAX_TEMP_OFFSET:
             optimal_end = check_date.strftime('%Y-%m-%d')
-            optimal_end_date = check_date
+            # [UNUSED-2026-06-10] assigned but never read
+            # optimal_end_date = check_date
         elif optimal_start and avg_temp > soil_temp_min + MAX_TEMP_OFFSET:
             # Too hot, stop searching
             break
@@ -519,7 +529,8 @@ def calculate_optimal_planting_dates(
 
         if optimal_start and optimal_start < frost_date_str:
             optimal_start = frost_date_str
-            optimal_start_date = last_frost_date if isinstance(last_frost_date, date) else last_frost_date
+            # [UNUSED-2026-06-10] assigned but never read
+            # optimal_start_date = last_frost_date if isinstance(last_frost_date, date) else last_frost_date
             frost_clamped = True
 
     # Format optimal range string
@@ -844,10 +855,11 @@ def validate_planting_for_property(
     # This shows users the best planting times even if current date is "acceptable"
     suggestion = None
 
-    has_cold_warning = any(
-        w.get('type') in ['soil_temp_marginal', 'soil_temp_low']
-        for w in warnings
-    )
+    # [UNUSED-2026-06-10] assigned but never read (has_hot_warning below IS used)
+    # has_cold_warning = any(
+    #     w.get('type') in ['soil_temp_marginal', 'soil_temp_low']
+    #     for w in warnings
+    # )
     has_hot_warning = any(
         w.get('type') == 'soil_temp_high'
         for w in warnings
@@ -859,8 +871,9 @@ def validate_planting_for_property(
         plant = get_plant_by_id(plant_id)
         if plant:
             plant_name = plant.get('name', plant_id)
-            heat_tolerance = plant.get('heat_tolerance', 'medium')
-            is_cool_weather_crop = heat_tolerance == 'low'
+            # [UNUSED-2026-06-10] both assigned but never read
+            # heat_tolerance = plant.get('heat_tolerance', 'medium')
+            # is_cool_weather_crop = heat_tolerance == 'low'
 
             # Get soil temp requirement based on planting method
             # Note: Frontend may send 'direct' or 'seed' for direct seeding
@@ -910,137 +923,140 @@ def validate_planting_for_property(
     }
 
 
-def suggest_optimal_date_range(
-    plant_id: str,
-    start_date: datetime,
-    latitude: float = None,
-    longitude: float = None,
-    last_frost_date: datetime = None,
-    first_frost_date: datetime = None,
-    soil_type: str = 'loamy',
-    sun_exposure: str = 'full',
-    protection_offset: int = 0,
-    planting_method: str = 'seed',
-    max_days_ahead: int = 120
-) -> dict:
-    """
-    Suggest optimal planting date range based on plant requirements.
+# [UNUSED-2026-06-10] Never called anywhere (only mentioned in dev/ task notes).
+# Superseded: validate_planting_for_property builds suggestions via
+# calculate_optimal_planting_dates / calculate_cooler_planting_dates instead.
+# def suggest_optimal_date_range(
+#     plant_id: str,
+#     start_date: datetime,
+#     latitude: float = None,
+#     longitude: float = None,
+#     last_frost_date: datetime = None,
+#     first_frost_date: datetime = None,
+#     soil_type: str = 'loamy',
+#     sun_exposure: str = 'full',
+#     protection_offset: int = 0,
+#     planting_method: str = 'seed',
+#     max_days_ahead: int = 120
+# ) -> dict:
+#     """
+#     Suggest optimal planting date range based on plant requirements.
 
-    Args:
-        plant_id: ID of the plant to validate
-        start_date: Date to start searching from (typically current planting date with warnings)
-        latitude: Property latitude for weather data
-        longitude: Property longitude for weather data
-        last_frost_date: Last spring frost date
-        first_frost_date: First fall frost date
-        soil_type: Property soil type for temperature adjustments
-        sun_exposure: Garden bed sun exposure
-        protection_offset: Temperature offset from season extension (°F)
-        planting_method: 'seed' for direct seeding, 'transplant' for transplants
-        max_days_ahead: How many days into the future to search (default 120)
+#     Args:
+#         plant_id: ID of the plant to validate
+#         start_date: Date to start searching from (typically current planting date with warnings)
+#         latitude: Property latitude for weather data
+#         longitude: Property longitude for weather data
+#         last_frost_date: Last spring frost date
+#         first_frost_date: First fall frost date
+#         soil_type: Property soil type for temperature adjustments
+#         sun_exposure: Garden bed sun exposure
+#         protection_offset: Temperature offset from season extension (°F)
+#         planting_method: 'seed' for direct seeding, 'transplant' for transplants
+#         max_days_ahead: How many days into the future to search (default 120)
 
-    Returns:
-        Dictionary with:
-        - earliest_safe_date: First date with no warnings (or None)
-        - optimal_range: String describing optimal planting window (or None)
-        - reason: Explanation of suggestion
-    """
-    from datetime import timedelta
+#     Returns:
+#         Dictionary with:
+#         - earliest_safe_date: First date with no warnings (or None)
+#         - optimal_range: String describing optimal planting window (or None)
+#         - reason: Explanation of suggestion
+#     """
+#     from datetime import timedelta
 
-    # Get plant data
-    plant = get_plant_by_id(plant_id)
-    if not plant:
-        return {
-            'earliest_safe_date': None,
-            'optimal_range': None,
-            'reason': 'Plant not found'
-        }
+#     # Get plant data
+#     plant = get_plant_by_id(plant_id)
+#     if not plant:
+#         return {
+#             'earliest_safe_date': None,
+#             'optimal_range': None,
+#             'reason': 'Plant not found'
+#         }
 
-    plant_name = plant.get('name', plant_id)
+#     plant_name = plant.get('name', plant_id)
 
-    # Get required soil temperature
-    if planting_method == 'seed':
-        soil_temp_min = plant.get('soil_temp_min') or plant.get('germinationTemp', {}).get('min')
-    else:
-        plant_min = plant.get('soil_temp_min') or plant.get('germinationTemp', {}).get('min')
-        soil_temp_min = max(40, plant_min * 0.8) if plant_min else 40
+#     # Get required soil temperature
+#     if planting_method == 'seed':
+#         soil_temp_min = plant.get('soil_temp_min') or plant.get('germinationTemp', {}).get('min')
+#     else:
+#         plant_min = plant.get('soil_temp_min') or plant.get('germinationTemp', {}).get('min')
+#         soil_temp_min = max(40, plant_min * 0.8) if plant_min else 40
 
-    # Check if plant is frost-tender
-    frost_tolerance = plant.get('frostTolerance', 'half-hardy')
-    is_tender = frost_tolerance in ['very-tender', 'tender']
+#     # Check if plant is frost-tender
+#     frost_tolerance = plant.get('frostTolerance', 'half-hardy')
+#     is_tender = frost_tolerance in ['very-tender', 'tender']
 
-    # Search for earliest safe date
-    earliest_safe_date = None
-    optimal_start = None
-    optimal_end = None
-    reason_parts = []
+#     # Search for earliest safe date
+#     earliest_safe_date = None
+#     optimal_start = None
+#     optimal_end = None
+#     reason_parts = []
 
-    # Iterate through future dates to find when conditions are suitable
-    for days_ahead in range(max_days_ahead):
-        check_date = start_date + timedelta(days=days_ahead)
+#     # Iterate through future dates to find when conditions are suitable
+#     for days_ahead in range(max_days_ahead):
+#         check_date = start_date + timedelta(days=days_ahead)
 
-        # Validate this date
-        warnings = validate_planting_conditions(
-            plant_id=plant_id,
-            planting_date=check_date,
-            latitude=latitude,
-            longitude=longitude,
-            last_frost_date=last_frost_date,
-            first_frost_date=first_frost_date,
-            soil_type=soil_type,
-            sun_exposure=sun_exposure,
-            protection_offset=protection_offset,
-            planting_method=planting_method
-        )
+#         # Validate this date
+#         warnings = validate_planting_conditions(
+#             plant_id=plant_id,
+#             planting_date=check_date,
+#             latitude=latitude,
+#             longitude=longitude,
+#             last_frost_date=last_frost_date,
+#             first_frost_date=first_frost_date,
+#             soil_type=soil_type,
+#             sun_exposure=sun_exposure,
+#             protection_offset=protection_offset,
+#             planting_method=planting_method
+#         )
 
-        # Filter to only blocking warnings (severity == 'warning')
-        blocking_warnings = [w for w in warnings if w.get('severity') == 'warning']
+#         # Filter to only blocking warnings (severity == 'warning')
+#         blocking_warnings = [w for w in warnings if w.get('severity') == 'warning']
 
-        # Found a safe date!
-        if not blocking_warnings and earliest_safe_date is None:
-            earliest_safe_date = check_date
-            optimal_start = check_date
+#         # Found a safe date!
+#         if not blocking_warnings and earliest_safe_date is None:
+#             earliest_safe_date = check_date
+#             optimal_start = check_date
 
-            # Define optimal range as ~2-3 weeks from earliest safe date
-            optimal_end = check_date + timedelta(days=21)
+#             # Define optimal range as ~2-3 weeks from earliest safe date
+#             optimal_end = check_date + timedelta(days=21)
 
-            # Build reason based on what was blocking before
-            if soil_temp_min and latitude and longitude:
-                reason_parts.append(f"soil reaches {soil_temp_min}°F")
-            if is_tender and last_frost_date:
-                if check_date.month >= last_frost_date.month and check_date.day >= last_frost_date.day:
-                    reason_parts.append(f"after last frost ({last_frost_date.strftime('%B %d')})")
+#             # Build reason based on what was blocking before
+#             if soil_temp_min and latitude and longitude:
+#                 reason_parts.append(f"soil reaches {soil_temp_min}°F")
+#             if is_tender and last_frost_date:
+#                 if check_date.month >= last_frost_date.month and check_date.day >= last_frost_date.day:
+#                     reason_parts.append(f"after last frost ({last_frost_date.strftime('%B %d')})")
 
-            break
+#             break
 
-    # Format result
-    if earliest_safe_date:
-        reason = f"{plant_name} can typically be planted when " + " and ".join(reason_parts) if reason_parts else f"{plant_name} conditions are suitable"
+#     # Format result
+#     if earliest_safe_date:
+#         reason = f"{plant_name} can typically be planted when " + " and ".join(reason_parts) if reason_parts else f"{plant_name} conditions are suitable"
 
-        # Format optimal range string
-        if optimal_start.year == optimal_end.year and optimal_start.month == optimal_end.month:
-            # Same month
-            optimal_range = f"{optimal_start.strftime('%B %d')}-{optimal_end.strftime('%d, %Y')}"
-        elif optimal_start.year == optimal_end.year:
-            # Same year, different month
-            optimal_range = f"{optimal_start.strftime('%B %d')} - {optimal_end.strftime('%B %d, %Y')}"
-        else:
-            # Different years
-            optimal_range = f"{optimal_start.strftime('%B %d, %Y')} - {optimal_end.strftime('%B %d, %Y')}"
+#         # Format optimal range string
+#         if optimal_start.year == optimal_end.year and optimal_start.month == optimal_end.month:
+#             # Same month
+#             optimal_range = f"{optimal_start.strftime('%B %d')}-{optimal_end.strftime('%d, %Y')}"
+#         elif optimal_start.year == optimal_end.year:
+#             # Same year, different month
+#             optimal_range = f"{optimal_start.strftime('%B %d')} - {optimal_end.strftime('%B %d, %Y')}"
+#         else:
+#             # Different years
+#             optimal_range = f"{optimal_start.strftime('%B %d, %Y')} - {optimal_end.strftime('%B %d, %Y')}"
 
-        return {
-            'earliest_safe_date': earliest_safe_date.strftime('%Y-%m-%d'),
-            'optimal_range': optimal_range,
-            'reason': reason
-        }
-    else:
-        # No safe date found in search window
-        reason = f"No suitable planting window found within {max_days_ahead} days"
-        if not latitude or not longitude:
-            reason += " (location data needed for accurate suggestions)"
+#         return {
+#             'earliest_safe_date': earliest_safe_date.strftime('%Y-%m-%d'),
+#             'optimal_range': optimal_range,
+#             'reason': reason
+#         }
+#     else:
+#         # No safe date found in search window
+#         reason = f"No suitable planting window found within {max_days_ahead} days"
+#         if not latitude or not longitude:
+#             reason += " (location data needed for accurate suggestions)"
 
-        return {
-            'earliest_safe_date': None,
-            'optimal_range': None,
-            'reason': reason
-        }
+#         return {
+#             'earliest_safe_date': None,
+#             'optimal_range': None,
+#             'reason': reason
+#         }

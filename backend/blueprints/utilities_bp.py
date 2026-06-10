@@ -25,7 +25,10 @@ Routes:
 from flask import Blueprint, request, jsonify, send_file
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta, date
-from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, Property, PlacedStructure, Settings, SeedInventory, GardenPlan, GardenPlanItem
+# [UNUSED-2026-06-10] Settings import unused (Settings fallback was removed; see
+# comments near the soil-temperature routes).
+# from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, Property, PlacedStructure, Settings, SeedInventory, GardenPlan, GardenPlanItem
+from models import db, GardenBed, PlantedItem, PlantingEvent, IndoorSeedStart, Property, PlacedStructure, SeedInventory, GardenPlan, GardenPlanItem
 from plant_database import get_plant_by_id, PLANT_DATABASE
 from garden_methods import (
     get_sfg_quantity,
@@ -35,8 +38,9 @@ from garden_methods import (
     calculate_plants_per_bed
 )
 from soil_temperature import (
-    get_soil_temperature_with_adjustments,
-    get_soil_temperature_forecast_with_adjustments,
+    # [UNUSED-2026-06-10] only the *_all_depths_* variants are called in this module
+    # get_soil_temperature_with_adjustments,
+    # get_soil_temperature_forecast_with_adjustments,
     get_soil_temperatures_all_depths_with_adjustments,
     get_soil_temperature_forecast_all_depths_with_adjustments,
     calculate_crop_readiness,
@@ -1740,7 +1744,8 @@ def create_indoor_start_from_planting_event():
         #     can still fall through to GardenPlanItem-based inference.
         # -------------------------------------------------------------------
         destination_bed_ids_json = None  # will be written to seed_start.destination_bed_ids
-        explicit_bed_id_list = None      # None = not provided; [] = provided-but-empty
+        # [UNUSED-2026-06-10] written twice (here and below), never read
+        # explicit_bed_id_list = None      # None = not provided; [] = provided-but-empty
 
         if 'destinationBedIds' in data and data['destinationBedIds'] is not None:
             raw = data['destinationBedIds']
@@ -1760,7 +1765,8 @@ def create_indoor_start_from_planting_event():
                         'error': 'destinationBedIds must contain only positive integer bed IDs'
                     }), 400
                 bed_id_list.append(int(bid))
-            explicit_bed_id_list = bed_id_list
+            # [UNUSED-2026-06-10] assigned but never read
+            # explicit_bed_id_list = bed_id_list
             if bed_id_list:
                 # Verify every bed belongs to the current user (prevents cross-user leakage)
                 owned_count = GardenBed.query.filter(
@@ -1939,31 +1945,34 @@ def create_indoor_start_from_planting_event():
 
 # ==================== PLANTING VALIDATION ROUTES ====================
 
-def calculate_heat_protection_offset(season_ext: dict) -> tuple:
-    """
-    Calculate temperature reduction from shade cloth on a garden bed.
-
-    Shade cloth reduces effective air temperature:
-        effective_temp = air_temp - (shade_factor * 0.2)
-        30% → ~6°F, 50% → ~10°F, 70% → ~14°F
-
-    Args:
-        season_ext: Parsed season extension JSON dict
-
-    Returns:
-        Tuple of (offset_degrees, human_readable_label or None)
-    """
-    shade_cloth = season_ext.get('shadeCloth')
-    if not shade_cloth or not shade_cloth.get('installed'):
-        return 0, None
-
-    shade_factor = shade_cloth.get('shadeFactor', 0)
-    if shade_factor <= 0:
-        return 0, None
-
-    offset = shade_factor * 0.2
-    label = f"{shade_factor}% Shade Cloth"
-    return round(offset), label
+# [UNUSED-2026-06-10] Never called anywhere. Presumably meant to feed
+# season_validator's heat_protection_offset parameter, but no caller passes it.
+# (Sibling calculate_protection_offset for cold protection IS used in this file.)
+# def calculate_heat_protection_offset(season_ext: dict) -> tuple:
+#     """
+#     Calculate temperature reduction from shade cloth on a garden bed.
+#
+#     Shade cloth reduces effective air temperature:
+#         effective_temp = air_temp - (shade_factor * 0.2)
+#         30% → ~6°F, 50% → ~10°F, 70% → ~14°F
+#
+#     Args:
+#         season_ext: Parsed season extension JSON dict
+#
+#     Returns:
+#         Tuple of (offset_degrees, human_readable_label or None)
+#     """
+#     shade_cloth = season_ext.get('shadeCloth')
+#     if not shade_cloth or not shade_cloth.get('installed'):
+#         return 0, None
+#
+#     shade_factor = shade_cloth.get('shadeFactor', 0)
+#     if shade_factor <= 0:
+#         return 0, None
+#
+#     offset = shade_factor * 0.2
+#     label = f"{shade_factor}% Shade Cloth"
+#     return round(offset), label
 
 
 def calculate_protection_offset(protection_type: str, inner_type: str = None) -> tuple:

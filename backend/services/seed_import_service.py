@@ -24,16 +24,18 @@ from models import SeedInventory
 
 logger = logging.getLogger(__name__)
 
-# Column names expected in the CSV header (must match export format)
-EXPECTED_COLUMNS = [
-    'Plant', 'Variety', 'Brand', 'Quantity', 'Location',
-    'Purchase Date', 'Expiration Date', 'Germination Rate (%)', 'Price',
-    'Days to Maturity', 'Germination Days',
-    'Germination Temp Min (°F)', 'Germination Temp Max (°F)', 'Soil Temp Min (°F)',
-    'Plant Spacing (in)', 'Row Spacing (in)', 'Planting Depth (in)',
-    'Heat Tolerance', 'Cold Tolerance', 'Bolt Resistance',
-    'Ideal Seasons', 'Flavor Profile', 'Storage Rating', 'Notes'
-]
+# [UNUSED-2026-06-10] Never read by the implementation: parse_seed_inventory_csv
+# validates headers via 'Plant'/'Variety' membership and HEADER_ALIASES instead.
+# # Column names expected in the CSV header (must match export format)
+# EXPECTED_COLUMNS = [
+#     'Plant', 'Variety', 'Brand', 'Quantity', 'Location',
+#     'Purchase Date', 'Expiration Date', 'Germination Rate (%)', 'Price',
+#     'Days to Maturity', 'Germination Days',
+#     'Germination Temp Min (°F)', 'Germination Temp Max (°F)', 'Soil Temp Min (°F)',
+#     'Plant Spacing (in)', 'Row Spacing (in)', 'Planting Depth (in)',
+#     'Heat Tolerance', 'Cold Tolerance', 'Bolt Resistance',
+#     'Ideal Seasons', 'Flavor Profile', 'Storage Rating', 'Notes'
+# ]
 
 # Also accept headers without the degree symbol (hand-typed CSVs)
 HEADER_ALIASES = {

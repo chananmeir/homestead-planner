@@ -7,7 +7,9 @@ Read paths remain defensive (try-except + .get() defaults) and are unchanged.
 Pattern matches trellis_validation.py — pure functions, no database access.
 """
 import logging
-from typing import Dict, List, Optional, Tuple
+# [UNUSED-2026-06-10] Dict unused in this module.
+# from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

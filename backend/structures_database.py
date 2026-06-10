@@ -1036,10 +1036,12 @@ def get_structure_by_id(structure_id):
             return structure
     return None
 
-def get_structures_by_category(category):
-    """Get all structures in a category"""
-    return [s for s in STRUCTURES_DATABASE if s['category'] == category]
-
-def get_all_categories():
-    """Get all structure categories"""
-    return STRUCTURE_CATEGORIES
+# [UNUSED-2026-06-10] Never called anywhere; consumers import STRUCTURES_DATABASE,
+# STRUCTURE_CATEGORIES, and get_structure_by_id directly.
+# def get_structures_by_category(category):
+#     """Get all structures in a category"""
+#     return [s for s in STRUCTURES_DATABASE if s['category'] == category]
+#
+# def get_all_categories():
+#     """Get all structure categories"""
+#     return STRUCTURE_CATEGORIES

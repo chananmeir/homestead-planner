@@ -52,9 +52,11 @@ def resolve_alias(plant_id: str) -> str:
     return PLANT_ID_ALIASES.get(plant_id, plant_id)
 
 
-def is_deprecated_plant_id(plant_id: str) -> bool:
-    """Check if a plant ID is deprecated (has an alias)."""
-    return plant_id in PLANT_ID_ALIASES
+# [UNUSED-2026-06-10] Never called; its only "reference" was an unused import in
+# seeds_bp.py (commented out in the same audit).
+# def is_deprecated_plant_id(plant_id: str) -> bool:
+#     """Check if a plant ID is deprecated (has an alias)."""
+#     return plant_id in PLANT_ID_ALIASES
 
 
 def validate_plant_id(plant_id: str) -> bool:
@@ -101,11 +103,12 @@ def validate_and_resolve_plant_id(plant_id: str) -> tuple:
     return (False, None, f"Invalid plant_id: '{plant_id}' not found in plant database")
 
 
-def get_all_valid_plant_ids() -> set:
-    """Get all valid canonical plant IDs."""
-    return _get_valid_plant_ids().copy()
-
-
-def get_aliases_for_canonical_id(canonical_id: str) -> list:
-    """Get all deprecated IDs that map to a canonical ID."""
-    return [old_id for old_id, new_id in PLANT_ID_ALIASES.items() if new_id == canonical_id]
+# [UNUSED-2026-06-10] Public-style helpers that no code, test, or migration ever adopted.
+# def get_all_valid_plant_ids() -> set:
+#     """Get all valid canonical plant IDs."""
+#     return _get_valid_plant_ids().copy()
+#
+#
+# def get_aliases_for_canonical_id(canonical_id: str) -> list:
+#     """Get all deprecated IDs that map to a canonical ID."""
+#     return [old_id for old_id, new_id in PLANT_ID_ALIASES.items() if new_id == canonical_id]

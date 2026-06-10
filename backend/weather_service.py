@@ -9,7 +9,9 @@ Open-Meteo is free, requires no API key, and provides up to 16 days forecast.
 import os
 import logging
 import requests
-from datetime import datetime, timedelta, date
+# [UNUSED-2026-06-10] 'date' unused in this module.
+# from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from simulation_clock import get_today
 from typing import Optional, Tuple
 import random
@@ -162,14 +164,15 @@ def get_current_temperature(lat: Optional[float] = None,
         return 65.0, True
 
 
-def clear_cache():
-    """
-    Clear the weather cache.
-    Useful for testing or forcing fresh API calls.
-    """
-    _weather_cache['temperature'] = None
-    _weather_cache['location'] = None
-    _weather_cache['timestamp'] = None
+# [UNUSED-2026-06-10] Never called anywhere (no test or endpoint uses it).
+# def clear_cache():
+#     """
+#     Clear the weather cache.
+#     Useful for testing or forcing fresh API calls.
+#     """
+#     _weather_cache['temperature'] = None
+#     _weather_cache['location'] = None
+#     _weather_cache['timestamp'] = None
 
 
 def get_current_weather(lat: Optional[float] = None,

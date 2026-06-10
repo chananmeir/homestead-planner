@@ -105,7 +105,9 @@ describe('HarvestPlantModal', () => {
     });
 
     test('blocks submit when harvest date is empty', async () => {
-      const { props } = renderModal();
+      // [UNUSED-2026-06-10] destructured `props` never used in this test
+      // const { props } = renderModal();
+      renderModal();
       fireEvent.change(screen.getByLabelText('Harvest Date'), { target: { value: '' } });
       fireEvent.click(screen.getByTestId('harvest-plant-submit'));
       expect(await screen.findByText(/Harvest date is required/)).toBeInTheDocument();

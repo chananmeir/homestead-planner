@@ -10,7 +10,9 @@ Uses full_app/auth_client fixtures from conftest.py for HTTP-level tests.
 from datetime import date, datetime, timedelta
 
 import pytest
-from models import db, PlantingEvent, PlantedItem, GardenBed, IndoorSeedStart
+# [UNUSED-2026-06-10] db unused.
+# from models import db, PlantingEvent, PlantedItem, GardenBed, IndoorSeedStart
+from models import PlantingEvent, PlantedItem, GardenBed, IndoorSeedStart
 from simulation_clock import set_simulated_date
 
 
