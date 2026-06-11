@@ -511,13 +511,16 @@ def api_export_to_calendar(plan_id):
     try:
         body = request.get_json(silent=True) or {}
         conflict_override = body.get('conflictOverride', False)
+        create_indoor_starts = bool(body.get('createIndoorStarts', False))
 
         if not conflict_override:
             conflict_result = preview_export_conflicts(plan_id, current_user.id)
             if conflict_result.get('hasConflicts'):
                 return jsonify(conflict_result), 409
 
-        result = export_to_calendar(plan_id, current_user.id)
+        result = export_to_calendar(
+            plan_id, current_user.id, create_indoor_starts=create_indoor_starts
+        )
         return jsonify(result), 200
 
     except Exception as e:

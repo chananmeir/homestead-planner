@@ -47,6 +47,11 @@ from services.geocoding_service import (
     ZIP_STATUS_INVALID_INPUT,
 )
 from conflict_checker import validate_planting_conflict
+from services.indoor_start_service import (
+    calculate_seed_quantity,
+    create_indoor_start,
+    predict_germination_days as _get_predicted_germination_days,
+)
 from season_validator import validate_planting_for_property
 from forward_planting_validator import validate_planting_date, check_future_cold_danger
 from simulation_clock import get_now, get_utc_now
@@ -62,22 +67,9 @@ logger = logging.getLogger(__name__)
 utilities_bp = Blueprint('utilities', __name__, url_prefix='/api')
 
 
-def _get_predicted_germination_days(user_id, plant_id, location=None):
-    """Return avg actual germination days from user history, or plant DB default."""
-    query = IndoorSeedStart.query.filter(
-        IndoorSeedStart.user_id == user_id,
-        IndoorSeedStart.plant_id == plant_id,
-        IndoorSeedStart.actual_germination_date.isnot(None),
-        IndoorSeedStart.start_date.isnot(None)
-    )
-    if location:
-        query = query.filter(IndoorSeedStart.location == location)
-    records = query.all()
-    actual_days = [r.actual_germination_days for r in records if r.actual_germination_days is not None]
-    if actual_days:
-        return round(sum(actual_days) / len(actual_days))
-    plant = get_plant_by_id(plant_id)
-    return plant.get('germination_days', 7) if plant else 7
+# _get_predicted_germination_days and calculate_seed_quantity moved to
+# services/indoor_start_service.py (imported above) so the export auto-create
+# path shares the exact same logic as this blueprint.
 
 
 def _get_or_create_current_year_plan(user_id):
@@ -475,28 +467,8 @@ def get_mulch_type_on_date(garden_bed_id, user_id, query_date):
     return 'none'
 
 
-def calculate_seed_quantity(desired_plants: int, germination_rate: float) -> int:
-    """
-    Calculate how many seeds to start accounting for germination failure.
-    Adds safety buffer of 15% beyond germination rate.
-
-    Example: Want 10 plants, 80% germination
-    - Minimum: 10 / 0.80 = 12.5 → 13 seeds
-    - With buffer: 13 * 1.15 = 14.95 → 15 seeds
-    """
-    if germination_rate <= 0 or germination_rate > 100:
-        germination_rate = 85.0  # Default fallback
-
-    # Convert percentage to decimal
-    rate = germination_rate / 100.0
-
-    # Calculate minimum needed
-    minimum_seeds = math.ceil(desired_plants / rate)
-
-    # Add 15% safety buffer
-    with_buffer = minimum_seeds * 1.15
-
-    return math.ceil(with_buffer)
+# calculate_seed_quantity moved to services/indoor_start_service.py
+# (imported at the top of this module — call sites unchanged).
 
 
 # ==================== SPACING CALCULATOR ====================
@@ -1735,137 +1707,57 @@ def create_indoor_start_from_planting_event():
             }), 400
         dry_run = bool(data.get('dryRun', False))
 
-        # Parse transplant date and calculate indoor start date
-        transplant_date = parse_iso_date(data['transplantDate'])
-        computed_start_date = transplant_date - timedelta(weeks=weeks_indoors)
-
-        today_dt = get_utc_now()
-        is_past_due = computed_start_date.date() < today_dt.date()
-
-        # Resolve start date based on overdue mode.
-        # rescheduled=True means we clamped a past-due row forward to today.
-        rescheduled = False
-        skipped_reason = None
-        if is_past_due and overdue_mode == 'skip':
-            skipped_reason = (
-                f'Start date {computed_start_date.date().isoformat()} is '
-                f'{(today_dt.date() - computed_start_date.date()).days} days in the past '
-                f'— skipped (overdueMode=skip).'
-            )
-            indoor_start_date = computed_start_date  # preserve for preview payload
-        elif is_past_due and overdue_mode == 'reschedule_today':
-            # Clamp to today (preserve time-of-day so downstream math stays
-            # consistent with a normal get_utc_now() start).
-            indoor_start_date = datetime.combine(
-                today_dt.date(),
-                computed_start_date.time()
-            )
-            rescheduled = True
-        else:
-            # Not past-due, OR import_anyway: use the computed start date as-is.
-            indoor_start_date = computed_start_date
-
-        warning_message = None
-        if is_past_due and overdue_mode == 'import_anyway':
-            warning_message = (
-                f'Note: Indoor start date ({indoor_start_date.date()}) is in the past. '
-                f'You may be starting late.'
-            )
-
-        # Calculate expected dates. When rescheduled, germination/transplant
-        # slide forward too so the downstream dates stay coherent.
-        germination_days = _get_predicted_germination_days(
-            current_user.id, seed_start_plant_id, data.get('location')
+        # Creation core (date math, overdue handling, event sync) is shared
+        # with export auto-create — see services/indoor_start_service.py.
+        result = create_indoor_start(
+            current_user.id,
+            plant=plant,
+            plant_id=seed_start_plant_id,
+            variety=seed_start_variety,
+            transplant_date=parse_iso_date(data['transplantDate']),
+            desired_quantity=data.get('desiredQuantity', 1),
+            expected_rate=data.get('expectedGerminationRate', 85.0),
+            overdue_mode=overdue_mode,
+            location=data.get('location'),
+            light_hours=data.get('lightHours', 12),
+            temperature=data.get('temperature', 70),
+            notes=data.get('notes'),
+            seed_inventory_id=data.get('seedInventoryId'),
+            destination_bed_ids_json=destination_bed_ids_json,
+            linked_event=linked_event,
+            dry_run=dry_run,
         )
-        expected_germination_date = indoor_start_date + timedelta(days=germination_days)
-        expected_transplant_date = indoor_start_date + timedelta(weeks=weeks_indoors)
 
-        # Calculate quantity to start (accounting for germination rate)
-        desired_plants = data.get('desiredQuantity', 1)
-        expected_rate = data.get('expectedGerminationRate', 85.0)
-        seeds_to_start = calculate_seed_quantity(desired_plants, expected_rate)
-
-        # Shared calculation payload — surfaced in both dry-run and real responses
-        # so the modal can show a consistent preview-vs-write comparison.
-        calculation_payload = {
-            'transplantDate': transplant_date.isoformat(),
-            'weeksIndoors': weeks_indoors,
-            'computedStartDate': computed_start_date.isoformat(),
-            'indoorStartDate': indoor_start_date.isoformat(),
-            'expectedGerminationDate': expected_germination_date.isoformat(),
-            'expectedTransplantDate': expected_transplant_date.isoformat(),
-            'isPastDue': is_past_due,
-            'overdueMode': overdue_mode,
-            'rescheduled': rescheduled,
-        }
-
-        # -------------------------------------------------------------------
-        # Dry-run: return preview WITHOUT persisting anything. Includes whether
-        # the row would be skipped under the current overdueMode so the UI can
+        # Dry-run: preview WITHOUT persisting anything. Includes whether the
+        # row would be skipped under the current overdueMode so the UI can
         # show the correct count before asking the user to confirm.
-        # -------------------------------------------------------------------
         if dry_run:
-            preview = {
+            return jsonify({
                 'dryRun': True,
-                'wouldSkip': skipped_reason is not None,
-                'skippedReason': skipped_reason,
-                'calculation': calculation_payload,
-            }
-            return jsonify(preview), 200
+                'wouldSkip': result['skipped_reason'] is not None,
+                'skippedReason': result['skipped_reason'],
+                'calculation': result['calculation'],
+            }), 200
 
-        # -------------------------------------------------------------------
         # Non-dry-run skip path: past-due + overdueMode='skip' → do not create.
         # Response is a 200 so the frontend can tally skipped vs created in a
         # single pass without error-handling gymnastics.
-        # -------------------------------------------------------------------
-        if skipped_reason is not None:
+        if result['skipped']:
             return jsonify({
                 'skipped': True,
-                'skippedReason': skipped_reason,
-                'calculation': calculation_payload,
+                'skippedReason': result['skipped_reason'],
+                'calculation': result['calculation'],
             }), 200
-
-        # Always start as 'planned' — user explicitly updates status when they seed
-        initial_status = 'planned'
-        seed_start = IndoorSeedStart(
-            user_id=current_user.id,
-            plant_id=seed_start_plant_id,
-            variety=seed_start_variety,
-            seed_inventory_id=data.get('seedInventoryId'),
-            start_date=indoor_start_date,
-            expected_germination_date=expected_germination_date,
-            expected_transplant_date=expected_transplant_date,
-            seeds_started=seeds_to_start,
-            expected_germination_rate=expected_rate,
-            location=data.get('location', 'windowsill'),
-            light_hours=data.get('lightHours', 12),
-            temperature=data.get('temperature', 70),
-            notes=data.get('notes', f'For transplanting on {transplant_date.strftime("%Y-%m-%d")}'),
-            planting_event_id=planting_event_id,  # Link to planting event if provided
-            destination_bed_ids=destination_bed_ids_json,
-            status=initial_status
-        )
-
-        db.session.add(seed_start)
-        db.session.flush()  # Get seed_start.id
-
-        # If linking to existing PlantingEvent, update its seed_start_date
-        if linked_event is not None:
-            linked_event.seed_start_date = indoor_start_date
-            linked_event.transplant_date = expected_transplant_date
-            # Recalculate harvest date from new transplant date
-            days_to_maturity = plant.get('daysToMaturity', 70)
-            linked_event.expected_harvest_date = expected_transplant_date + timedelta(days=days_to_maturity)
 
         db.session.commit()
 
         response_data = {
-            'indoorSeedStart': seed_start.to_dict(),
-            'calculation': calculation_payload,
+            'indoorSeedStart': result['seed_start'].to_dict(),
+            'calculation': result['calculation'],
         }
 
-        if warning_message:
-            response_data['warning'] = warning_message
+        if result['warning']:
+            response_data['warning'] = result['warning']
 
         return jsonify(response_data), 201
 

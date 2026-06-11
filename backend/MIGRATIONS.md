@@ -43,6 +43,12 @@ If a proposed "data" script needs to `ALTER` a table or add a column to make its
 
 ### Recent Migrations
 
+**2026-06-11**: Added `source` provenance field to `indoor_seed_start`
+- **Migration**: `ff46179d637a_add_source_provenance_to_indoor_seed_.py` (Flask-Migrate)
+- **Purpose**: Distinguish auto-created tracking rows from manual ones. `NULL` = manually created (UI / banner / import flows); `'export'` = auto-created by export-to-calendar's `createIndoorStarts` option (Tier 2 bridge). Enables later evaluation of whether auto-created trays actually get used.
+- **Columns added**: `indoor_seed_start.source` (String(20), nullable)
+- **Hand-trimmed**: autogenerate also proposed dropping `variety_maturity_model` and the `harvest_record` maturity-learning snapshot columns (they have no ORM models by design — created directly by migration `a7f3c9d21e04`). Those drops were removed; only the `source` column remains. Any future autogenerate against this database will re-propose the same bogus drops — always trim them.
+
 **2026-04-21**: Added `cancelled_at` soft-delete field to `planting_event` and `indoor_seed_start`
 - **Migration**: `faa8053ea705_add_cancelled_at_soft_delete_to_.py` (Flask-Migrate)
 - **Purpose**: Soft-delete / "cancel task" support for Needs Attention dashboard signals (indoor-start and direct-seed). When a user cancels a task the timestamp is set; cancelled records are filtered from dashboard, Indoor Seed Starting, planting calendar, and plan counts. NULL = active.

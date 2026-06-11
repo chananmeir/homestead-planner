@@ -59,6 +59,8 @@ interface IndoorSeedStart {
   notes?: string;
   status: 'planned' | 'germinating' | 'growing' | 'hardening' | 'transplanted' | 'failed' | 'seeded';
   plantingEventId?: number;
+  // Provenance: null/undefined = manually created, 'export' = auto-created by plan export
+  source?: string | null;
   hasPlannedPlacement?: boolean;
   // Live sync fields
   gardenPlanCount?: number;

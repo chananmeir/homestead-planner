@@ -123,6 +123,16 @@ const GardenPlanner: React.FC = () => {
   const [indoorStartPrompt, setIndoorStartPrompt] = useState<{ planId: number; planName: string; count: number } | null>(null);
   const [trackIndoorStartsPlan, setTrackIndoorStartsPlan] = useState<{ planId: number; planName: string } | null>(null);
 
+  // Tier 2 opt-in: have export auto-create indoor-start tracking rows for
+  // transplant crops. Remembered across sessions (localStorage).
+  const [createIndoorStartsOnExport, setCreateIndoorStartsOnExport] = useState<boolean>(
+    () => localStorage.getItem('exportCreateIndoorStarts') === 'true'
+  );
+  const handleToggleCreateIndoorStarts = (checked: boolean) => {
+    setCreateIndoorStartsOnExport(checked);
+    localStorage.setItem('exportCreateIndoorStarts', String(checked));
+  };
+
   // Toast notifications
   const { showSuccess, showError } = useToast();
 
@@ -1305,7 +1315,7 @@ const GardenPlanner: React.FC = () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conflictOverride }),
+        body: JSON.stringify({ conflictOverride, createIndoorStarts: createIndoorStartsOnExport }),
       });
 
       if (response.status === 409) {
@@ -1316,7 +1326,13 @@ const GardenPlanner: React.FC = () => {
         setShowExportConflictWarning(true);
       } else if (response.ok) {
         const result = await response.json();
-        showSuccess(`Successfully exported ${result.totalEvents} events to calendar!`);
+        let successMessage = `Successfully exported ${result.totalEvents} events to calendar!`;
+        if (result.indoorStarts && result.indoorStarts.created > 0) {
+          const { created, rescheduled } = result.indoorStarts;
+          successMessage += ` Tracking ${created} indoor start${created !== 1 ? 's' : ''}`;
+          successMessage += rescheduled > 0 ? ` (${rescheduled} rescheduled to today).` : '.';
+        }
+        showSuccess(successMessage);
         // Clear any previous conflict state
         setExportConflicts([]);
         setShowExportConflictWarning(false);
@@ -1334,8 +1350,11 @@ const GardenPlanner: React.FC = () => {
           };
         });
 
-        // Offer indoor-start tracking for the plan's untracked transplant crops
-        void checkIndoorStartCandidates(planId);
+        // Offer indoor-start tracking for the plan's untracked transplant
+        // crops — unless auto-create just handled them (Tier 2 checkbox).
+        if (!createIndoorStartsOnExport) {
+          void checkIndoorStartCandidates(planId);
+        }
       } else {
         setError('Failed to export');
       }
@@ -3289,16 +3308,31 @@ const GardenPlanner: React.FC = () => {
                     const allExported = (selectedPlan.items?.length ?? 0) > 0 &&
                       selectedPlan.items!.every(item => item.status === 'exported');
                     return (
-                      <button
-                        data-testid="export-to-calendar-btn"
-                        onClick={() => handleExportToCalendar(selectedPlan.id)}
-                        disabled={loading}
-                        className={`px-4 py-2 text-white rounded disabled:bg-gray-300 ${
-                          allExported ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'
-                        }`}
-                      >
-                        {loading ? 'Exporting...' : allExported ? 'Re-Export to Calendar' : 'Export to Calendar'}
-                      </button>
+                      <>
+                        <label
+                          className="flex items-center gap-1.5 px-2 text-sm text-gray-700 cursor-pointer select-none"
+                          title="When exporting, also create indoor seed start tracking for transplant crops (past-due starts are rescheduled to today)"
+                        >
+                          <input
+                            type="checkbox"
+                            data-testid="export-create-indoor-starts-checkbox"
+                            checked={createIndoorStartsOnExport}
+                            onChange={e => handleToggleCreateIndoorStarts(e.target.checked)}
+                            className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          />
+                          Track indoor starts
+                        </label>
+                        <button
+                          data-testid="export-to-calendar-btn"
+                          onClick={() => handleExportToCalendar(selectedPlan.id)}
+                          disabled={loading}
+                          className={`px-4 py-2 text-white rounded disabled:bg-gray-300 ${
+                            allExported ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'
+                          }`}
+                        >
+                          {loading ? 'Exporting...' : allExported ? 'Re-Export to Calendar' : 'Export to Calendar'}
+                        </button>
+                      </>
                     );
                   })()}
                 </div>

@@ -16,6 +16,7 @@ from plant_database import get_plant_by_id
 from services.space_calculator import calculate_space_requirement
 from services.rotation_checker import get_rotation_status_for_plan_item
 from services.trellis_validation import validate_trellis_segment
+from services.indoor_start_service import create_indoor_start_for_event
 from simulation_clock import get_now
 
 logger = logging.getLogger(__name__)
@@ -617,7 +618,7 @@ def calculate_shopping_list(plan_id: int) -> List[Dict]:
     return shopping_list
 
 
-def export_to_calendar(plan_id: int, user_id: int) -> Dict:
+def export_to_calendar(plan_id: int, user_id: int, create_indoor_starts: bool = False) -> Dict:
     """
     Export garden plan to planting calendar by creating PlantingEvent records.
     Uses idempotent export keys to prevent duplicates.
@@ -626,9 +627,14 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
     Args:
         plan_id: Garden plan ID
         user_id: User ID
+        create_indoor_starts: When True (Tier 2 opt-in), also create an
+            IndoorSeedStart for every exported transplant-crop event that
+            doesn't already have one (idempotent on re-export; past-due
+            starts are rescheduled to today, matching the A1 convention).
 
     Returns:
-        Dict with export results (events created/updated)
+        Dict with export results (events created/updated; plus an
+        'indoorStarts' summary when create_indoor_starts was requested)
     """
     plan = GardenPlan.query.get(plan_id)
     if not plan or plan.user_id != user_id:
@@ -637,6 +643,8 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
     events_created = 0
     events_updated = 0
     trellis_warnings = []
+    # (event, plan item) pairs touched by this export — drives auto-create
+    touched_events = []
 
     for item in plan.items:
         if not item.first_plant_date:
@@ -788,6 +796,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         existing_event.succession_planting = succession_count > 1
                         existing_event.succession_interval = interval_days if succession_count > 1 else None
                         events_updated += 1
+                        touched_events.append((existing_event, item))
                     else:
                         new_event = PlantingEvent(
                             user_id=user_id,
@@ -810,6 +819,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         )
                         db.session.add(new_event)
                         events_created += 1
+                        touched_events.append((new_event, item))
 
             # Mark item as exported and skip bed-based export
             item.status = 'exported'
@@ -860,6 +870,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         existing_event.succession_planting = succession_count > 1
                         existing_event.succession_interval = interval_days if succession_count > 1 else None
                         events_updated += 1
+                        touched_events.append((existing_event, item))
                     else:
                         # Create new event
                         new_event = PlantingEvent(
@@ -879,6 +890,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                         )
                         db.session.add(new_event)
                         events_created += 1
+                        touched_events.append((new_event, item))
         else:
             # Legacy: No bed assignments - create events without bed_id
             # Use integer remainder handling for succession quantity split
@@ -918,6 +930,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     existing_event.succession_planting = succession_count > 1
                     existing_event.succession_interval = interval_days if succession_count > 1 else None
                     events_updated += 1
+                    touched_events.append((existing_event, item))
                 else:
                     # Create new event
                     new_event = PlantingEvent(
@@ -936,6 +949,7 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
                     )
                     db.session.add(new_event)
                     events_created += 1
+                    touched_events.append((new_event, item))
 
         # Mark item as exported
         item.status = 'exported'
@@ -950,6 +964,37 @@ def export_to_calendar(plan_id: int, user_id: int) -> Dict:
     }
     if trellis_warnings:
         result['trellisWarnings'] = trellis_warnings
+
+    if create_indoor_starts:
+        # Tier 2 opt-in: auto-create tracking rows for the exported transplant
+        # events. Runs after the event commit so events have ids; commits per
+        # creation so one failure can't roll back earlier successes.
+        summary = {'created': 0, 'rescheduled': 0, 'alreadyTracked': 0, 'notApplicable': 0, 'failed': 0}
+        for event, item in touched_events:
+            try:
+                outcome = create_indoor_start_for_event(
+                    user_id, event, seed_inventory_id=item.seed_inventory_id
+                )
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.error(
+                    f"Auto-create indoor start failed for event {event.id} "
+                    f"(plant {event.plant_id}): {e}"
+                )
+                summary['failed'] += 1
+                continue
+            if outcome['status'] == 'created':
+                summary['created'] += 1
+            elif outcome['status'] == 'rescheduled':
+                summary['created'] += 1
+                summary['rescheduled'] += 1
+            elif outcome['status'] == 'already_tracked':
+                summary['alreadyTracked'] += 1
+            else:  # not_applicable (direct-seed crop) or skipped
+                summary['notApplicable'] += 1
+        result['indoorStarts'] = summary
+
     return result
 
 

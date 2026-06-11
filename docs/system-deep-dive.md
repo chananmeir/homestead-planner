@@ -1268,8 +1268,11 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
    (77% tracked; 4 seedings missed for weeks — see `dev/active/production-readiness-audit/
    tier0-indoor-start-findings.md`), so a post-export prompt now offers the tracking flow
    (ImportFromGardenModal scoped to the exported plan) the moment an export completes.
-   Export semantics are unchanged; auto-create-on-export ("A2") stays deferred unless the
-   at-export prompt also proves ignored.
+   Export semantics are unchanged; and as of the same day, **Tier 2** adds an opt-in
+   "Track indoor starts" checkbox on the export action (remembered preference): when on,
+   export auto-creates linked IndoorSeedStarts for transplant crops (idempotent, past-due
+   rescheduled to today, provenance-marked `source='export'` via migration `ff46179d637a`).
+   The original A2-by-default remains unbuilt — tracking-on-export is now a user choice.
 4. **Germination checks silently disappear** — a direct-seed germination check older than
    14 days drops from the dashboard without ever telling the user "this seeding probably
    failed" (`dashboard_service._build_germination_check`). A "presumed failed" state might

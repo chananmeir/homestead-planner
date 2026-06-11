@@ -1102,6 +1102,10 @@ class IndoorSeedStart(db.Model):
     # Linking to Outdoor Planting
     planting_event_id = db.Column(db.Integer, db.ForeignKey('planting_event.id'))  # Outdoor event created after transplant
 
+    # Provenance: NULL = manually created (UI/banner/import flows),
+    # 'export' = auto-created by export-to-calendar's createIndoorStarts option
+    source = db.Column(db.String(20), nullable=True)
+
     # Metadata
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1340,6 +1344,7 @@ class IndoorSeedStart(db.Model):
             'transplantReady': self.transplant_ready,
             'cancelledAt': self.cancelled_at.isoformat() if self.cancelled_at else None,
             'plantingEventId': self.planting_event_id,
+            'source': self.source,
             'notes': self.notes,
             'createdAt': self.created_at.isoformat() if self.created_at else None,
             'updatedAt': self.updated_at.isoformat() if self.updated_at else None,
