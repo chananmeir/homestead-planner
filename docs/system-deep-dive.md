@@ -1264,8 +1264,12 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
    single-plant.
 3. **Plan export does not create indoor trays** — deliberate Apr 2026 decision: exporting a
    plan creates PlantingEvents only; the "plan-only seedings" banner is the manual bridge to
-   IndoorSeedStarts. If that banner gets ignored in practice, auto-create-on-export (option
-   "A2" in the dev notes) may deserve a revisit.
+   IndoorSeedStarts. **MITIGATED Jun 11 2026**: Tier 0 evidence showed the banner leaking
+   (77% tracked; 4 seedings missed for weeks — see `dev/active/production-readiness-audit/
+   tier0-indoor-start-findings.md`), so a post-export prompt now offers the tracking flow
+   (ImportFromGardenModal scoped to the exported plan) the moment an export completes.
+   Export semantics are unchanged; auto-create-on-export ("A2") stays deferred unless the
+   at-export prompt also proves ignored.
 4. **Germination checks silently disappear** — a direct-seed germination check older than
    14 days drops from the dashboard without ever telling the user "this seeding probably
    failed" (`dashboard_service._build_germination_check`). A "presumed failed" state might
