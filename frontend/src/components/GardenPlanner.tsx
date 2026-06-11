@@ -19,6 +19,7 @@ import { calculateSpaceForQuantities, calculateSpacePerBed, calculateTrellisSpac
 import { calculateSuggestedInterval } from './PlantingCalendar/utils/successionCalculations';
 import { PlanNutritionCard } from './GardenPlanner/PlanNutritionCard';
 import GardenSnapshot from './GardenPlanner/GardenSnapshot';
+import { ImportFromGardenModal } from './IndoorSeedStarts/ImportFromGardenModal';
 import { useActivePlan } from '../contexts/ActivePlanContext';
 import { useNow } from '../contexts/SimulationContext';
 
@@ -115,6 +116,12 @@ const GardenPlanner: React.FC = () => {
   const [exportConflicts, setExportConflicts] = useState<Conflict[]>([]);
   const [showExportConflictWarning, setShowExportConflictWarning] = useState(false);
   const [pendingExportPlanId, setPendingExportPlanId] = useState<number | null>(null);
+
+  // Post-export indoor-start prompt: after a successful export, offer to track
+  // indoor seed starts for the plan's untracked transplant crops right away,
+  // instead of relying on the user later finding the Indoor Starts banner.
+  const [indoorStartPrompt, setIndoorStartPrompt] = useState<{ planId: number; planName: string; count: number } | null>(null);
+  const [trackIndoorStartsPlan, setTrackIndoorStartsPlan] = useState<{ planId: number; planName: string } | null>(null);
 
   // Toast notifications
   const { showSuccess, showError } = useToast();
@@ -1326,6 +1333,9 @@ const GardenPlanner: React.FC = () => {
             items: prev.items?.map(item => ({ ...item, status: 'exported' as const })) ?? []
           };
         });
+
+        // Offer indoor-start tracking for the plan's untracked transplant crops
+        void checkIndoorStartCandidates(planId);
       } else {
         setError('Failed to export');
       }
@@ -1333,6 +1343,28 @@ const GardenPlanner: React.FC = () => {
       setError('Error exporting');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkIndoorStartCandidates = async (planId: number) => {
+    // Best-effort: the export already succeeded, so any failure here just
+    // means no prompt — the Indoor Starts banner remains the fallback bridge.
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/planting-events/needs-indoor-starts?planId=${planId}`,
+        { credentials: 'include' }
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      const count = (data.events || []).length;
+      if (count > 0) {
+        const planName = plans.find(p => p.id === planId)?.name
+          || selectedPlan?.name
+          || 'this plan';
+        setIndoorStartPrompt({ planId, planName, count });
+      }
+    } catch {
+      // Swallow — prompt is an optional convenience on top of a completed export.
     }
   };
 
@@ -3419,6 +3451,66 @@ const GardenPlanner: React.FC = () => {
           warningMessage={`${exportConflicts.length} temporal conflict${exportConflicts.length !== 1 ? 's' : ''} found. Some plantings in this plan overlap with existing or other planned plantings in the same bed during the same time period.`}
           overrideButtonText="Export Anyway"
         />
+
+        {/* Post-export indoor-start tracking prompt */}
+        <Modal
+          isOpen={indoorStartPrompt !== null}
+          onClose={() => setIndoorStartPrompt(null)}
+          title="Track indoor seed starts?"
+          size="medium"
+        >
+          {indoorStartPrompt && (
+            <div className="space-y-4" data-testid="indoor-start-prompt">
+              <p className="text-sm text-gray-700">
+                <strong>{indoorStartPrompt.count}</strong> transplant crop
+                {indoorStartPrompt.count !== 1 ? 's' : ''} in{' '}
+                <span className="font-semibold">&quot;{indoorStartPrompt.planName}&quot;</span>{' '}
+                {indoorStartPrompt.count !== 1 ? 'are' : 'is'} scheduled to start indoors but{' '}
+                {indoorStartPrompt.count !== 1 ? 'aren’t' : 'isn’t'} being tracked yet.
+                Tracking lets you log germination and get transplant reminders.
+              </p>
+              <p className="text-xs text-gray-500">
+                You can also do this later from the Indoor Starts page.
+              </p>
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIndoorStartPrompt(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Not now
+                </button>
+                <button
+                  type="button"
+                  data-testid="track-indoor-starts-btn"
+                  onClick={() => {
+                    setTrackIndoorStartsPlan({
+                      planId: indoorStartPrompt.planId,
+                      planName: indoorStartPrompt.planName,
+                    });
+                    setIndoorStartPrompt(null);
+                  }}
+                  className="px-6 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md"
+                >
+                  Track indoor starts
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+
+        {/* Indoor-start tracking modal, scoped to the just-exported plan */}
+        {trackIndoorStartsPlan && (
+          <ImportFromGardenModal
+            isOpen={true}
+            onClose={() => setTrackIndoorStartsPlan(null)}
+            onSuccess={() => setTrackIndoorStartsPlan(null)}
+            showSuccess={showSuccess}
+            showError={showError}
+            planIdOverride={trackIndoorStartsPlan.planId}
+            planNameOverride={trackIndoorStartsPlan.planName}
+          />
+        )}
 
         {/* Delete Confirmation Dialog */}
         <ConfirmDialog

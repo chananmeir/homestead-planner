@@ -35,6 +35,11 @@ interface ImportFromGardenModalProps {
   onSuccess: () => void;
   showSuccess: (message: string) => void;
   showError: (message: string) => void;
+  // Scope the modal to a specific plan instead of the active plan. Used by the
+  // Garden Planner's post-export prompt, where the just-exported plan may not
+  // be the active one. planNameOverride is display-only.
+  planIdOverride?: number;
+  planNameOverride?: string;
 }
 
 export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
@@ -43,8 +48,14 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
   onSuccess,
   showSuccess,
   showError,
+  planIdOverride,
+  planNameOverride,
 }) => {
   const { activePlan } = useActivePlan();
+  const scopePlanId = planIdOverride ?? activePlan?.id;
+  const scopePlanName = planIdOverride != null
+    ? (planNameOverride || 'selected plan')
+    : activePlan?.name;
   const [allEvents, setAllEvents] = useState<PlantingEventNeedingStart[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<Set<number>>(new Set());
@@ -62,17 +73,17 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
       loadEvents();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, activePlan?.id]);
+  }, [isOpen, scopePlanId]);
 
   const loadEvents = async () => {
     try {
       setLoading(true);
-      // AUDIT-011 Option A: when an active plan is selected, scope the fetch
-      // to that plan (backend also includes rows with null/unresolvable
-      // export_key as "Unknown plan"). Omit the param to preserve the
-      // cross-plan backward-compat path when no plan is active.
-      const url = activePlan?.id
-        ? `/api/planting-events/needs-indoor-starts?planId=${activePlan.id}`
+      // AUDIT-011 Option A: when a plan scope is set (override prop or active
+      // plan), scope the fetch to that plan (backend also includes rows with
+      // null/unresolvable export_key as "Unknown plan"). Omit the param to
+      // preserve the cross-plan backward-compat path when no plan is in scope.
+      const url = scopePlanId
+        ? `/api/planting-events/needs-indoor-starts?planId=${scopePlanId}`
         : '/api/planting-events/needs-indoor-starts';
       const response = await apiGet(url);
       if (response.ok) {
@@ -383,10 +394,10 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
               scopes rows to that plan (plus unattributable events). When no
               plan is active, fall back to the cross-plan view. */}
           <div>
-            {activePlan ? (
+            {scopePlanId ? (
               <p className="text-sm text-gray-900">
                 <span className="font-medium">Importing from:</span>{' '}
-                <span className="font-semibold">{activePlan.name}</span>
+                <span className="font-semibold">{scopePlanName}</span>
               </p>
             ) : (
               <p className="text-sm text-gray-500">
@@ -394,7 +405,7 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
               </p>
             )}
             <p className="text-xs text-gray-500 mt-1">
-              {activePlan
+              {scopePlanId
                 ? 'Rows are scoped to this plan. Unattributed events are also shown.'
                 : 'No active plan selected — showing events across all your plans.'}
             </p>
@@ -529,10 +540,10 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
                       <div className="flex items-center gap-2">
                         <span>{event.gardenBedName || '-'}</span>
                         {/* Phase B #12: per-row plan attribution. Show badge
-                            only when row's plan differs from active plan (or
+                            only when row's plan differs from the scope plan (or
                             cannot be attributed). Same-plan rows are implicit
                             from the modal header. */}
-                        {event.planId != null && activePlan && event.planId !== activePlan.id && (
+                        {event.planId != null && scopePlanId != null && event.planId !== scopePlanId && (
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-medium rounded">
                             from "{event.planName || 'Unnamed plan'}"
                           </span>
