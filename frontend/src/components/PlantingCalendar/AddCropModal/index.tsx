@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Plant, PlantingCalendar as PlantingCalendarType, ConflictCheck, GardenBed, EventAdjustment } from '../../../types';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
-import { format, addDays } from 'date-fns';
+import { addDays } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';
 import { calculateSuggestedInterval, formatSuggestion, IntervalSuggestion } from '../utils/successionCalculations';
 import { calculateSpaceRequirement } from '../utils/spaceAvailability';
@@ -11,6 +11,7 @@ import PositionSelector from './PositionSelector';
 import ConflictWarning from '../../common/ConflictWarning';
 import SuccessionWizard from './SuccessionWizard';
 import { AutoAdjustmentModal } from './AutoAdjustmentModal';
+import { formatDateInputValue, formatLocalDate, parseDateInputValue } from '../../../utils/dateUtils';
 
 interface AddCropModalProps {
   isOpen: boolean;
@@ -493,14 +494,11 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                     </label>
                     <input
                       type="date"
-                      value={format(
-                        manualDates.seedStartDate || dates.seedStartDate!,
-                        'yyyy-MM-dd'
-                      )}
+                      value={formatDateInputValue(manualDates.seedStartDate || dates.seedStartDate!)}
                       onChange={(e) =>
                         setManualDates({
                           ...manualDates,
-                          seedStartDate: new Date(e.target.value),
+                          seedStartDate: parseDateInputValue(e.target.value),
                         })
                       }
                       className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -512,14 +510,11 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                     </label>
                     <input
                       type="date"
-                      value={format(
-                        manualDates.transplantDate || dates.transplantDate!,
-                        'yyyy-MM-dd'
-                      )}
+                      value={formatDateInputValue(manualDates.transplantDate || dates.transplantDate!)}
                       onChange={(e) =>
                         setManualDates({
                           ...manualDates,
-                          transplantDate: new Date(e.target.value),
+                          transplantDate: parseDateInputValue(e.target.value),
                         })
                       }
                       className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -535,14 +530,11 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                   </label>
                   <input
                     type="date"
-                    value={format(
-                      manualDates.directSeedDate || dates.directSeedDate!,
-                      'yyyy-MM-dd'
-                    )}
+                    value={formatDateInputValue(manualDates.directSeedDate || dates.directSeedDate!)}
                     onChange={(e) =>
                       setManualDates({
                         ...manualDates,
-                        directSeedDate: new Date(e.target.value),
+                        directSeedDate: parseDateInputValue(e.target.value),
                       })
                     }
                     className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -556,14 +548,11 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
                 </label>
                 <input
                   type="date"
-                  value={format(
-                    manualDates.expectedHarvestDate || dates.expectedHarvestDate,
-                    'yyyy-MM-dd'
-                  )}
+                  value={formatDateInputValue(manualDates.expectedHarvestDate || dates.expectedHarvestDate)}
                   onChange={(e) =>
                     setManualDates({
                       ...manualDates,
-                      expectedHarvestDate: new Date(e.target.value),
+                      expectedHarvestDate: parseDateInputValue(e.target.value),
                     })
                   }
                   className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -721,13 +710,14 @@ const AddCropModal: React.FC<AddCropModalProps> = ({
           newPlantName={selectedPlant ? (PLANT_DATABASE.find(p => p.id === selectedPlant)?.name || '') : ''}
           newStartDate={(() => {
             const plant = PLANT_DATABASE.find((p) => p.id === selectedPlant);
-            if (!plant) return new Date().toISOString();
+            if (!plant) return formatLocalDate(new Date());
             const baseDate = initialDate || lastFrostDate;
             const dates = calculatePlantingDates(plant, baseDate, plantingMethod);
-            return (plantingMethod === 'transplant'
+            const selectedDate = (plantingMethod === 'transplant'
               ? (manualDates.transplantDate || dates.transplantDate)
               : (manualDates.directSeedDate || dates.directSeedDate)
-            )?.toISOString() || new Date().toISOString();
+            );
+            return selectedDate ? formatLocalDate(selectedDate) : formatLocalDate(new Date());
           })()}
           onConfirm={handleAdjustmentConfirm}
           onCancel={handleAdjustmentCancel}

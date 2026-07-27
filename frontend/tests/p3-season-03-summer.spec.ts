@@ -279,6 +279,20 @@ test.describe.serial('2025 Season — Part 3: Summer', () => {
     await fillBedRegion(ctx, bedIds.intensive, 'beet-1', 'Detroit Dark Red #2 (fall)', '2025-08-01', 0, 0, 7, 3);
   });
 
+  test('S15-05b: RELAY MIGardener — cilantro rows → lettuce #3 (fall sowing)', async () => {
+    test.setTimeout(120000);
+    // Keeps the bed occupied on Aug 1. The Jun 15 sowing (lettuce Mix #2 ~45d,
+    // arugula ~40d) finishes around Jul 25-30, and the next scheduled sowing
+    // was not until Aug 15 — leaving this bed fallow for a fortnight and
+    // breaking the scenario's core rule that a relay goes in as soon as the
+    // previous crop finishes. Sowing here closes that gap.
+    // Re-sows the rows the Jun 15 lettuce occupied — that is what a relay is,
+    // and matches how the other Aug 1 relays reuse finished ground.
+    for (let row = 0; row < 16; row += 2) {
+      await fillBedRegion(ctx, bedIds.migardener, 'lettuce-1', 'Mix #3 (Aug relay)', '2025-08-01', 0, row, 15, row);
+    }
+  });
+
   test('S15-06: Hive inspection — August', async () => {
     if (!beehiveId) return;
     const resp = await ctx.post('/api/hive-inspections', {

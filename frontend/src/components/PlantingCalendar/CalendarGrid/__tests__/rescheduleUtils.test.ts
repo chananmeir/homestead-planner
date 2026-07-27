@@ -36,9 +36,12 @@ describe('getDateFieldForMarkerType', () => {
     ['transplant', 'transplantDate'],
     ['direct-seed', 'directSeedDate'],
     ['harvest', 'expectedHarvestDate'],
-    // Mulch/maple events store their application date in expectedHarvestDate.
+    // Maintenance events store their event date in expectedHarvestDate.
     ['mulch-application', 'expectedHarvestDate'],
     ['maple-tapping', 'expectedHarvestDate'],
+    ['fertilizing', 'expectedHarvestDate'],
+    ['irrigation', 'expectedHarvestDate'],
+    ['custom-event', 'expectedHarvestDate'],
   ] as const)('%s markers reschedule %s', (markerType, expectedField) => {
     expect(getDateFieldForMarkerType(markerType)).toBe(expectedField);
   });

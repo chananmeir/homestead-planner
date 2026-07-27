@@ -4,8 +4,8 @@ Tests for POST /api/harvests/bulk — bulk harvest creation with shared harvest_
 Covers:
 - Splits totalQuantity evenly across N PlantedItems
 - All N records share a single harvest_group_id UUID
-- Each PlantedItem auto-syncs to status='harvested'
-- Linked PlantingEvents and IndoorSeedStarts also sync (per-item, same as single endpoint)
+- Plain harvest leaves PlantedItems active; finalHarvest soft-clears them
+- Linked PlantingEvents and IndoorSeedStarts sync only on finalHarvest
 - Rejects requests that include items belonging to another user
 - Validates totalQuantity > 0 and non-empty plantedItemIds list
 """
@@ -78,6 +78,7 @@ class TestBulkHarvest:
                 'unit': 'lbs',
                 'quality': 'good',
                 'harvestDate': '2026-05-04T00:00:00Z',
+                'idempotencyKey': 'bulk-good-pick',
             })
             assert resp.status_code == 201
             body = resp.get_json()
@@ -95,8 +96,63 @@ class TestBulkHarvest:
             db_records = HarvestRecord.query.filter_by(harvest_group_id=group_id).all()
             assert len(db_records) == 3
             assert {r.planted_item_id for r in db_records} == set(ids)
+            assert all(r.source_key.startswith('client_item:') for r in db_records)
 
-    def test_all_planted_items_flip_to_harvested(self, full_app, full_db, user_a, auth_client_a):
+    def test_replaying_same_bulk_request_returns_existing_group(self, full_app, full_db, user_a, auth_client_a):
+        with full_app.app_context():
+            bed = _create_bed(full_db.session, user_a)
+            items = [
+                _create_planted_item(full_db.session, user_a, bed, position_x=i, position_y=0)
+                for i in range(2)
+            ]
+            payload = {
+                'plantedItemIds': [i.id for i in items],
+                'plantId': 'tomato-1',
+                'totalQuantity': 6.0,
+                'unit': 'lbs',
+                'quality': 'good',
+                'harvestDate': '2026-05-04T00:00:00Z',
+                'idempotencyKey': 'bulk-replay',
+            }
+
+            first = auth_client_a.post('/api/harvests/bulk', json=payload)
+            second = auth_client_a.post('/api/harvests/bulk', json=payload)
+
+            assert first.status_code == 201
+            assert second.status_code == 200
+            assert second.get_json()['harvestGroupId'] == first.get_json()['harvestGroupId']
+            assert [r['id'] for r in second.get_json()['records']] == [
+                r['id'] for r in first.get_json()['records']
+            ]
+            assert HarvestRecord.query.filter_by(user_id=user_a.id).count() == 2
+
+    def test_bulk_allows_new_harvest_after_prior_single_harvest(self, full_app, full_db, user_a, auth_client_a):
+        with full_app.app_context():
+            bed = _create_bed(full_db.session, user_a)
+            item1 = _create_planted_item(full_db.session, user_a, bed, position_x=0, position_y=0)
+            item2 = _create_planted_item(full_db.session, user_a, bed, position_x=1, position_y=0)
+
+            single = auth_client_a.post('/api/harvests', json={
+                'plantId': 'tomato-1',
+                'plantedItemId': item1.id,
+                'quantity': 2.0,
+                'harvestDate': '2026-05-04T00:00:00Z',
+            })
+            assert single.status_code == 201
+
+            bulk = auth_client_a.post('/api/harvests/bulk', json={
+                'plantedItemIds': [item1.id, item2.id],
+                'plantId': 'tomato-1',
+                'totalQuantity': 6.0,
+                'harvestDate': '2026-05-04T00:00:00Z',
+                'idempotencyKey': 'bulk-after-single',
+            })
+
+            assert bulk.status_code == 201
+            assert HarvestRecord.query.filter_by(user_id=user_a.id).count() == 3
+            assert PlantedItem.query.get(item2.id).status == 'growing'
+
+    def test_normal_bulk_harvest_keeps_planted_items_active(self, full_app, full_db, user_a, auth_client_a):
         with full_app.app_context():
             bed = _create_bed(full_db.session, user_a)
             items = [
@@ -115,8 +171,33 @@ class TestBulkHarvest:
 
             for item_id in ids:
                 refreshed = PlantedItem.query.get(item_id)
+                assert refreshed.status == 'growing'
+                assert refreshed.cleared_at is None
+
+    def test_final_bulk_harvest_clears_planted_items(self, full_app, full_db, user_a, auth_client_a):
+        with full_app.app_context():
+            bed = _create_bed(full_db.session, user_a)
+            items = [
+                _create_planted_item(full_db.session, user_a, bed, position_x=i, position_y=0)
+                for i in range(4)
+            ]
+            ids = [i.id for i in items]
+
+            resp = auth_client_a.post('/api/harvests/bulk', json={
+                'plantedItemIds': ids,
+                'plantId': 'tomato-1',
+                'totalQuantity': 12.0,
+                'harvestDate': '2026-05-04T00:00:00Z',
+                'finalHarvest': True,
+            })
+            assert resp.status_code == 201
+            assert all(item['clearedAt'] is not None for item in resp.get_json()['plantedItems'])
+
+            for item_id in ids:
+                refreshed = PlantedItem.query.get(item_id)
                 assert refreshed.status == 'harvested'
                 assert refreshed.harvest_date is not None
+                assert refreshed.cleared_at is not None
 
     def test_linked_planting_events_complete(self, full_app, full_db, user_a, auth_client_a):
         with full_app.app_context():
@@ -131,6 +212,7 @@ class TestBulkHarvest:
                 'plantId': 'tomato-1',
                 'totalQuantity': 5.0,
                 'harvestDate': '2026-05-04T00:00:00Z',
+                'finalHarvest': True,
             })
             assert resp.status_code == 201
 
@@ -140,6 +222,7 @@ class TestBulkHarvest:
                 assert refreshed.harvest_completed is True
                 assert refreshed.actual_harvest_date is not None
                 assert refreshed.quantity_completed == expected_qty
+                assert refreshed.cleared_at is not None
 
     def test_linked_indoor_seed_starts_transplant(self, full_app, full_db, user_a, auth_client_a):
         with full_app.app_context():
@@ -164,6 +247,7 @@ class TestBulkHarvest:
                 'plantId': 'tomato-1',
                 'totalQuantity': 2.0,
                 'harvestDate': '2026-05-04T00:00:00Z',
+                'finalHarvest': True,
             })
             assert resp.status_code == 201
 

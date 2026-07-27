@@ -4,9 +4,9 @@
 **Purpose:** An exhaustive, all-angles reference describing everything this software does —
 every screen, every interaction, every API endpoint, every database table, every calculation,
 every integration — so the owner can read it, ask questions against it, and spot anything
-missing. Verified counts: **135 API routes + 11 legacy page routes across 19 blueprints ·
-26 database models · 118 plants in the plant database (backend = frontend) · 702 backend
-tests in 36 files · 29 frontend unit-test files · 37 Playwright e2e specs.**
+missing. Verified counts: **143 API routes + 11 legacy page routes across 20 blueprints ·
+26 database models · 118 plants in the plant database (backend = frontend) · 710 backend
+tests in 38 files · 29 frontend unit-test files · 37 Playwright e2e specs.**
 
 ---
 
@@ -82,7 +82,7 @@ indoor tray to the outdoor schedule; `succession_group_id` ties a succession ser
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Backend | Python / Flask 3.0, SQLAlchemy, Flask-Migrate (Alembic), Flask-Login, Flask-CORS | 19 blueprints under `backend/blueprints/`, services layer under `backend/services/` |
+| Backend | Python / Flask 3.0, SQLAlchemy, Flask-Migrate (Alembic), Flask-Login, Flask-CORS | 20 blueprints under `backend/blueprints/`, services layer under `backend/services/` |
 | Database | SQLite at `backend/instance/homestead.db` | 26 models; 18 Alembic migrations; `db.create_all()` also runs at startup |
 | Frontend | React 19 / TypeScript 4.9 / Tailwind CSS (Create React App) | No URL router — state-based tab navigation in `App.tsx` with URL-parameter deep links |
 | Drag & drop | `@dnd-kit/core` | Designer plant placement, Property Designer structures |
@@ -98,7 +98,7 @@ indoor tray to the outdoor schedule; `succession_group_id` ties a succession ser
 The SPA's top navigation groups everything into: **Dashboard** · **Plan** (Garden Plans,
 Garden Snapshot) · **Design** (Garden Designer, Property Designer) · **Grow** (Planting
 Calendar, Indoor Starts, Soil Temperature, Weather) · **Track** (Harvests, Photos, Nutrition)
-· **Manage** (Seeds, Livestock, Compost) · **Admin** (User Management, admins only). A
+· **Manage** (Seeds, Livestock, Compost, Settings) · **Admin** (User Management, admins only). A
 floating **Simulation toolbar** lets a developer time-travel the whole app to any date.
 
 ---
@@ -300,9 +300,10 @@ Widgets, top to bottom/grid:
 
 1. **Plan list** — create (CreatePlanModal: name, optional duplicate-from), edit, delete,
    **activate** (sets the app-wide active plan).
-2. **Seed selection** — pick from your SeedInventory (search/filter/sort). Per seed you can
-   set a **manual quantity** override and a **per-seed succession preference** (0–8, with a
-   suitability hint computed from DTM: ideal / good / limited / unsuitable).
+2. **Seed selection** — choose a **Planning Goal** (`balanced`, `maximize_harvest`,
+   `use_all_seeds`), then pick from your SeedInventory (search/filter/sort). Per seed you
+   can set a **manual quantity** override and a **per-seed succession preference** (0–8,
+   with a suitability hint computed from DTM: ideal / good / limited / unsuitable).
 3. **Calculate** — `POST /api/garden-plans/calculate` runs the quantity engine (§4.5):
    strategy (`balanced` / `maximize_harvest` / `use_all_seeds`) + space limits + seed counts
    + germination/survival rates → proposed quantities per crop, with a **space summary**
@@ -375,7 +376,8 @@ overlay window.
   totals shown alongside). Placing from the sidebar increments exactly that plan item
   (designer-sync, §4.7).
 - **Guilds**: GuildSelector/GuildPreview place a pre-designed companion group (e.g., Three
-  Sisters) as a unit.
+  Sisters) as a unit. Placement now goes through backend guild validation and an atomic
+  bed insert endpoint, so users see fit/conflict/method/companion messages before insert.
 
 **Date filter & future overlay:** a single date filter (today = actuals; any future date =
 projection). `FuturePlantingsOverlay` renders scheduled-but-not-placed PlantingEvents as
@@ -488,9 +490,9 @@ Stats header (total yield, counts, quality mix via `GET /api/harvests/stats`) ov
 filterable/sortable table of HarvestRecords (date, plant, variety, quantity, unit, quality,
 notes). LogHarvestModal creates standalone records (`POST /api/harvests`); records created
 from the Designer arrive pre-linked to their PlantedItem/PlantingEvent and sync completion
-backwards. Bulk harvests share a `harvest_group_id`. Dashboard "harvest ready" clicks land
-here with filters cleared (signal rows reference PlantingEvents, which don't map 1:1 to
-HarvestRecord rows — an intentional design noted in Appendix A).
+backwards. Bulk harvests share a `harvest_group_id`. Dashboard "harvest ready" clicks resolve
+the PlantingEvent id(s) through `GET /api/harvests/ready`, show a highlighted ready-to-harvest
+card, prefill LogHarvestModal, and then scroll/highlight the created HarvestRecord row.
 
 ## 3.9 Compost Tracker
 
@@ -568,17 +570,28 @@ designer's bed banner.
 ## 3.15 Admin — User Management
 
 **Files:** `AdminUserManagement/` (admin-only tab). User table (username, email, admin flag,
-created, last login) with Add / Edit / Reset-password modals and delete-with-confirm. All
-against `/api/admin/users*` (admin-gated). Deleting a user cascades to all their data.
+created, last login) with Add / Edit / Reset-password modals and delete-with-confirm. The
+same tab now includes **Backups**: create/list/download/delete ZIP archives containing a
+safe SQLite snapshot, uploaded files, and a manifest. User management calls
+`/api/admin/users*`; backup controls call `/api/admin/backups*` (all admin-gated).
+Deleting a user cascades to all their data.
 
-## 3.16 Simulation toolbar
+## 3.16 Settings
+
+**File:** `UserSettings.tsx` (Manage → Settings). A user-facing preferences screen backed
+by the existing per-user `Settings` table through a typed whitelist (`settings_service.py`).
+The UI currently exposes dashboard/alert thresholds that have real consumers: default
+dashboard snooze days, seed low-stock packet threshold, seed-expiring window, and compost
+turn reminder days. Internal keys such as the iCal feed token are not exposed.
+
+## 3.17 Simulation toolbar
 
 Floating widget (any screen): shows real vs simulated date, set-date picker, advance-by-N
 days, clear. Backed by `/api/simulation/*`; the whole app re-reads "today" through
 SimulationContext so views (designer date filter, dashboard, calendar) follow the simulated
 clock.
 
-## 3.17 Legacy server-rendered pages
+## 3.18 Legacy server-rendered pages
 
 `backend/templates/*.html` served by `pages_bp` directly from Flask (`/`,
 `/garden-planner`, `/visual-designer`, `/planting-calendar`, `/weather`,
@@ -803,7 +816,7 @@ every model has a `to_dict()` that converts snake_case columns to camelCase for 
 | Model | Purpose & key fields |
 |---|---|
 | **User** | Auth + ownership root. `username`/`email` (unique, indexed), `password_hash`, `is_admin`, `created_at`, `last_login`. `set_password`/`check_password`. Deleting a user cascades to everything they own. |
-| **Settings** | Per-user key-value store (`UNIQUE(user_id, key)`), static `get_setting`/`set_setting`. Used for backend defaults; has no dedicated UI (Appendix A). |
+| **Settings** | Per-user key-value store (`UNIQUE(user_id, key)`), static `get_setting`/`set_setting`. Public preferences are exposed through a typed whitelist in `settings_service.py`; internal keys remain feature-owned. |
 | **DashboardSnooze** | `signal_key` + `snooze_until` per user (`UNIQUE(user_id, signal_key)`); forever = 9999-12-31 sentinel. |
 
 ### Property & structures
@@ -897,8 +910,8 @@ plant database's few snake_case keys to camelCase in the HTTP layer only
 
 # 6. API Reference
 
-**138 JSON API routes + 11 HTML page routes** (135 verified against the `@…route` decorators
-at commit `9dfb056`; +3 calendar-feed routes added Jun 2026). Unless marked *(public)* or *(admin)*, every route requires login
+**143 JSON API routes + 11 HTML page routes** (135 verified against the `@…route` decorators
+at commit `9dfb056`; +3 calendar-feed routes, +3 admin-backup routes, and +2 settings routes added Jun 2026). Unless marked *(public)* or *(admin)*, every route requires login
 (session cookie). Errors are `{error: "message", details?}` with appropriate status codes;
 conflict-protected writes return **409** with conflict details.
 
@@ -911,12 +924,15 @@ conflict-protected writes return **409** with conflict details.
 | `GET /me` | Current user profile. |
 | `GET /check` | Auth status probe (also used by the SPA on boot). |
 
-## 6.2 admin_bp — `/api/admin` (4, all *admin*)
+## 6.2 admin_bp — `/api/admin` (7, all *admin*)
 | Route | Purpose |
 |---|---|
 | `GET /users` · `POST /users` | List (paginated) / create users. |
 | `GET·PUT·DELETE /users/<id>` | Read / update (incl. is_admin) / delete-with-cascade. |
 | `POST /users/<id>/reset-password` | Force-set a new password. |
+| `GET /backups` · `POST /backups` | List existing backup ZIPs / create a new backup archive. |
+| `GET /backups/<id>/download` | Download one backup ZIP. |
+| `DELETE /backups/<id>` | Delete one backup ZIP. |
 
 ## 6.3 data_bp — `/api` (7, reference data)
 | Route | Purpose |
@@ -1007,8 +1023,9 @@ conflict-protected writes return **409** with conflict details.
 | **trellis_bp** (`/api`, 3) | `GET·POST /trellis-structures`, `GET·PUT·DELETE /trellis-structures/<id>` (delete cascades allocations), `GET /trellis-structures/<id>/capacity`. |
 | **dashboard_bp** (`/api/dashboard`, 3) | `GET /today` (the signal engine §4.8), `POST /snooze`, `DELETE /snooze`. |
 | **calendar_feed_bp** (`/api/calendar`, 3 — added Jun 2026) | `GET /feed-info` (the user's secret iCal URL, token auto-created in Settings), `POST /feed-token/regenerate` (revokes the old URL), `GET /feed/<token>.ics` (token-authenticated — no session — iCalendar payload: one all-day VEVENT per phase date of every active planting event, stable UIDs, RFC 5545 folding/escaping). |
+| **settings_bp** (`/api/settings`, 2 — added Jun 2026) | `GET ''` returns the current user's typed public settings + schema; `PATCH ''` validates and saves a partial settings payload. |
 | **simulation_bp** (`/api/simulation`, 3) | `GET /status`, `POST /set-date`, `POST /advance` (dev tooling; no auth). |
-| **pages_bp** (no prefix, 11 HTML) | Legacy server-rendered pages (§3.17); data routes login-gated + user-filtered. |
+| **pages_bp** (no prefix, 11 HTML) | Legacy server-rendered pages (§3.18); data routes login-gated + user-filtered. |
 
 ---
 
@@ -1159,7 +1176,7 @@ missing keys mean silent fallbacks (Appendix A flags the silence).
 `backend/app.py`: loads `.env` → configures SQLAlchemy/SECRET_KEY/session cookies
 (HttpOnly, SameSite=Lax, Secure **off** — localhost posture, 7-day lifetime) → CORS for
 `localhost:3000/3001` with credentials → Flask-Login (JSON 401 instead of redirects) →
-registers all 19 blueprints → `db.create_all()` (creates missing **tables** — never columns;
+registers all 20 blueprints → `db.create_all()` (creates missing **tables** — never columns;
 column changes require migrations) → seeds a default **admin / admin123** account if no
 admin exists. `python app.py` runs the dev server.
 
@@ -1273,29 +1290,38 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
    export auto-creates linked IndoorSeedStarts for transplant crops (idempotent, past-due
    rescheduled to today, provenance-marked `source='export'` via migration `ff46179d637a`).
    The original A2-by-default remains unbuilt — tracking-on-export is now a user choice.
-4. **Germination checks silently disappear** — a direct-seed germination check older than
-   14 days drops from the dashboard without ever telling the user "this seeding probably
-   failed" (`dashboard_service._build_germination_check`). A "presumed failed" state might
-   be the missing piece.
+4. **~~Germination checks silently disappear~~ — RESOLVED Jun 13 2026.** Direct-seed
+   germination checks older than 14 days now move into the Dashboard's collapsed **Missed**
+   bucket as "Confirm germination outcome" rows instead of disappearing. The wording avoids
+   declaring failure because the crop may have germinated without being logged or may simply
+   be delayed. Indoor germination checks still use the older stale-drop behavior.
 5. **~~No notification channel beyond the dashboard~~ — LARGELY RESOLVED Jun 2026** via the
    iCal subscription feed (calendar_feed_bp): subscribe a phone/Google/Apple calendar to the
    secret per-user `.ics` URL and the device's native reminders cover garden tasks. (True
    push/email remains unbuilt — likely unnecessary now.)
-6. **No backup/export story** — data lives in one SQLite file; there's no in-app backup,
-   restore, or full-data export (CSV export exists only for seeds and nutrition summaries).
-7. **Settings model has no UI** (`models.py:378`) — a per-user key-value store exists and is
-   used internally, but users can't see or set preferences anywhere.
+6. **~~No backup story~~ — PARTLY RESOLVED Jun 13 2026.** Admins can now create, list,
+   download, and delete backup ZIPs from the Admin tab. Each archive contains a consistent
+   SQLite snapshot, uploaded files, and a manifest with migration metadata. **Restore and
+   full user-facing JSON/CSV export remain unbuilt** (CSV export still exists only for seeds
+   and nutrition summaries).
+7. **~~Settings model has no UI~~ — RESOLVED Jun 13 2026.** Manage → Settings now exposes a
+   typed per-user preferences screen backed by `settings_service.py` and `/api/settings`.
+   The first public settings control dashboard snooze default days, seed low-stock
+   threshold, seed-expiring window, and compost turn reminder days. Internal keys such as
+   the iCal feed token remain hidden and feature-owned.
 8. **Photo.category is barely used** — uploads can be categorized
    (garden/plant/harvest/pest) but little UI filters on it.
 9. **Plant database breadth** — 118 crops; worth a pass to confirm everything you actually
    grow is present with accurate numbers (the variety-override system covers gaps, but only
    if a base plant exists).
-10. **Guild support depth** — guild data (6 guilds) + GuildSelector/Preview exist and place
-    plants client-side; there's no guild-aware validation beyond normal conflict checks, and
-    no custom-guild authoring.
-11. **GardenPlan.strategy is persisted but the UI mostly pins 'balanced'** — the engine
-    supports `maximize_harvest` / `use_all_seeds`; surfacing the chooser is an easy win if
-    wanted.
+10. **Guild support depth** — PARTLY RESOLVED Jun 14 2026. Built-in guilds now use backend
+    validation/preview plus atomic insertion, including bed fit, existing planting conflicts,
+    method mismatch warnings, companion benefits/conflicts, and corrected Three Sisters plant
+    IDs. **Custom-guild authoring remains unbuilt** and should be the next guild-depth phase.
+11. **~~GardenPlan.strategy is persisted but the UI mostly pins 'balanced'~~ — RESOLVED
+    Jun 14 2026.** Garden Planner now exposes a Planning Goal selector for Balanced,
+    Maximize Harvest, and Use Up Seeds; calculate/save/recalculate preserve the choice, and
+    the backend rejects unknown strategy values while still allowing internal manual plans.
 12. **Desktop-first** — the Designer/Property SVG canvases assume mouse + viewport; no
     mobile layout has been attempted.
 
@@ -1309,14 +1335,17 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
     single-preview-cell `ceil()` path — both of which stacked quantity into one cell — were
     removed. Guarded by `autoPlacement.test.ts` + `designerHelpers.test.ts`; full record in
     `dev/active/seed-planning-ui-improvements/row-display-investigation.md`.
-14. **Harvest deep-link doesn't highlight a row** — dashboard harvest signals carry
-    PlantingEvent ids, HarvestTracker rows are HarvestRecords; by design the click clears
-    filters instead of highlighting (signals fire before a record exists).
+14. **~~Harvest deep-link doesn't highlight a row~~ — RESOLVED Jun 14 2026.**
+    Dashboard harvest signals now resolve PlantingEvent ids into a highlighted ready-to-harvest
+    card, prefill LogHarvestModal, and highlight the created HarvestRecord row after save.
 15. **`DuckEggProduction.chicken_id`** — the duck egg FK is named `chicken_id` for frontend
     compatibility (`models.py:874`). Works; reads oddly.
-16. **Two frontend date-handling styles** — most code uses the safe
-    `parseLocalDate`/`formatLocalDate`, but a few modals still construct raw `Date`s
-    (off-by-one risk in western timezones). The canonical helpers exist; stragglers remain.
+16. **~~Two frontend date-handling styles~~ — RESOLVED Jun 14 2026.**
+    Date-only UI now has explicit helpers (`parseDateInputValue`, `formatDateInputValue`,
+    `formatDisplayDate`, `addLocalDays`) and a focused guard test for the shared picker,
+    simulation/date-filter defaults, harvest dashboard flow, Add Crop/Succession/Available
+    Spaces/ListView, Maple Tapping, Garden Designer planning/seed/forecast surfaces,
+    inventory/livestock/photo date filters, and indoor-start modals.
 
 ## C. Technical-debt & consistency observations
 
@@ -1329,17 +1358,19 @@ intentional, missing, or worth changing. Grouped by flavor; each item has a plac
 19. **UUID link fields have no referential integrity** — `succession_group_id` and
     `row_group_id` are plain strings; every query must (and does) filter by `user_id`, but
     the DB can't enforce chain consistency.
-20. **`event_details` JSON is schema-validated only for mulch and maple-tapping** event
-    types; other types are accepted as-is (forward-compatible by design; reads stay
-    defensive).
+20. **`event_details` validation now covers known maintenance event types** —
+    mulch, maple-tapping, fertilizing, and irrigation are schema-validated on write;
+    unknown event types are rejected, and `custom` is the explicit loose dict escape hatch.
 21. **Trellis overlap protection is application-level only** — `check_trellis_overlaps`
     guards the gardens_bp path and export assigns sequential segments, but no DB constraint
     prevents overlapping allocations written by other paths.
-22. **Rotation model is simplistic by design** — fixed 3-year family window; ignores cover
-    crops/intercropping; can false-positive.
-23. **Hardcoded tunables** — dashboard staleness windows (14/10/14 days), compost turn
-    threshold (7 days), seed low-stock (<2) and expiry (30 days), seed-buffer (×1.15):
-    all constants in code, not user settings (pairs with the unused Settings model, item 7).
+22. **Rotation model is now policy-scored, not binary** — family/category-specific
+    windows, cover-crop handling, low-exposure weighting, severity, risk score, and
+    reason codes reduce false positives. It is still advisory and heuristic rather
+    than a crop-disease model.
+23. **Hardcoded tunables** — dashboard staleness windows (14/10/14 days) and seed-buffer
+    (×1.15) remain constants in code. Compost turn threshold, seed low-stock threshold,
+    seed-expiring window, and default dashboard snooze duration are now user settings.
 24. **Snooze-forever sentinel** — "forever" stores year 9999-12-31 rather than NULL.
 25. **Export-key format evolution risk** — idempotency keys encode
     user/item/bed/date/index; changing the format or plan-item identity later would orphan

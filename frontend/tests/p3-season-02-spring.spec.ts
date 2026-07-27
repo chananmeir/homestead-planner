@@ -114,9 +114,14 @@ test.describe.serial('2025 Season — Part 2: Spring', () => {
 
   test('S5-05: Place spring crops in Intensive Bed — beets fill half', async () => {
     test.setTimeout(120000);
-    // Intensive Bed: 8 cols x 16 rows = 128 cells
-    // Rows 0-7: Beets (64 cells — fill bottom half, top half reserved for kale+chard transplants)
-    await fillBedRegion(ctx, bedIds.intensive, 'beet-1', 'Detroit Dark Red', '2025-04-01', 0, 0, 7, 7);
+    // Intensive Bed: 8 cols x 16 rows = 128 cells (6" grid).
+    //
+    // Rows 0-5: Beets (48 cells). Rows 6-7 are left EMPTY as a spacing buffer.
+    // Crops here are placed by 6" cell, but each plant occupies a footprint set
+    // by its own spacing — kale at 12" spans 2x2 cells — so packing regions
+    // edge-to-edge makes the first kale transplant at (0,8) collide with beets
+    // in row 7. Two clear rows give every crop room for its footprint.
+    await fillBedRegion(ctx, bedIds.intensive, 'beet-1', 'Detroit Dark Red', '2025-04-01', 0, 0, 7, 5);
   });
 
   test('S5-06: Place spring crops in MIGardener Bed — broadcast lettuce + arugula', async () => {
@@ -194,14 +199,17 @@ test.describe.serial('2025 Season — Part 2: Spring', () => {
     }
   });
 
-  test('S6-01: Place kale transplants in Intensive Bed — fill rows 8-11', async () => {
+  test('S6-01: Place kale transplants in Intensive Bed — fill rows 8-10', async () => {
     test.setTimeout(60000);
-    await fillBedRegion(ctx, bedIds.intensive, 'kale-1', 'Lacinato', '2025-04-15', 0, 8, 7, 11);
+    // Starts at col 1: (0,8) already holds the kale transplanted in S6-01a.
+    // Row 11 is left empty as a spacing buffer before the chard.
+    await fillBedRegion(ctx, bedIds.intensive, 'kale-1', 'Lacinato', '2025-04-15', 1, 8, 7, 10);
   });
 
-  test('S6-02: Place chard in Intensive Bed — fill rows 12-15', async () => {
+  test('S6-02: Place chard in Intensive Bed — fill rows 12-14', async () => {
     test.setTimeout(60000);
-    await fillBedRegion(ctx, bedIds.intensive, 'chard-1', 'Rainbow', '2025-04-15', 0, 12, 7, 15);
+    // Row 15 left empty — the bed's far edge also needs footprint clearance.
+    await fillBedRegion(ctx, bedIds.intensive, 'chard-1', 'Rainbow', '2025-04-15', 0, 12, 7, 14);
   });
 
   test('S6-03: First hive inspection', async () => {

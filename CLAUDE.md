@@ -672,10 +672,10 @@ After making changes, verify:
   CI=true npx react-scripts test --testPathPattern="gardenPlannerSpaceCalculator" --watchAll=false  # Space calc tests (55 tests)
   ```
 
-- [ ] **E2E Tests**: Run Playwright E2E tests (requires both servers running)
+- [ ] **E2E Tests**: Run Playwright E2E tests (starts both servers itself, against a disposable DB)
   ```bash
   cd frontend
-  npx playwright test                                    # All E2E suites (~220 tests)
+  npx playwright test                                    # All E2E suites (~570 tests)
   npx playwright test tests/garden-planner.spec.ts       # Garden Planner lifecycle (13 tests)
   npx playwright test tests/e2e-core.spec.ts             # Core user journeys (3 tests)
   ```
@@ -964,8 +964,8 @@ npm run build
 # Run tests
 CI=true npx react-scripts test --watchAll=false  # All tests (55 space calc + sync tests)
 
-# E2E tests (requires both servers running on ports 3000/5000)
-npx playwright test                          # All E2E suites (~220 tests)
+# E2E tests — Playwright starts both servers itself against a throwaway DB
+npx playwright test                          # All E2E suites (~570 tests)
 ```
 
 ### Common Tasks
@@ -1076,7 +1076,7 @@ If unsure what to run, default to:
 - Backend: `cd backend && python -m pytest`
 - Frontend: `cd frontend && npm run build`
 - Frontend tests: `cd frontend && CI=true npx react-scripts test --watchAll=false`
-- E2E tests: `cd frontend && npx playwright test` (requires both servers running, ~220 tests)
+- E2E tests: `cd frontend && npx playwright test` (self-starting; ~570 tests)
 ---
 
 ## Final Notes

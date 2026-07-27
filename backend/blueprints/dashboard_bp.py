@@ -16,6 +16,7 @@ from flask_login import login_required, current_user
 
 from models import DashboardSnooze, db
 from services.dashboard_service import build_dashboard_today, resolve_target_date
+from services.settings_service import get_setting_value
 
 # Sentinel date used when the caller dismisses a signal permanently. The
 # dashboard staleness filter (`snooze_until >= target_date`) treats any date
@@ -66,7 +67,7 @@ def snooze_signal():
       forever (bool, optional, default False): if truthy, hide the signal
         permanently (stored as SNOOZE_FOREVER_DATE). When set, `days` is
         ignored.
-      days (int, optional, default 3): days to snooze when not forever.
+      days (int, optional, default from user settings): days to snooze when not forever.
         Must be in [1, 30].
     """
     data = request.json
@@ -81,7 +82,10 @@ def snooze_signal():
     if forever:
         snooze_until = SNOOZE_FOREVER_DATE
     else:
-        days = data.get('days', 3)
+        days = data.get(
+            'days',
+            get_setting_value(current_user.id, 'dashboard.snoozeDefaultDays'),
+        )
         if not isinstance(days, int) or days < 1 or days > 30:
             return jsonify({'error': 'days must be an integer between 1 and 30'}), 400
         try:

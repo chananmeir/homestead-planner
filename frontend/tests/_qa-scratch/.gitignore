@@ -1,0 +1,7 @@
+# Throwaway QA repro scripts — not for version control.
+# Claude (in /qa mode) writes ad-hoc *.spec.ts here to reproduce a specific bug,
+# reusing helpers from ../helpers. Run by explicit path, then clean up.
+# Ignore everything in this folder except this file and an optional README.
+*
+!.gitignore
+!README.md

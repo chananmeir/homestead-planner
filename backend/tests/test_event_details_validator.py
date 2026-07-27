@@ -309,6 +309,122 @@ class TestValidateMapleTappingDetails:
 
 
 # ===================================================================
+# Fertilizing details validation
+# ===================================================================
+
+
+class TestValidateFertilizingDetails:
+    """Tests for fertilizing event_details validation."""
+
+    def test_valid_minimal(self):
+        details = {
+            'fertilizer_type': 'balanced-organic',
+            'amount': 1.5,
+            'amount_unit': 'cup',
+            'application_method': 'top-dress',
+        }
+        valid, errors = validate_event_details('fertilizing', details)
+        assert valid is True
+        assert errors == []
+
+    def test_valid_optional_npk_and_unknown_key(self):
+        details = {
+            'fertilizer_type': 'fish-emulsion',
+            'amount': 2,
+            'amount_unit': 'tbsp',
+            'application_method': 'soil-drench',
+            'npk': '5-1-1',
+            'future_field': 'accepted with warning',
+        }
+        valid, errors = validate_event_details('fertilizing', details)
+        assert valid is True
+        assert errors == []
+
+    def test_missing_required_fields(self):
+        valid, errors = validate_event_details('fertilizing', {})
+        assert valid is False
+        assert any('fertilizer_type' in e for e in errors)
+        assert any('amount' in e for e in errors)
+        assert any('amount_unit' in e for e in errors)
+        assert any('application_method' in e for e in errors)
+
+    def test_invalid_amount(self):
+        details = {
+            'fertilizer_type': 'compost',
+            'amount': 0,
+            'amount_unit': 'lb',
+            'application_method': 'side-dress',
+        }
+        valid, errors = validate_event_details('fertilizing', details)
+        assert valid is False
+        assert any('amount' in e and '> 0' in e for e in errors)
+
+    def test_invalid_enum_values(self):
+        details = {
+            'fertilizer_type': 'mystery-powder',
+            'amount': 1,
+            'amount_unit': 'bucket',
+            'application_method': 'spray-and-pray',
+        }
+        valid, errors = validate_event_details('fertilizing', details)
+        assert valid is False
+        assert any('fertilizer_type' in e for e in errors)
+        assert any('amount_unit' in e for e in errors)
+        assert any('application_method' in e for e in errors)
+
+
+# ===================================================================
+# Irrigation details validation
+# ===================================================================
+
+
+class TestValidateIrrigationDetails:
+    """Tests for irrigation event_details validation."""
+
+    def test_valid_minimal(self):
+        details = {
+            'method': 'drip',
+            'duration_minutes': 30,
+        }
+        valid, errors = validate_event_details('irrigation', details)
+        assert valid is True
+        assert errors == []
+
+    def test_valid_all_fields(self):
+        details = {
+            'method': 'soaker-hose',
+            'duration_minutes': 45,
+            'amount_gallons': 12.5,
+            'zone': 'Bed valve 2',
+        }
+        valid, errors = validate_event_details('irrigation', details)
+        assert valid is True
+        assert errors == []
+
+    def test_missing_required_fields(self):
+        valid, errors = validate_event_details('irrigation', {})
+        assert valid is False
+        assert any('method' in e for e in errors)
+        assert any('duration_minutes' in e for e in errors)
+
+    def test_invalid_duration(self):
+        details = {'method': 'hand-water', 'duration_minutes': 0}
+        valid, errors = validate_event_details('irrigation', details)
+        assert valid is False
+        assert any('duration_minutes' in e and '> 0' in e for e in errors)
+
+    def test_negative_amount_gallons(self):
+        details = {
+            'method': 'sprinkler',
+            'duration_minutes': 20,
+            'amount_gallons': -1,
+        }
+        valid, errors = validate_event_details('irrigation', details)
+        assert valid is False
+        assert any('amount_gallons' in e and '>= 0' in e for e in errors)
+
+
+# ===================================================================
 # Dispatch / top-level validation
 # ===================================================================
 
@@ -327,11 +443,20 @@ class TestValidateEventDetailsDispatch:
         assert valid is True
         assert errors == []
 
-    def test_unknown_event_type(self):
-        """Unknown event types accepted for forward compatibility."""
-        valid, errors = validate_event_details('fertilizing', {'amount': 5})
+    def test_unknown_event_type_rejected(self):
+        valid, errors = validate_event_details('soil-test', {'amount': 5})
+        assert valid is False
+        assert any('Unsupported event_type' in e for e in errors)
+
+    def test_custom_event_details_dict_accepted(self):
+        valid, errors = validate_event_details('custom', {'label': 'Soil test'})
         assert valid is True
         assert errors == []
+
+    def test_custom_event_details_must_be_dict(self):
+        valid, errors = validate_event_details('custom', ['not', 'a', 'dict'])
+        assert valid is False
+        assert any('must be a dict' in e for e in errors)
 
     def test_mulch_null_details_rejected(self):
         valid, errors = validate_event_details('mulch', None)
@@ -345,5 +470,15 @@ class TestValidateEventDetailsDispatch:
 
     def test_maple_tapping_details_is_list(self):
         valid, errors = validate_event_details('maple-tapping', [1, 2, 3])
+        assert valid is False
+        assert any('must be a dict' in e for e in errors)
+
+    def test_fertilizing_null_details_rejected(self):
+        valid, errors = validate_event_details('fertilizing', None)
+        assert valid is False
+        assert any('required' in e for e in errors)
+
+    def test_irrigation_details_not_dict(self):
+        valid, errors = validate_event_details('irrigation', 'not-a-dict')
         assert valid is False
         assert any('must be a dict' in e for e in errors)

@@ -540,7 +540,7 @@ test.describe.serial('Site Review - P1 Partial-Coverage Tests', () => {
     await page.goto('/');
     await login(page, P1_USER.username, P1_USER.password);
     // Main nav button is "Seeds" (not "My Seeds")
-    await page.getByRole('button', { name: 'Seeds' }).click();
+    await navigateTo(page, TABS.SEEDS);
     await page.waitForLoadState('networkidle');
     // Should see seeds content and Seed Catalog sub-tab
     await expect(page.locator('text=Seed Catalog').first()).toBeVisible({ timeout: 10000 });

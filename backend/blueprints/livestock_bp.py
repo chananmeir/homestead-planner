@@ -444,6 +444,12 @@ def health_records():
     """Get all health records or add new record"""
     if request.method == 'POST':
         data = request.json
+
+        # Verify the animal belongs to current user
+        animal = Livestock.query.get(data.get('livestockId'))
+        if not animal or animal.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+
         next_due = None
         if data.get('nextDueDate'):
             next_due = parse_iso_date(data['nextDueDate'])

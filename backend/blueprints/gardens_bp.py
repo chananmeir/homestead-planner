@@ -25,6 +25,13 @@ from garden_methods import GARDEN_METHODS
 from conflict_checker import has_conflict, validate_planting_conflict, get_primary_planting_date, query_candidate_items
 from services.space_calculator import calculate_space_requirement
 from services.garden_planner_service import _calculate_seeds_needed
+from services.guild_service import validate_guild_placement
+from services.plant_outcome_service import (
+    PlantOutcomeError,
+    mark_planted_item_outcome,
+    mark_planted_items_bulk_outcome,
+    mark_planting_event_outcome,
+)
 from simulation_clock import get_now, get_utc_now
 from utils.constants import VALID_SUN_EXPOSURES
 
@@ -1004,16 +1011,17 @@ def _apply_variety_match(query, model, variety):
     return query.filter(model.variety == variety)
 
 
-def _matching_planting_event_for_item(item):
+def _matching_planting_event_for_item(item, include_cancelled=False):
     query = PlantingEvent.query.filter(
         PlantingEvent.user_id == item.user_id,
         PlantingEvent.garden_bed_id == item.garden_bed_id,
         PlantingEvent.plant_id == item.plant_id,
         PlantingEvent.position_x == item.position_x,
         PlantingEvent.position_y == item.position_y,
-        PlantingEvent.cancelled_at.is_(None),
         or_(PlantingEvent.event_type.is_(None), PlantingEvent.event_type == 'planting'),
     )
+    if not include_cancelled:
+        query = query.filter(PlantingEvent.cancelled_at.is_(None))
     query = _apply_variety_match(query, PlantingEvent, item.variety)
     events = query.all()
     if not events:
@@ -1100,6 +1108,8 @@ def update_planted_item_group_quantity(bed_id):
         PlantedItem.garden_bed_id == bed.id,
         PlantedItem.plant_id == plant_id,
         PlantedItem.cancelled_at.is_(None),
+        PlantedItem.cleared_at.is_(None),
+        PlantedItem.outcome.is_(None),
     )
     items_query = _apply_variety_match(items_query, PlantedItem, variety)
     items = items_query.order_by(
@@ -1172,6 +1182,8 @@ def update_planted_item_group_quantity(bed_id):
             PlantedItem.garden_bed_id == bed.id,
             PlantedItem.plant_id == plant_id,
             PlantedItem.cancelled_at.is_(None),
+            PlantedItem.cleared_at.is_(None),
+            PlantedItem.outcome.is_(None),
         )
         .filter(PlantedItem.id.in_([item.id for item in items]))
         .all()
@@ -1387,6 +1399,188 @@ def add_planted_item():
             error_msg = str(e)
         except UnicodeEncodeError:
             error_msg = repr(e)  # Fallback to repr if str() fails
+        return jsonify({'error': f'Database error: {error_msg}'}), 500
+
+
+@gardens_bp.route('/garden-beds/<int:bed_id>/guilds/<guild_id>', methods=['POST'])
+@login_required
+def insert_guild_into_bed(bed_id, guild_id):
+    """Insert a validated plant guild into a bed in one transaction."""
+    try:
+        data = request.get_json(silent=True) or {}
+        bed = GardenBed.query.filter_by(
+            id=bed_id,
+            user_id=current_user.id,
+        ).first()
+        if not bed:
+            return jsonify({'error': 'Garden bed not found'}), 404
+
+        origin = data.get('origin') or {}
+        try:
+            planted_date = parse_iso_date(data.get('plantedDate')) or get_now()
+        except ValueError:
+            return jsonify({'error': 'Invalid plantedDate'}), 400
+        validation = validate_guild_placement(
+            current_user.id,
+            bed,
+            guild_id,
+            origin.get('x', 0),
+            origin.get('y', 0),
+            planted_date=planted_date,
+            conflict_override=bool(data.get('conflictOverride', False)),
+        )
+        if validation is None:
+            return jsonify({'error': 'Guild not found'}), 404
+
+        if validation['errors']:
+            return jsonify({
+                'error': 'Guild placement is not valid',
+                'validation': validation,
+            }), 409
+
+        today_now = get_now()
+        today_date_only = today_now.date() if hasattr(today_now, 'date') else today_now
+        planted_date_only = planted_date.date() if hasattr(planted_date, 'date') else planted_date
+        is_completed = planted_date_only <= today_date_only
+
+        created_items = []
+        created_events = []
+        notes = data.get('notes') or f"Inserted from guild: {validation['guildName']}"
+
+        for placement in validation['placements']:
+            plant = get_plant_by_id(placement['plantId'])
+            if not plant:
+                db.session.rollback()
+                return jsonify({
+                    'error': f"Plant with ID {placement['plantId']} not found"
+                }), 400
+
+            weeks_indoors = plant.get('weeksIndoors', 0)
+            planting_method = 'transplant' if weeks_indoors and weeks_indoors > 0 else 'direct'
+            expected_harvest = planted_date
+            if plant.get('daysToMaturity') is not None:
+                expected_harvest = planted_date + timedelta(days=plant['daysToMaturity'])
+
+            status = data.get('status')
+            if not status:
+                status = (
+                    'transplanted' if planting_method == 'transplant' else 'seeded'
+                ) if is_completed else 'planned'
+
+            position = placement['position']
+            item = PlantedItem(
+                user_id=current_user.id,
+                plant_id=placement['plantId'],
+                variety=data.get('variety'),
+                garden_bed_id=bed.id,
+                planted_date=planted_date,
+                harvest_date=expected_harvest if expected_harvest != planted_date else None,
+                quantity=placement['quantity'],
+                status=status,
+                notes=notes,
+                position_x=position['x'],
+                position_y=position['y'],
+            )
+            event = PlantingEvent(
+                user_id=current_user.id,
+                plant_id=placement['plantId'],
+                variety=data.get('variety'),
+                garden_bed_id=bed.id,
+                direct_seed_date=planted_date if planting_method == 'direct' else None,
+                transplant_date=planted_date if planting_method == 'transplant' else None,
+                expected_harvest_date=expected_harvest,
+                position_x=position['x'],
+                position_y=position['y'],
+                notes=notes,
+                planting_method='individual_plants',
+                quantity=placement['quantity'],
+                completed=is_completed,
+                quantity_completed=placement['quantity'] if is_completed else 0,
+            )
+
+            db.session.add(item)
+            db.session.add(event)
+            created_items.append(item)
+            created_events.append((event, placement['quantity'], plant, planting_method))
+
+        db.session.flush()
+
+        indoor_seed_starts_created = 0
+        indoor_seed_starts_linked = 0
+        transplant_groups = {}
+        for event, quantity, plant, planting_method in created_events:
+            if planting_method != 'transplant':
+                continue
+            if not event.transplant_date:
+                continue
+            key = (
+                event.plant_id,
+                event.variety,
+                event.transplant_date.date().isoformat(),
+            )
+            if key not in transplant_groups:
+                transplant_groups[key] = {
+                    'events': [],
+                    'total_qty': 0,
+                    'plant': plant,
+                }
+            transplant_groups[key]['events'].append(event)
+            transplant_groups[key]['total_qty'] += quantity
+
+        reused_seed_start_ids = set()
+        for group in transplant_groups.values():
+            representative_event = group['events'][0]
+            existing_seed_start = _find_existing_indoor_seed_start(
+                current_user.id,
+                representative_event,
+            )
+            if (
+                existing_seed_start is not None
+                and existing_seed_start.id in reused_seed_start_ids
+            ):
+                existing_seed_start = None
+
+            if existing_seed_start is not None:
+                _link_existing_indoor_seed_start(existing_seed_start, representative_event)
+                reused_seed_start_ids.add(existing_seed_start.id)
+                indoor_seed_starts_linked += 1
+                for event in group['events'][1:]:
+                    event.seed_start_date = representative_event.seed_start_date
+            else:
+                seed_start = _auto_create_indoor_seed_start(
+                    current_user.id,
+                    representative_event,
+                    group['plant'],
+                    group['total_qty'],
+                )
+                if seed_start:
+                    indoor_seed_starts_created += 1
+                    for event in group['events'][1:]:
+                        event.seed_start_date = representative_event.seed_start_date
+
+        db.session.commit()
+
+        response_data = {
+            'guildId': validation['guildId'],
+            'guildName': validation['guildName'],
+            'bedId': bed.id,
+            'created': len(created_items),
+            'totalQuantity': sum(item.quantity or 0 for item in created_items),
+            'items': [item.to_dict() for item in created_items],
+            'validation': validation,
+        }
+        if indoor_seed_starts_created > 0:
+            response_data['indoorSeedStartsCreated'] = indoor_seed_starts_created
+        if indoor_seed_starts_linked > 0:
+            response_data['indoorSeedStartsLinked'] = indoor_seed_starts_linked
+
+        return jsonify(response_data), 201
+    except Exception as e:
+        db.session.rollback()
+        try:
+            error_msg = str(e)
+        except UnicodeEncodeError:
+            error_msg = repr(e)
         return jsonify({'error': f'Database error: {error_msg}'}), 500
 
 
@@ -2425,6 +2619,19 @@ def planting_events():
             data = request.json
             event_type = data.get('eventType', 'planting')
 
+            # Validate garden bed ownership up front — this covers every event
+            # type below, each of which builds its own PlantingEvent. Must run
+            # before any bed attribute is read, or a rejected request would
+            # still echo the bed's geometry back in the response.
+            garden_bed_id = data.get('gardenBedId')
+            bed = None
+            if garden_bed_id:
+                bed = GardenBed.query.get(garden_bed_id)
+                if not bed:
+                    return jsonify({'error': 'Garden bed not found'}), 404
+                if bed.user_id != current_user.id:
+                    return jsonify({'error': 'Unauthorized access to garden bed'}), 403
+
             # PLANTING EVENT - existing logic for plant-based events
             if event_type == 'planting':
                 # Validate required fields for planting
@@ -2433,14 +2640,12 @@ def planting_events():
 
                 # Calculate space_required if not provided by client
                 space_required = data.get('spaceRequired')
-                if space_required is None and data.get('gardenBedId'):
-                    bed = GardenBed.query.get(data['gardenBedId'])
-                    if bed:
-                        space_required = calculate_space_requirement(
-                            data['plantId'],
-                            bed.grid_size,
-                            bed.planning_method
-                        )
+                if space_required is None and bed is not None:
+                    space_required = calculate_space_requirement(
+                        data['plantId'],
+                        bed.grid_size,
+                        bed.planning_method
+                    )
 
                 # NEW: Extract seed density data if provided
                 seed_density_data = data.get('seedDensityData', {})
@@ -2599,6 +2804,65 @@ def planting_events():
                     notes=data.get('notes', '')
                 )
 
+            # FERTILIZING EVENT - garden maintenance event for fertilizer applications
+            elif event_type == 'fertilizing':
+                if not data.get('gardenBedId'):
+                    return jsonify({'error': 'gardenBedId required for fertilizing events'}), 400
+                if not data.get('applicationDate'):
+                    return jsonify({'error': 'applicationDate required for fertilizing events'}), 400
+
+                fertilizing_details = {
+                    'fertilizer_type': data.get('fertilizerType', 'balanced-organic'),
+                    'amount': data.get('amount'),
+                    'amount_unit': data.get('amountUnit', 'cup'),
+                    'application_method': data.get('applicationMethod', 'top-dress'),
+                    'npk': data.get('npk') or None,
+                }
+
+                from services.event_details_validator import validate_event_details
+                valid, errors = validate_event_details('fertilizing', fertilizing_details)
+                if not valid:
+                    return jsonify({'error': 'Invalid fertilizing event details', 'details': errors}), 400
+
+                event = PlantingEvent(
+                    user_id=current_user.id,
+                    event_type='fertilizing',
+                    plant_id='fertilizing-event',
+                    garden_bed_id=data['gardenBedId'],
+                    expected_harvest_date=parse_iso_date(data['applicationDate']),
+                    event_details=json.dumps(fertilizing_details),
+                    notes=data.get('notes', '')
+                )
+
+            # IRRIGATION EVENT - garden maintenance event for watering records
+            elif event_type == 'irrigation':
+                if not data.get('gardenBedId'):
+                    return jsonify({'error': 'gardenBedId required for irrigation events'}), 400
+                if not data.get('applicationDate'):
+                    return jsonify({'error': 'applicationDate required for irrigation events'}), 400
+
+                irrigation_details = {
+                    'method': data.get('method', 'drip'),
+                    'duration_minutes': data.get('durationMinutes'),
+                    'amount_gallons': data.get('amountGallons'),
+                    'zone': data.get('zone') or None,
+                }
+
+                from services.event_details_validator import validate_event_details
+                valid, errors = validate_event_details('irrigation', irrigation_details)
+                if not valid:
+                    return jsonify({'error': 'Invalid irrigation event details', 'details': errors}), 400
+
+                event = PlantingEvent(
+                    user_id=current_user.id,
+                    event_type='irrigation',
+                    plant_id='irrigation-event',
+                    garden_bed_id=data['gardenBedId'],
+                    expected_harvest_date=parse_iso_date(data['applicationDate']),
+                    event_details=json.dumps(irrigation_details),
+                    notes=data.get('notes', '')
+                )
+
             # MAPLE TAPPING EVENT - homestead event for tracking maple syrup production
             elif event_type == 'maple-tapping':
                 # Validate required fields
@@ -2630,7 +2894,29 @@ def planting_events():
                     notes=data.get('notes', '')
                 )
 
-            # FUTURE: Other event types (fertilizing, irrigation, etc.)
+            # CUSTOM EVENT - explicit escape hatch for future/private event details
+            elif event_type == 'custom':
+                event_date = data.get('eventDate') or data.get('applicationDate')
+                if not event_date:
+                    return jsonify({'error': 'eventDate required for custom events'}), 400
+
+                custom_details = data.get('eventDetails') or {}
+
+                from services.event_details_validator import validate_event_details
+                valid, errors = validate_event_details('custom', custom_details)
+                if not valid:
+                    return jsonify({'error': 'Invalid custom event details', 'details': errors}), 400
+
+                event = PlantingEvent(
+                    user_id=current_user.id,
+                    event_type='custom',
+                    plant_id='custom-event',
+                    garden_bed_id=data.get('gardenBedId'),
+                    expected_harvest_date=parse_iso_date(event_date),
+                    event_details=json.dumps(custom_details),
+                    notes=data.get('notes', '')
+                )
+
             else:
                 return jsonify({'error': f'Unsupported event type: {event_type}'}), 400
 
@@ -2807,6 +3093,383 @@ def uncancel_planting_event(event_id):
     }), 200
 
 
+def _find_matching_store_bought_item(event):
+    """Best-effort lookup used to make store-bought completion retries safe."""
+    target_date = event.transplant_date
+    if target_date is None:
+        return None
+
+    candidates = PlantedItem.query.filter(
+        PlantedItem.user_id == event.user_id,
+        PlantedItem.cancelled_at.is_(None),
+        PlantedItem.cleared_at.is_(None),
+        PlantedItem.garden_bed_id == event.garden_bed_id,
+        PlantedItem.plant_id == event.plant_id,
+    ).all()
+
+    target_day = target_date.date()
+    target_variety = event.variety or ''
+    for item in candidates:
+        item_date = item.transplant_date or item.planted_date
+        if item_date is None or item_date.date() != target_day:
+            continue
+        if (item.variety or '') != target_variety:
+            continue
+        return item
+    return None
+
+
+@gardens_bp.route('/planting-events/<int:event_id>/store-bought-transplant', methods=['POST'])
+@login_required
+def record_store_bought_transplant(event_id):
+    """Complete a transplant PlantingEvent using purchased seedlings."""
+    event = PlantingEvent.query.filter_by(
+        id=event_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if (event.event_type or 'planting') != 'planting':
+        return jsonify({'error': 'Only planting events can be recorded as store-bought transplants'}), 400
+    if event.cancelled_at is not None:
+        return jsonify({'error': 'Cannot record a cancelled transplant'}), 400
+    if event.transplant_date is None:
+        return jsonify({'error': 'Planting event is not a transplant'}), 400
+
+    linked_seed_start = IndoorSeedStart.query.filter_by(
+        planting_event_id=event.id,
+        user_id=current_user.id,
+    ).first()
+    if linked_seed_start is not None:
+        return jsonify({'error': 'This transplant is linked to an indoor seed start'}), 409
+
+    if event.is_complete:
+        if event.transplant_source == 'store_bought':
+            item = _find_matching_store_bought_item(event)
+            return jsonify({
+                'plantingEvent': event.to_dict(),
+                'plantedItem': item.to_dict() if item is not None else None,
+                'created': False,
+            }), 200
+        return jsonify({'error': 'Planting event is already complete'}), 409
+
+    data = request.json or {}
+    try:
+        transplant_date = (
+            parse_iso_date(data.get('transplantDate'))
+            if data.get('transplantDate')
+            else event.transplant_date
+        )
+    except ValueError:
+        return jsonify({'error': 'transplantDate must be a valid ISO date'}), 400
+    if transplant_date is None:
+        return jsonify({'error': 'transplantDate is required'}), 400
+
+    quantity_was_provided = 'quantity' in data
+    try:
+        quantity = int(data.get('quantity') if quantity_was_provided else (event.quantity or 1))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'quantity must be a positive integer'}), 400
+    if quantity < 1:
+        return jsonify({'error': 'quantity must be a positive integer'}), 400
+
+    garden_bed_id = data.get('gardenBedId', event.garden_bed_id)
+    if garden_bed_id is None:
+        return jsonify({'error': 'gardenBedId is required'}), 400
+    bed = GardenBed.query.filter_by(id=garden_bed_id, user_id=current_user.id).first()
+    if bed is None:
+        return jsonify({'error': 'Garden bed not found'}), 404
+
+    position = data.get('position') or {}
+    if not isinstance(position, dict):
+        return jsonify({'error': 'position must be an object'}), 400
+    try:
+        position_x = (
+            int(position['x'])
+            if position.get('x') is not None
+            else (event.position_x if event.position_x is not None else 0)
+        )
+        position_y = (
+            int(position['y'])
+            if position.get('y') is not None
+            else (event.position_y if event.position_y is not None else 0)
+        )
+    except (TypeError, ValueError):
+        return jsonify({'error': 'position x/y must be integers'}), 400
+
+    plant = get_plant_by_id(event.plant_id) if event.plant_id else None
+    expected_harvest = event.expected_harvest_date
+    if plant and plant.get('daysToMaturity') is not None:
+        expected_harvest = transplant_date + timedelta(days=plant['daysToMaturity'])
+
+    event.garden_bed_id = bed.id
+    event.transplant_date = transplant_date
+    event.transplant_source = 'store_bought'
+    event.completed = True
+    event.quantity_completed = quantity
+    if quantity_was_provided or event.quantity is None:
+        event.quantity = quantity
+    event.position_x = position_x
+    event.position_y = position_y
+    event.expected_harvest_date = expected_harvest
+
+    item = PlantedItem(
+        user_id=current_user.id,
+        plant_id=event.plant_id,
+        variety=event.variety,
+        garden_bed_id=bed.id,
+        planted_date=transplant_date,
+        transplant_date=transplant_date,
+        harvest_date=expected_harvest,
+        quantity=quantity,
+        status='transplanted',
+        position_x=position_x,
+        position_y=position_y,
+        source_plan_item_id=_parse_plan_item_id_from_export_key(event.export_key),
+        notes='Store-bought transplant',
+    )
+    db.session.add(item)
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        logging.exception('Failed to record store-bought transplant')
+        return jsonify({'error': f'Failed to record store-bought transplant: {str(exc)}'}), 500
+
+    return jsonify({
+        'plantingEvent': event.to_dict(),
+        'plantedItem': item.to_dict(),
+        'created': True,
+    }), 201
+
+
+def _parse_outcome_payload():
+    data = request.json or {}
+    raw_date = data.get('outcomeDate') or data.get('date')
+    try:
+        outcome_date = parse_iso_date(raw_date) if raw_date else get_utc_now()
+    except ValueError:
+        raise PlantOutcomeError('outcomeDate must be a valid ISO date')
+
+    return {
+        'outcome': data.get('outcome'),
+        'reason': data.get('outcomeReason') or data.get('reason'),
+        'outcome_date': outcome_date,
+        'notes': data.get('outcomeNotes') or data.get('notes') or None,
+    }
+
+
+@gardens_bp.route('/planting-events/<int:event_id>/outcome', methods=['POST'])
+@login_required
+def record_planting_event_outcome(event_id):
+    """Record a terminal plant outcome for a planting event."""
+    event = PlantingEvent.query.filter_by(
+        id=event_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    try:
+        payload = _parse_outcome_payload()
+        result = mark_planting_event_outcome(event, **payload)
+        db.session.commit()
+    except PlantOutcomeError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), exc.status_code
+    except Exception as exc:
+        db.session.rollback()
+        logging.exception('Failed to record planting event outcome')
+        return jsonify({'error': 'Failed to record planting event outcome'}), 500
+
+    return jsonify({
+        'plantingEvent': result['plantingEvent'].to_dict(),
+        'plantedItems': [item.to_dict() for item in result['plantedItems']],
+        'harvestRecords': [record.to_dict() for record in result['harvestRecords']],
+    }), 200
+
+
+@gardens_bp.route('/planted-items/bulk-outcome', methods=['POST'])
+@login_required
+def record_bulk_planted_item_outcome():
+    """Record a failed/did-not-establish outcome for multiple planted items atomically."""
+    data = request.json or {}
+    planted_item_ids = data.get('plantedItemIds') or []
+    if not isinstance(planted_item_ids, list) or not planted_item_ids:
+        return jsonify({'error': 'plantedItemIds must be a non-empty list'}), 400
+
+    try:
+        planted_item_ids = [int(item_id) for item_id in planted_item_ids]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'plantedItemIds must contain only numeric ids'}), 400
+
+    if len(set(planted_item_ids)) != len(planted_item_ids):
+        return jsonify({'error': 'plantedItemIds must not contain duplicates'}), 400
+
+    items = PlantedItem.query.filter(
+        PlantedItem.user_id == current_user.id,
+        PlantedItem.id.in_(planted_item_ids),
+    ).all()
+    items_by_id = {item.id: item for item in items}
+    if set(items_by_id) != set(planted_item_ids):
+        return jsonify({'error': 'One or more plantedItemIds are invalid or not owned by user'}), 403
+
+    ordered_items = [items_by_id[item_id] for item_id in planted_item_ids]
+
+    try:
+        payload = _parse_outcome_payload()
+        result = mark_planted_items_bulk_outcome(ordered_items, **payload)
+        db.session.commit()
+    except PlantOutcomeError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), exc.status_code
+    except Exception as exc:
+        db.session.rollback()
+        logging.exception('Failed to record bulk planted item outcome')
+        return jsonify({'error': 'Failed to record bulk planted item outcome'}), 500
+
+    return jsonify({
+        'plantedItems': [item.to_dict() for item in result['plantedItems']],
+        'plantingEvents': [event.to_dict() for event in result['plantingEvents']],
+        'harvestRecords': [record.to_dict() for record in result['harvestRecords']],
+    }), 200
+
+
+@gardens_bp.route('/planted-items/bulk-clear', methods=['POST'])
+@login_required
+def clear_bulk_planted_items():
+    """Soft-clear already-harvested planted items without creating harvest records."""
+    data = request.json or {}
+    planted_item_ids = data.get('plantedItemIds') or []
+    if not isinstance(planted_item_ids, list) or not planted_item_ids:
+        return jsonify({'error': 'plantedItemIds must be a non-empty list'}), 400
+
+    try:
+        planted_item_ids = [int(item_id) for item_id in planted_item_ids]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'plantedItemIds must contain only numeric ids'}), 400
+
+    if len(set(planted_item_ids)) != len(planted_item_ids):
+        return jsonify({'error': 'plantedItemIds must not contain duplicates'}), 400
+
+    items = PlantedItem.query.filter(
+        PlantedItem.user_id == current_user.id,
+        PlantedItem.id.in_(planted_item_ids),
+    ).all()
+    items_by_id = {item.id: item for item in items}
+    if set(items_by_id) != set(planted_item_ids):
+        return jsonify({'error': 'One or more plantedItemIds are invalid or not owned by user'}), 403
+
+    ordered_items = [items_by_id[item_id] for item_id in planted_item_ids]
+    for item in ordered_items:
+        if item.cleared_at is not None:
+            continue
+        if item.cancelled_at is not None:
+            return jsonify({'error': 'Cannot clear a cancelled planted item'}), 409
+        if item.outcome is not None:
+            return jsonify({'error': 'Cannot clear a planted item with a terminal outcome'}), 409
+        if item.status != 'harvested':
+            return jsonify({'error': 'Only already-harvested planted items can be clear-only closed'}), 409
+
+    clear_date = get_utc_now()
+    changed_events = []
+    try:
+        for item in ordered_items:
+            if item.cleared_at is None:
+                item.cleared_at = clear_date
+                if item.harvest_date is None:
+                    item.harvest_date = clear_date
+
+            event = _matching_planting_event_for_item(item)
+            if event is None:
+                continue
+
+            event.completed = True
+            event.harvest_completed = True
+            if event.actual_harvest_date is None:
+                event.actual_harvest_date = item.harvest_date or clear_date
+            if event.quantity is not None:
+                event.quantity_completed = event.quantity
+            if event.cleared_at is None:
+                event.cleared_at = clear_date
+            changed_events.append(event)
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logging.exception('Failed to clear harvested planted items')
+        return jsonify({'error': 'Failed to clear harvested planted items'}), 500
+
+    unique_events = list({event.id: event for event in changed_events if event.id is not None}.values())
+    return jsonify({
+        'plantedItems': [item.to_dict() for item in ordered_items],
+        'plantingEvents': [event.to_dict() for event in unique_events],
+        'harvestRecords': [],
+    }), 200
+
+
+@gardens_bp.route('/planted-items/<int:item_id>/outcome', methods=['POST'])
+@login_required
+def record_planted_item_outcome(item_id):
+    """Record a terminal plant outcome for a placed planted item."""
+    item = PlantedItem.query.filter_by(
+        id=item_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    try:
+        payload = _parse_outcome_payload()
+        result = mark_planted_item_outcome(item, **payload)
+        db.session.commit()
+    except PlantOutcomeError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), exc.status_code
+    except Exception as exc:
+        db.session.rollback()
+        logging.exception('Failed to record planted item outcome')
+        return jsonify({'error': 'Failed to record planted item outcome'}), 500
+
+    return jsonify({
+        'plantedItem': result['plantedItem'].to_dict(),
+        'plantingEvent': result['plantingEvent'].to_dict() if result['plantingEvent'] else None,
+        'harvestRecord': result['harvestRecord'].to_dict() if result['harvestRecord'] else None,
+    }), 200
+
+
+@gardens_bp.route('/planted-items/<int:item_id>/confirm-planted', methods=['POST'])
+@login_required
+def confirm_planted_item(item_id):
+    """Confirm a planned placed item was actually planted."""
+    item = PlantedItem.query.filter_by(
+        id=item_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    if item.cancelled_at is not None:
+        return jsonify({'error': 'Cannot confirm a cancelled planted item'}), 409
+    if item.outcome is not None:
+        return jsonify({'error': 'Cannot confirm an item that already has an outcome'}), 409
+    if item.status != 'planned':
+        return jsonify({'error': 'Only planned planted items can be confirmed planted'}), 409
+
+    planting_event = _matching_planting_event_for_item(item)
+    item.status = 'transplanted' if item.transplant_date is not None else 'growing'
+
+    if planting_event is not None:
+        planting_event.completed = True
+        planting_event.harvest_completed = False
+        if planting_event.quantity is not None:
+            planting_event.quantity_completed = planting_event.quantity
+        elif item.quantity is not None:
+            planting_event.quantity = item.quantity
+            planting_event.quantity_completed = item.quantity
+        _sync_indoor_start_on_completion(planting_event)
+
+    db.session.commit()
+    return jsonify({
+        'plantedItem': item.to_dict(),
+        'plantingEvent': planting_event.to_dict() if planting_event else None,
+    }), 200
+
+
 @gardens_bp.route('/planted-items/<int:item_id>/cancel', methods=['POST'])
 @login_required
 def cancel_planted_item(item_id):
@@ -2822,8 +3485,18 @@ def cancel_planted_item(item_id):
         user_id=current_user.id,
     ).first_or_404()
 
+    cancelled_at = item.cancelled_at or get_utc_now()
+    changed = False
     if item.cancelled_at is None:
-        item.cancelled_at = get_utc_now()
+        item.cancelled_at = cancelled_at
+        changed = True
+
+    planting_event = _matching_planting_event_for_item(item)
+    if planting_event is not None and planting_event.cancelled_at is None:
+        planting_event.cancelled_at = cancelled_at
+        changed = True
+
+    if changed:
         db.session.commit()
 
     return jsonify({
@@ -2841,8 +3514,16 @@ def uncancel_planted_item(item_id):
         user_id=current_user.id,
     ).first_or_404()
 
-    if item.cancelled_at is not None:
+    cancelled_at = item.cancelled_at
+    if cancelled_at is not None:
+        planting_event = _matching_planting_event_for_item(item, include_cancelled=True)
         item.cancelled_at = None
+        if (
+            planting_event is not None
+            and planting_event.cancelled_at is not None
+            and planting_event.cancelled_at == cancelled_at
+        ):
+            planting_event.cancelled_at = None
         db.session.commit()
 
     return jsonify({
@@ -3311,11 +3992,12 @@ def mark_event_harvested(event_id):
     data = request.get_json()
     harvest_date = data.get('harvestDate') if data else None
 
-    if harvest_date:
-        event.actual_harvest_date = parse_iso_date(harvest_date)
-    else:
-        # Default to today if no date provided
-        event.actual_harvest_date = get_now()
+    if event.actual_harvest_date is None:
+        if harvest_date:
+            event.actual_harvest_date = parse_iso_date(harvest_date)
+        else:
+            # Default to today if no date provided
+            event.actual_harvest_date = get_now()
 
     # Harvesting implies completion
     event.completed = True

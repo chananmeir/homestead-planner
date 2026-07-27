@@ -1,6 +1,6 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI, login } from './helpers/auth';
-import { navigateTo, TABS } from './helpers/navigation';
+import { navigateToSubTab, TABS } from './helpers/navigation';
 
 const BACKEND_URL = 'http://localhost:5000';
 
@@ -22,6 +22,9 @@ const RUN_ID = Date.now().toString(36);
 
 // Track IDs created by User A for cross-user access tests
 const userAIds: Record<string, number> = {};
+
+// User B's bed id, so the UI test can assert on the exact row rather than text
+let userBBedId: number;
 
 test.describe.serial('Auth & Data Isolation', () => {
   let ctxA: APIRequestContext;
@@ -221,6 +224,7 @@ test.describe.serial('Auth & Data Isolation', () => {
       },
     });
     expect(bedRes.status()).toBe(201);
+    userBBedId = (await bedRes.json()).id;
 
     // List beds — should see ONLY User B's bed, not User A's
     const listRes = await ctxB.get('/api/garden-beds');
@@ -266,15 +270,19 @@ test.describe.serial('Auth & Data Isolation', () => {
   test('UI - User A only sees own beds in designer', async ({ page }) => {
     await page.goto('/');
     await login(page, USER_A.username, USER_A.password);
-    await navigateTo(page, TABS.GARDEN_DESIGNER);
+    // The Garden Designer is a sub-tab of the "Design" nav group, not a
+    // top-level tab — navigateTo() alone never finds it and times out.
+    await navigateToSubTab(page, 'Design', TABS.GARDEN_DESIGNER);
 
-    // Bed names appear as <option> elements in a <select> dropdown,
-    // which Playwright considers "hidden". Use toBeAttached instead.
-    const userAOption = page.locator(`option:has-text("IsolationBed-${RUN_ID}")`);
-    await expect(userAOption).toBeAttached({ timeout: 15000 });
+    // The designer opens in overview mode, where each bed renders as a
+    // BedSummaryCard keyed by its database id. (The <select> of <option>s this
+    // test used to look for only exists in detail mode.) Asserting on the id
+    // proves exactly which rows were served to this session.
+    await expect(
+      page.getByTestId(`bed-card-${userAIds.bed}`),
+    ).toBeVisible({ timeout: 20000 });
 
-    // User B's bed should NOT exist in the dropdown
-    const userBOption = page.locator(`option:has-text("UserB-Bed-${RUN_ID}")`);
-    await expect(userBOption).not.toBeAttached();
+    // User B's bed must not be rendered at all
+    await expect(page.getByTestId(`bed-card-${userBBedId}`)).toHaveCount(0);
   });
 });

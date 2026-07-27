@@ -176,6 +176,386 @@ describe('NeedsAttentionPanel', () => {
     });
   });
 
+  test('harvest row outcome action can record poor germination', async () => {
+    const payload = emptyPayload();
+    payload.signals.harvestReady = [
+      {
+        signalKey: 'harvest:7',
+        plantingEventId: 7,
+        plantName: 'Carrot',
+        variety: 'Royal Chantenay',
+        bedId: 3,
+        bedName: 'SFG Bed 1',
+        quantity: 12,
+        daysPastExpected: 4,
+      },
+    ];
+    const fetchMock = installFetchMock([
+      { match: '/api/dashboard/today', response: payload },
+      { match: '/api/planting-events/7/outcome', response: { plantingEvent: { id: 7 }, plantedItems: [], harvestRecords: [] } },
+    ]);
+
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    const outcomeAction = await screen.findByRole('button', {
+      name: /Record outcome for Carrot \(Royal Chantenay\)/i,
+    });
+    fetchMock.mockClear();
+    fireEvent.click(outcomeAction);
+
+    expect(screen.getByRole('dialog', { name: /Record Plant Outcome/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Didn't establish/i }));
+    expect(screen.getByLabelText(/Reason/i)).toHaveValue('poor_germination');
+    fireEvent.click(screen.getByRole('button', { name: /^Record outcome$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/planting-events/7/outcome')
+      )).toBe(true);
+    });
+
+    const outcomeCall = fetchMock.mock.calls.find((args: any[]) =>
+      String(args[0]).includes('/api/planting-events/7/outcome')
+    );
+    expect(outcomeCall).toBeTruthy();
+    const init = outcomeCall![1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      outcome: 'didnt_establish',
+      outcomeReason: 'poor_germination',
+      outcomeDate: '2026-04-14',
+      outcomeNotes: 'Recorded from harvest reminder',
+    });
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/today')
+      )).toBe(true);
+    });
+  });
+
+  test('placement row not-planted action can record surplus or no space', async () => {
+    const payload = emptyPayload();
+    payload.signals.placePlantedItem = [
+      {
+        signalKey: 'place-planted-99',
+        plantedItemId: 99,
+        plantName: 'Lettuce',
+        variety: 'Buttercrunch',
+        plantedDate: '2026-04-14',
+        quantity: 6,
+        bedId: 3,
+        bedName: 'Bed Alpha',
+        positionX: 1,
+        positionY: 2,
+      },
+    ];
+    const fetchMock = installFetchMock([
+      { match: '/api/dashboard/today', response: payload },
+      { match: '/api/planted-items/99/outcome', response: { plantedItem: { id: 99 }, plantingEvent: null, harvestRecord: null } },
+    ]);
+
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    const outcomeAction = await screen.findByRole('button', {
+      name: /Record Lettuce \(Buttercrunch\) as not planted/i,
+    });
+    fetchMock.mockClear();
+    fireEvent.click(outcomeAction);
+
+    expect(screen.getByRole('dialog', { name: /Record Not Planted/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Reason/i), {
+      target: { value: 'surplus_no_space' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Record outcome$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/planted-items/99/outcome')
+      )).toBe(true);
+    });
+
+    const outcomeCall = fetchMock.mock.calls.find((args: any[]) =>
+      String(args[0]).includes('/api/planted-items/99/outcome')
+    );
+    expect(outcomeCall).toBeTruthy();
+    const init = outcomeCall![1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      outcome: 'not_planted',
+      outcomeReason: 'surplus_no_space',
+      outcomeDate: '2026-04-14',
+      outcomeNotes: 'Recorded from placement reminder',
+    });
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/today')
+      )).toBe(true);
+    });
+  });
+
+  test('placement row confirm action marks the planned item as planted', async () => {
+    const payload = emptyPayload();
+    payload.signals.placePlantedItem = [
+      {
+        signalKey: 'place-planted-99',
+        plantedItemId: 99,
+        plantName: 'Lettuce',
+        variety: 'Buttercrunch',
+        plantedDate: '2026-04-14',
+        quantity: 6,
+        bedId: 3,
+        bedName: 'Bed Alpha',
+        positionX: 1,
+        positionY: 2,
+      },
+    ];
+    const fetchMock = installFetchMock([
+      { match: '/api/dashboard/today', response: payload },
+      { match: '/api/planted-items/99/confirm-planted', response: { plantedItem: { id: 99, status: 'growing' }, plantingEvent: null } },
+    ]);
+
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    const confirmAction = await screen.findByRole('button', {
+      name: /Confirm Lettuce \(Buttercrunch\) was planted/i,
+    });
+    fetchMock.mockClear();
+    fireEvent.click(confirmAction);
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/planted-items/99/confirm-planted')
+      )).toBe(true);
+    });
+
+    const confirmCall = fetchMock.mock.calls.find((args: any[]) =>
+      String(args[0]).includes('/api/planted-items/99/confirm-planted')
+    );
+    expect(confirmCall).toBeTruthy();
+    const init = confirmCall![1] as RequestInit;
+    expect(init.method).toBe('POST');
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/today')
+      )).toBe(true);
+    });
+  });
+
+  test('seed-started transplant row exposes seed-start and bed navigation actions', async () => {
+    const payload = emptyPayload();
+    payload.signals.transplantsDue = [
+      {
+        signalKey: 'transplant-11',
+        plantingEventId: 11,
+        plantingEventIds: [11, 12],
+        indoorSeedStartId: 43,
+        indoorSeedStartIds: [43, 44],
+        plantName: 'Kale',
+        variety: 'Bare Necessities',
+        transplantDate: '2026-04-14',
+        transplantSource: 'seed_start',
+        quantity: 4,
+        bedId: 4,
+        bedName: 'Bed Beta',
+      },
+    ];
+    installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+
+    const nav = makeNav();
+    render(<NeedsAttentionPanel {...nav} />);
+
+    const seedStart = await screen.findByRole('button', {
+      name: /Go to seed start for Kale \(Bare Necessities\)/i,
+    });
+    expect(screen.getByRole('button', {
+      name: /View Kale \(Bare Necessities\) in Bed Beta/i,
+    })).toBeInTheDocument();
+    expect(screen.queryByRole('button', {
+      name: /Record Kale \(Bare Necessities\) as store-bought/i,
+    })).not.toBeInTheDocument();
+
+    fireEvent.click(seedStart);
+
+    expect(nav.onNavigate).toHaveBeenCalledTimes(1);
+    expect(nav.onNavigate).toHaveBeenCalledWith({
+      kind: 'indoorStart',
+      indoorSeedStartId: 43,
+      indoorSeedStartIds: [43, 44],
+      plantingEventId: 11,
+      plantingEventIds: [11, 12],
+    });
+  });
+
+  test('unlinked transplant row shows store-bought and bed navigation actions', async () => {
+    const payload = emptyPayload();
+    payload.signals.transplantsDue = [
+      {
+        signalKey: 'transplant-11',
+        plantingEventId: 11,
+        indoorSeedStartId: null,
+        indoorSeedStartIds: [],
+        plantName: 'Tomato',
+        variety: 'Roma',
+        transplantDate: '2026-04-14',
+        transplantSource: null,
+        quantity: 4,
+        bedId: 4,
+        bedName: 'Bed Beta',
+      },
+    ];
+    installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    await screen.findByText(/Transplant due/i);
+
+    expect(screen.queryByRole('button', {
+      name: /Go to seed start for Tomato \(Roma\)/i,
+    })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: /Record Tomato \(Roma\) as store-bought/i,
+    })).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: /View Tomato \(Roma\) in Bed Beta/i,
+    })).toBeInTheDocument();
+  });
+
+  test('store-bought action records an unlinked transplant and reloads signals', async () => {
+    const payload = emptyPayload();
+    payload.signals.transplantsDue = [
+      {
+        signalKey: 'transplant-11',
+        plantingEventId: 11,
+        indoorSeedStartId: null,
+        indoorSeedStartIds: [],
+        plantName: 'Tomato',
+        variety: 'Roma',
+        transplantDate: '2026-04-14',
+        transplantSource: null,
+        quantity: 4,
+        bedId: 4,
+        bedName: 'Bed Beta',
+      },
+    ];
+    const fetchMock = installFetchMock([
+      { match: '/api/dashboard/today', response: payload },
+      {
+        match: '/api/planting-events/11/store-bought-transplant',
+        response: { created: true, plantingEvent: { id: 11, transplantSource: 'store_bought' } },
+        status: 201,
+      },
+    ]);
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    const action = await screen.findByRole('button', {
+      name: /Record Tomato \(Roma\) as store-bought/i,
+    });
+    fetchMock.mockClear();
+    fireEvent.click(action);
+
+    expect(screen.getByRole('dialog', {
+      name: /Record Store-Bought Transplant/i,
+    })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Transplant date/i), {
+      target: { value: '2026-04-15' },
+    });
+    fireEvent.change(screen.getByLabelText(/Quantity/i), {
+      target: { value: '5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Record transplant$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/planting-events/11/store-bought-transplant')
+      )).toBe(true);
+    });
+
+    const storeBoughtCall = fetchMock.mock.calls.find((args: any[]) =>
+      String(args[0]).includes('/api/planting-events/11/store-bought-transplant')
+    );
+    expect(storeBoughtCall).toBeTruthy();
+    const init = storeBoughtCall![1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      transplantDate: '2026-04-15',
+      gardenBedId: 4,
+      quantity: 5,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', {
+        name: /Record Store-Bought Transplant/i,
+      })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((args: any[]) =>
+        String(args[0]).includes('/api/dashboard/today')
+      )).toBe(true);
+    });
+  });
+
+  test('grouped store-bought action fans out without overriding planned quantities', async () => {
+    const payload = emptyPayload();
+    payload.signals.transplantsDue = [
+      {
+        signalKey: 'transplant-21',
+        plantingEventId: 21,
+        plantingEventIds: [21, 22],
+        indoorSeedStartId: null,
+        indoorSeedStartIds: [],
+        plantName: 'Pepper',
+        variety: 'Jalapeno',
+        transplantDate: '2026-04-14',
+        transplantSource: null,
+        quantity: 7,
+        bedId: 4,
+        bedName: 'Bed Beta',
+      },
+    ];
+    const fetchMock = installFetchMock([
+      { match: '/api/dashboard/today', response: payload },
+      {
+        match: /\/api\/planting-events\/(21|22)\/store-bought-transplant$/,
+        response: { created: true },
+        status: 201,
+      },
+    ]);
+    render(<NeedsAttentionPanel {...makeNav()} />);
+
+    const action = await screen.findByRole('button', {
+      name: /Record Pepper \(Jalapeno\) as store-bought/i,
+    });
+    fetchMock.mockClear();
+    fireEvent.click(action);
+
+    expect(screen.getByText(/2 transplant tasks will use their planned quantities/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Quantity/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Record transplant$/i }));
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter((args: any[]) =>
+        String(args[0]).includes('/store-bought-transplant')
+      );
+      expect(calls).toHaveLength(2);
+    });
+
+    const storeBoughtCalls = fetchMock.mock.calls.filter((args: any[]) =>
+      String(args[0]).includes('/store-bought-transplant')
+    );
+    expect(storeBoughtCalls.map((args: any[]) =>
+      String(args[0]).replace(/^https?:\/\/[^/]+/, '')
+    )).toEqual([
+      '/api/planting-events/21/store-bought-transplant',
+      '/api/planting-events/22/store-bought-transplant',
+    ]);
+    for (const call of storeBoughtCalls) {
+      const body = JSON.parse((call[1] as RequestInit).body as string);
+      expect(body).toEqual({
+        transplantDate: '2026-04-14',
+        gardenBedId: 4,
+      });
+    }
+  });
+
   test('fetch URL respects API_BASE_URL and passes the simulated date param', async () => {
     const fetchMock = installFetchMock([{ match: '/api/dashboard/today', response: emptyPayload() }]);
     render(<NeedsAttentionPanel {...makeNav()} />);
@@ -744,6 +1124,20 @@ describe('NeedsAttentionPanel', () => {
       bedName: 'Bed Beta',
     });
 
+    const makeGerminationRow = (id: number) => ({
+      signalKey: `germination-${id}`,
+      plantingEventId: id,
+      plantingEventIds: [id],
+      plantName: 'Carrot',
+      variety: 'Nantes',
+      directSeedDate: '2026-02-15',
+      expectedGerminationDate: '2026-02-25',
+      germinationDays: 10,
+      quantity: 30,
+      bedId: 9,
+      bedName: 'Bed Beta',
+    });
+
     test('does NOT render Missed section when data.missed is absent (undefined)', async () => {
       const payload = emptyPayload();
       // Do not set payload.missed — stays undefined (older cached responses).
@@ -756,12 +1150,13 @@ describe('NeedsAttentionPanel', () => {
       expect(screen.queryByText(/^Missed \(/i)).not.toBeInTheDocument();
     });
 
-    test('does NOT render Missed section when all three missed arrays are empty', async () => {
+    test('does NOT render Missed section when all missed arrays are empty', async () => {
       const payload = emptyPayload();
       payload.missed = {
         indoorStartsDue: [],
         transplantsDue: [],
         directSeedDue: [],
+        germinationCheck: [],
       };
       installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
       render(<NeedsAttentionPanel {...makeNav()} />);
@@ -778,22 +1173,54 @@ describe('NeedsAttentionPanel', () => {
         indoorStartsDue: [makeIndoorRow(101, 'Jalapeno'), makeIndoorRow(102, 'Shishito')],
         transplantsDue: [makeTransplantRow(201)],
         directSeedDue: [makeDirectSeedRow(301)],
+        germinationCheck: [makeGerminationRow(401)],
       };
       installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
       render(<NeedsAttentionPanel {...makeNav()} />);
 
-      // Summary label shows the total count across the three buckets.
+      // Summary label shows the total count across all missed buckets.
       await waitFor(() => {
-        expect(screen.getByText(/^Missed \(4\)$/)).toBeInTheDocument();
+        expect(screen.getByText(/^Missed \(5\)$/)).toBeInTheDocument();
       });
 
       // Collapsed by default — the <details> element exists but inner rows
       // are not reachable via visible role queries. Inspect the `open`
       // attribute directly.
-      const summary = screen.getByText(/^Missed \(4\)$/);
+      const summary = screen.getByText(/^Missed \(5\)$/);
       const details = summary.closest('details') as HTMLDetailsElement;
       expect(details).not.toBeNull();
       expect(details.open).toBe(false);
+    });
+
+    test('Missed direct-seed germination rows ask for outcome confirmation and navigate to the event', async () => {
+      const payload = emptyPayload();
+      payload.missed = {
+        indoorStartsDue: [],
+        transplantsDue: [],
+        directSeedDue: [],
+        germinationCheck: [makeGerminationRow(401)],
+      };
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      const nav = makeNav();
+      render(<NeedsAttentionPanel {...nav} />);
+
+      const summary = await screen.findByText(/^Missed \(1\)$/);
+      const details = summary.closest('details') as HTMLDetailsElement;
+      act(() => {
+        details.open = true;
+        details.dispatchEvent(new Event('toggle', { bubbles: true }));
+      });
+
+      const title = screen.getByText(/Confirm germination outcome — Carrot \(Nantes\)/i);
+      expect(title).toBeInTheDocument();
+      expect(screen.getByText(/expected Feb 25/i)).toBeInTheDocument();
+
+      fireEvent.click(title);
+      expect(nav.onNavigate).toHaveBeenCalledWith({
+        kind: 'germinationCheck',
+        plantingEventId: 401,
+        bedId: 9,
+      });
     });
 
     test('Missed rows are visible after the user expands the section', async () => {
@@ -1431,6 +1858,35 @@ describe('NeedsAttentionPanel', () => {
       });
       // Subtitle composition: 36 plants · Bed Alpha · 4d past due
       expect(screen.getByText(/36 plants.*Bed Alpha.*4d past due/i)).toBeInTheDocument();
+    });
+
+    test('grouped harvest row click sends the full event id group', async () => {
+      const payload = emptyPayload();
+      payload.signals.harvestReady = [
+        {
+          signalKey: 'harvest-7',
+          plantingEventId: 7,
+          plantingEventIds: [7, 8, 9],
+          plantName: 'Lettuce',
+          variety: null,
+          bedId: 3,
+          bedName: 'Bed Alpha',
+          quantity: 36,
+          daysPastExpected: 4,
+        },
+      ];
+      installFetchMock([{ match: '/api/dashboard/today', response: payload }]);
+      const nav = makeNav();
+      render(<NeedsAttentionPanel {...nav} />);
+
+      const title = await screen.findByText(/Harvest ready.*Lettuce/i);
+      fireEvent.click(title.closest('button') as HTMLButtonElement);
+
+      expect(nav.onNavigate).toHaveBeenCalledWith({
+        kind: 'harvest',
+        plantingEventId: 7,
+        plantingEventIds: [7, 8, 9],
+      });
     });
 
     test('grouped indoor germination ISS-path uses indoor-germ-iss prefix on fan-out', async () => {

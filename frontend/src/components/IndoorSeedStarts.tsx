@@ -8,7 +8,7 @@ import { ImportFromGardenModal } from './IndoorSeedStarts/ImportFromGardenModal'
 import { EditSeedStartModal } from './IndoorSeedStarts/EditSeedStartModal';
 import { FailedSeedStartDialog } from './IndoorSeedStarts/FailedSeedStartDialog';
 import PlantIcon from './common/PlantIcon';
-import { formatLocalDate, parseLocalDate } from '../utils/dateUtils';
+import { formatDisplayDate, formatLocalDate, parseLocalDate } from '../utils/dateUtils';
 import { API_BASE_URL } from '../config';
 import { useNow, useToday } from '../contexts/SimulationContext';
 
@@ -118,7 +118,7 @@ const getDateKey = (value?: string | null): string | null => {
   if (match) return match[1];
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  return formatLocalDate(parsed);
 };
 
 const isDateInRange = (
@@ -364,14 +364,14 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({
 
   const formatDate = (dateString?: string): string => {
     if (!dateString) return '-';
-    const date = new Date(dateString);
-    return date.toLocaleDateString();
+    return formatDisplayDate(dateString);
   };
 
   const getDaysUntil = (dateString?: string): number | null => {
     if (!dateString) return null;
-    const date = new Date(dateString);
-    const diffTime = date.getTime() - now.getTime();
+    const date = parseLocalDate(dateString);
+    const todayDate = parseLocalDate(formatLocalDate(now));
+    const diffTime = date.getTime() - todayDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
@@ -678,7 +678,7 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({
     const raw = event.suggestedIndoorStartDate;
     if (!raw) return '-';
     try {
-      return new Date(raw).toLocaleDateString();
+      return formatDisplayDate(raw);
     } catch {
       return raw;
     }
@@ -1078,7 +1078,10 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({
                         </span>
                       );
                     })()}
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(start.status)}`}>
+                    <span
+                      data-testid={`iss-status-badge-${start.id}`}
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(start.status)}`}
+                    >
                       {start.status}
                     </span>
                   </div>
@@ -1163,7 +1166,7 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({
                     <div className="flex justify-between">
                       <span className="text-gray-600">Germinated on:</span>
                       <span className="font-medium text-green-600">
-                        {new Date(start.actualGerminationDate).toLocaleDateString()}
+                        {formatDisplayDate(start.actualGerminationDate)}
                         {start.actualGerminationDays != null && (
                           <span className="text-gray-500 ml-1">({start.actualGerminationDays}d)</span>
                         )}
@@ -1198,7 +1201,7 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({
                             : undefined
                         }
                       >
-                        {parseLocalDate(start.expectedTransplantDate).toLocaleDateString('en-US', {
+                        {formatDisplayDate(start.expectedTransplantDate, {
                           month: 'long', day: 'numeric', year: 'numeric',
                         })}
                       </span>
@@ -1221,7 +1224,7 @@ const IndoorSeedStarts: React.FC<IndoorSeedStartsProps> = ({
                               <button
                                 onClick={() => onNavigateToBed(bed.id, placementNavigationDate)}
                                 className="text-green-700 hover:text-green-900 underline decoration-dotted hover:decoration-solid cursor-pointer"
-                                title={`Open ${bed.name} in Garden Designer on ${parseLocalDate(placementNavigationDate).toLocaleDateString()}`}
+                                title={`Open ${bed.name} in Garden Designer on ${formatDisplayDate(placementNavigationDate)}`}
                               >
                                 {bed.name}
                               </button>

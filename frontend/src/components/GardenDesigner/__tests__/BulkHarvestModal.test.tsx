@@ -103,9 +103,34 @@ describe('BulkHarvestModal', () => {
         unit: 'lbs',
         quality: 'good',
         notes: undefined,
+        idempotencyKey: expect.any(String),
+        finalHarvest: false,
       });
       await waitFor(() => expect(props.onSuccess).toHaveBeenCalledTimes(1));
       expect(props.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test('sends finalHarvest when the final harvest checkbox is selected', async () => {
+      mockApiPost.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          harvestGroupId: 'uuid',
+          plantedItems: [
+            { id: 1, clearedAt: '2026-05-04T00:00:00' },
+            { id: 2, clearedAt: '2026-05-04T00:00:00' },
+            { id: 3, clearedAt: '2026-05-04T00:00:00' },
+          ],
+        }),
+      });
+      renderModal();
+
+      fireEvent.click(screen.getByLabelText(/Final harvest/i));
+      fireEvent.click(screen.getByTestId('bulk-harvest-submit'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledTimes(1));
+      const [, body] = mockApiPost.mock.calls[0];
+      expect(body.finalHarvest).toBe(true);
+      expect(screen.getByTestId('bulk-harvest-submit')).toHaveTextContent('Log Final Harvest (3)');
     });
 
     test('shows backend error message on failure', async () => {
@@ -120,6 +145,58 @@ describe('BulkHarvestModal', () => {
       expect(await screen.findByText('Items not owned by user')).toBeInTheDocument();
       expect(props.onSuccess).not.toHaveBeenCalled();
       expect(props.onClose).not.toHaveBeenCalled();
+    });
+
+    test('posts a bulk failed outcome when opened in failure mode', async () => {
+      mockApiPost.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ plantedItems: [], harvestRecords: [] }),
+      });
+      const { props } = renderModal({
+        initialMode: 'failure',
+        failureScopeLabel: 'row (3 cells)',
+      });
+
+      expect(screen.getByText('row (3 cells) selected')).toBeInTheDocument();
+      expect((screen.getByLabelText('Outcome') as HTMLSelectElement).value).toBe('didnt_establish');
+      expect((screen.getByLabelText('Reason') as HTMLSelectElement).value).toBe('poor_germination');
+      fireEvent.change(screen.getByLabelText(/Notes/), { target: { value: 'Whole row failed to germinate' } });
+      fireEvent.click(screen.getByTestId('bulk-harvest-submit'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledTimes(1));
+      expect(mockApiPost).toHaveBeenCalledWith('/api/planted-items/bulk-outcome', {
+        plantedItemIds: [1, 2, 3],
+        outcome: 'didnt_establish',
+        outcomeReason: 'poor_germination',
+        outcomeDate: '2026-05-04',
+        outcomeNotes: 'Whole row failed to germinate',
+        idempotencyKey: expect.any(String),
+      });
+      await waitFor(() => expect(props.onSuccess).toHaveBeenCalledTimes(1));
+      expect(props.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test('can switch from harvest mode to failed outcome mode', async () => {
+      mockApiPost.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ plantedItems: [], harvestRecords: [] }),
+      });
+      renderModal();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Failed' }));
+      fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'failed' } });
+      fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'pest' } });
+      fireEvent.click(screen.getByTestId('bulk-harvest-submit'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledTimes(1));
+      expect(mockApiPost).toHaveBeenCalledWith('/api/planted-items/bulk-outcome', {
+        plantedItemIds: [1, 2, 3],
+        outcome: 'failed',
+        outcomeReason: 'pest',
+        outcomeDate: '2026-05-04',
+        outcomeNotes: undefined,
+        idempotencyKey: expect.any(String),
+      });
     });
   });
 });

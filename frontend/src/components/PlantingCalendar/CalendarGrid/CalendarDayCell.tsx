@@ -49,7 +49,7 @@ interface CalendarDayCellProps {
  * Phase-completion quick-toggle only makes sense for phases whose completion
  * lives on the PlantingEvent itself: transplant/direct-seed (completed) and
  * harvest (harvestCompleted). Seed-start completion is tracked on the linked
- * IndoorSeedStart, and mulch/maple events have no completion tracking.
+ * IndoorSeedStart, and maintenance events use the detail modal's Done toggle.
  */
 const canQuickComplete = (marker: DateMarkerOrGroup): boolean => {
   const events = getMarkerEvents(marker);

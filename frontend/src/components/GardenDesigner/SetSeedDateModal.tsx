@@ -3,6 +3,7 @@ import { Modal } from '../common/Modal';
 import { PlantedItem, Plant } from '../../types';
 import { apiPut } from '../../utils/api';
 import { useNow } from '../../contexts/SimulationContext';
+import { formatLocalDate, parseDateInputValue, parseLocalDate } from '../../utils/dateUtils';
 
 interface SetSeedDateModalProps {
   isOpen: boolean;
@@ -11,6 +12,16 @@ interface SetSeedDateModalProps {
   plant: Plant | undefined;
   onSuccess: (updated: PlantedItem) => void;
 }
+
+const normalizeSeedDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  const date = typeof value === 'string'
+    ? parseLocalDate(value)
+    : value instanceof Date
+      ? new Date(value)
+      : new Date(value as string | number);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
 
 const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
   isOpen,
@@ -25,14 +36,15 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
   const dtm = plant?.daysToMaturity ?? 0;
   const computeDefaultDate = (): string => {
     if (plantedItem.seedMaturityDate) {
-      return new Date(plantedItem.seedMaturityDate).toISOString().split('T')[0];
+      const seedDate = normalizeSeedDate(plantedItem.seedMaturityDate);
+      if (seedDate) return formatLocalDate(seedDate);
     }
     // Use harvest date if available, else transplant/planted + DTM
-    const harvestDate = plantedItem.harvestDate ? new Date(plantedItem.harvestDate) : null;
+    const harvestDate = normalizeSeedDate(plantedItem.harvestDate);
     const inGroundDate = plantedItem.transplantDate
-      ? new Date(plantedItem.transplantDate)
+      ? normalizeSeedDate(plantedItem.transplantDate)
       : plantedItem.plantedDate
-        ? new Date(plantedItem.plantedDate)
+        ? normalizeSeedDate(plantedItem.plantedDate)
         : null;
     let baseDate = harvestDate;
     if (!baseDate && inGroundDate && dtm) {
@@ -42,12 +54,12 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
     if (baseDate && daysToSeed) {
       const result = new Date(baseDate);
       result.setDate(result.getDate() + daysToSeed);
-      return result.toISOString().split('T')[0];
+      return formatLocalDate(result);
     }
     // Fallback: 60 days from now
     const fallback = new Date(now);
     fallback.setDate(fallback.getDate() + 60);
-    return fallback.toISOString().split('T')[0];
+    return formatLocalDate(fallback);
   };
   const [dateStr, setDateStr] = useState(computeDefaultDate());
   const [submitting, setSubmitting] = useState(false);
@@ -62,7 +74,7 @@ const SetSeedDateModal: React.FC<SetSeedDateModalProps> = ({
     setError(null);
     try {
       const response = await apiPut(`/api/planted-items/${plantedItem.id}`, {
-        seedMaturityDate: new Date(dateStr).toISOString(),
+        seedMaturityDate: parseDateInputValue(dateStr).toISOString(),
       });
 
       if (!response.ok) {

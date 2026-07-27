@@ -1,7 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI, login } from './helpers/auth';
 import { navigateTo, navigateToSubTab, TABS } from './helpers/navigation';
-import { createValidCSV, promoteToAdmin } from './helpers/data-setup';
+import { createValidCSV, setUserAdminFlag } from './helpers/data-setup';
 import { SHARED_USER, BACKEND_URL, RUN_ID } from './helpers/shared-user';
 
 /**
@@ -22,7 +22,25 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
     await loginViaAPI(ctx, SHARED_USER.username, SHARED_USER.password);
   });
 
-  test.afterAll(async () => {
+  test.afterAll(async ({ playwright }) => {
+    // Demote the shared user back to a regular account.
+    //
+    // AU-02 promotes SHARED_USER and AU-03..AU-15 depend on it staying admin,
+    // so the demote has to happen here rather than straight after AU-02.
+    // Without it the promotion persists in the dev database and AU-01
+    // ("non-admin does not see Admin tab") can only ever pass once — every
+    // later run of this suite would fail on its first test.
+    //
+    // Best-effort: a cleanup failure must not mask a real test failure.
+    const adminCtx = await playwright.request.newContext({ baseURL: BACKEND_URL });
+    try {
+      await setUserAdminFlag(adminCtx, SHARED_USER.username, false);
+    } catch (err) {
+      console.warn(`[AU cleanup] could not demote ${SHARED_USER.username}:`, err);
+    } finally {
+      await adminCtx.dispose();
+    }
+
     await ctx.dispose();
   });
 
@@ -41,28 +59,11 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
   });
 
   test('AU-02: Promote user to admin via bootstrap API', async ({ playwright }) => {
-    // Create a fresh admin context using bootstrap credentials
+    // Dedicated context: setUserAdminFlag logs it in as the bootstrap admin,
+    // which would otherwise clobber our own session on `ctx`.
     const adminCtx = await playwright.request.newContext({ baseURL: BACKEND_URL });
     try {
-      // Login as bootstrap admin
-      const loginResp = await adminCtx.post('/api/auth/login', {
-        data: { username: 'admin', password: 'admin123' },
-      });
-      expect(loginResp.ok()).toBeTruthy();
-
-      // Find our test user
-      const searchResp = await adminCtx.get(`/api/admin/users?search=${SHARED_USER.username}`);
-      expect(searchResp.ok()).toBeTruthy();
-      const data = await searchResp.json();
-      const users = data.users || data; // Handle both { users: [] } and [] shapes
-      const user = users.find((u: any) => u.username === SHARED_USER.username);
-      expect(user).toBeDefined();
-
-      // Promote to admin
-      const promoteResp = await adminCtx.put(`/api/admin/users/${user.id}`, {
-        data: { isAdmin: true },
-      });
-      expect(promoteResp.ok()).toBeTruthy();
+      await setUserAdminFlag(adminCtx, SHARED_USER.username, true);
     } finally {
       await adminCtx.dispose();
     }
@@ -134,7 +135,7 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
     await login(page, SHARED_USER.username, SHARED_USER.password);
 
     // Click the main Seeds tab
-    await page.getByRole('button', { name: 'Seeds' }).click();
+    await navigateTo(page, TABS.SEEDS);
     await page.waitForLoadState('networkidle');
 
     // Seeds page should load (may show inventory, catalog, etc.)
@@ -149,7 +150,7 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
     await page.goto('/');
     await login(page, SHARED_USER.username, SHARED_USER.password);
 
-    await page.getByRole('button', { name: 'Seeds' }).click();
+    await navigateTo(page, TABS.SEEDS);
     await page.waitForLoadState('networkidle');
 
     // Click Seed Catalog sub-tab
@@ -170,7 +171,7 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
     await page.goto('/');
     await login(page, SHARED_USER.username, SHARED_USER.password);
 
-    await page.getByRole('button', { name: 'Seeds' }).click();
+    await navigateTo(page, TABS.SEEDS);
     await page.waitForLoadState('networkidle');
 
     // Look for Import CSV button
@@ -182,7 +183,7 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
     await page.goto('/');
     await login(page, SHARED_USER.username, SHARED_USER.password);
 
-    await page.getByRole('button', { name: 'Seeds' }).click();
+    await navigateTo(page, TABS.SEEDS);
     await page.waitForLoadState('networkidle');
 
     const importBtn = page.locator('button:has-text("Import CSV"), button:has-text("Import")').first();
@@ -197,7 +198,7 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
     await page.goto('/');
     await login(page, SHARED_USER.username, SHARED_USER.password);
 
-    await page.getByRole('button', { name: 'Seeds' }).click();
+    await navigateTo(page, TABS.SEEDS);
     await page.waitForLoadState('networkidle');
 
     const importBtn = page.locator('button:has-text("Import CSV"), button:has-text("Import")').first();
@@ -252,7 +253,7 @@ test.describe.serial('P2 Journey: Admin, CSV Import & Export', () => {
     await page.goto('/');
     await login(page, SHARED_USER.username, SHARED_USER.password);
 
-    await page.getByRole('button', { name: 'Seeds' }).click();
+    await navigateTo(page, TABS.SEEDS);
     await page.waitForLoadState('networkidle');
 
     // Look for our imported varieties

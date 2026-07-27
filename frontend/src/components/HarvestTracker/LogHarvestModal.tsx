@@ -3,23 +3,53 @@ import { Modal, Button, FormSelect, FormTextarea, FormDatePicker, FormNumber, us
 
 import { API_BASE_URL } from '../../config';
 import { useToday } from '../../contexts/SimulationContext';
+import { createIdempotencyKey } from '../../utils/idempotency';
 interface Plant {
   id: string;
   name: string;
   category: string;
 }
 
+export interface HarvestLogPrefill {
+  plantId?: string;
+  harvestDate?: string;
+  quantity?: number;
+  unit?: string;
+  quality?: string;
+  notes?: string;
+  plantedItemId?: number;
+  plantedItemIds?: number[];
+  sourceLabel?: string;
+}
+
+export interface HarvestLogRecordResult {
+  id?: number;
+  plantId?: string;
+  plantedItemId?: number | null;
+  quality?: string;
+  outcome?: string | null;
+  yieldExcluded?: boolean;
+  harvestGroupId?: string | null;
+}
+
+export interface HarvestLogResult extends HarvestLogRecordResult {
+  harvestGroupId?: string;
+  records?: HarvestLogRecordResult[];
+}
+
 interface LogHarvestModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (result?: HarvestLogResult) => void;
+  initialValues?: HarvestLogPrefill | null;
 }
 
-export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClose, onSuccess }) => {
+export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClose, onSuccess, initialValues }) => {
   const today = useToday();
   const { showSuccess, showError } = useToast();
   const [loading, setLoading] = useState(false);
   const [plants, setPlants] = useState<Plant[]>([]);
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey);
   const [formData, setFormData] = useState({
     plantId: '',
     harvestDate: today, // Default to today
@@ -46,19 +76,20 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
       fetchPlants();
       // Reset form when modal opens
       setFormData({
-        plantId: '',
-        harvestDate: today,
-        quantity: 1,
-        unit: 'lbs',
-        quality: 'good',
-        notes: '',
+        plantId: initialValues?.plantId || '',
+        harvestDate: initialValues?.harvestDate || today,
+        quantity: initialValues?.quantity ?? 1,
+        unit: initialValues?.unit || 'lbs',
+        quality: initialValues?.quality || 'good',
+        notes: initialValues?.notes || '',
       });
+      setIdempotencyKey(createIdempotencyKey());
       setErrors({});
     }
     // `today` is intentionally excluded: the form should reset only when the modal opens,
     // not mid-session if the simulated date advances (which would wipe user input).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, fetchPlants]);
+  }, [isOpen, fetchPlants, initialValues]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -84,16 +115,35 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
 
     setLoading(true);
     try {
-      const payload = {
-        plantId: formData.plantId,
-        harvestDate: formData.harvestDate,
-        quantity: formData.quantity,
-        unit: formData.unit,
-        quality: formData.quality,
-        notes: formData.notes || undefined,
-      };
+      const plantedItemIds = initialValues?.plantedItemIds?.length
+        ? initialValues.plantedItemIds
+        : initialValues?.plantedItemId
+          ? [initialValues.plantedItemId]
+          : [];
+      const isBulkHarvest = plantedItemIds.length > 1;
+      const payload = isBulkHarvest
+        ? {
+            plantedItemIds,
+            plantId: formData.plantId,
+            harvestDate: formData.harvestDate,
+            totalQuantity: formData.quantity,
+            unit: formData.unit,
+            quality: formData.quality,
+            notes: formData.notes || undefined,
+            idempotencyKey,
+          }
+        : {
+            plantId: formData.plantId,
+            plantedItemId: plantedItemIds[0],
+            harvestDate: formData.harvestDate,
+            quantity: formData.quantity,
+            unit: formData.unit,
+            quality: formData.quality,
+            notes: formData.notes || undefined,
+            idempotencyKey,
+          };
 
-      const response = await fetch(`${API_BASE_URL}/api/harvests`, {
+      const response = await fetch(`${API_BASE_URL}/api/harvests${isBulkHarvest ? '/bulk' : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -101,8 +151,9 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
       });
 
       if (response.ok) {
-        showSuccess('Harvest logged successfully!');
-        onSuccess();
+        const result = await response.json();
+        showSuccess(isBulkHarvest ? 'Bulk harvest logged successfully!' : 'Harvest logged successfully!');
+        onSuccess(result);
         onClose();
       } else {
         const errorData = await response.json();
@@ -138,6 +189,12 @@ export const LogHarvestModal: React.FC<LogHarvestModalProps> = ({ isOpen, onClos
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Log New Harvest">
       <div className="space-y-4">
+        {initialValues?.sourceLabel && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {initialValues.sourceLabel}
+          </div>
+        )}
+
         <FormSelect
           label="Plant"
           options={[{ value: '', label: 'Select a plant...' }, ...plantOptions]}

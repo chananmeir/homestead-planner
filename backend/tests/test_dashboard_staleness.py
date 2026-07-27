@@ -6,9 +6,10 @@ Contract under test (services/dashboard_service.py):
 - Reminders older than a type-specific threshold (measured as
   target_date - trigger_date) age out of signals.* into the new missed.*
   block, for `indoorStartsDue`, `transplantsDue`, `directSeedDue`.
-- Germination checks (`germinationCheck` + `indoorGerminationCheck`) drop
-  silently when the expected germination date is more than
-  STALE_GERMINATION_CHECK_DAYS past target_date. No missed bucket.
+- Direct-seed germination checks age out into `missed.germinationCheck`
+  when the expected germination date is more than
+  STALE_GERMINATION_CHECK_DAYS past target_date. Indoor germination checks
+  still drop silently.
 - Harvest rows (`harvestReady`) NEVER drop. They gain an `isStale: bool` flag
   when daysPastExpected > HARVEST_DEMOTION_DAYS.
 - Snooze filtering runs across BOTH signals.* and missed.* — a dismissed item
@@ -102,6 +103,7 @@ class TestResponseShape:
         assert body['missed']['indoorStartsDue'] == []
         assert body['missed']['transplantsDue'] == []
         assert body['missed']['directSeedDue'] == []
+        assert body['missed']['germinationCheck'] == []
 
     def test_signals_block_unchanged_shape(self, auth_client_a):
         body = _body(auth_client_a)
@@ -317,10 +319,10 @@ class TestDirectSeedStaleness:
 
 
 # ---------------------------------------------------------------------------
-# Germination checks (silent drop, no missed bucket)
+# Direct-seed germination checks (stale rows move to missed)
 # ---------------------------------------------------------------------------
 
-class TestGerminationCheckSilentDrop:
+class TestGerminationCheckStaleness:
 
     def test_fresh_germ_check_present(self, auth_client_a, user_a):
         # direct_seed_date: enough days back that expected_germ has passed
@@ -336,7 +338,7 @@ class TestGerminationCheckSilentDrop:
         # Expected germ was ~2 days ago (12 - 10) — well within window
         assert len(body['signals']['germinationCheck']) == 1
 
-    def test_stale_germ_check_dropped_silently(self, auth_client_a, user_a):
+    def test_stale_germ_check_moves_to_missed(self, auth_client_a, user_a):
         # direct_seed_date 60 days back — expected_germ ~50d ago, way past
         # STALE_GERMINATION_CHECK_DAYS = 14
         _make_event(
@@ -346,8 +348,11 @@ class TestGerminationCheckSilentDrop:
         )
         body = _body(auth_client_a)
         assert body['signals']['germinationCheck'] == []
-        # No missed bucket for germ checks
-        assert 'germinationCheck' not in body['missed']
+        assert len(body['missed']['germinationCheck']) == 1
+        row = body['missed']['germinationCheck'][0]
+        assert row['plantName'] == 'Lettuce'
+        assert row['directSeedDate'] == (TODAY - timedelta(days=60)).isoformat()
+        assert row['expectedGerminationDate'] <= TODAY.isoformat()
 
 
 class TestIndoorGerminationCheckSilentDrop:

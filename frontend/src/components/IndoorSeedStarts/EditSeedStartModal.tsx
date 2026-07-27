@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiGet, apiPut } from '../../utils/api';
 import { Modal } from '../common/Modal';
+import { formatDisplayDate } from '../../utils/dateUtils';
 
 export interface IndoorSeedStart {
   id: number;
@@ -123,6 +124,7 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
 
   // Filter to seeds matching this plant
   const matchingSeeds = seedInventory.filter(s => s.plantId === seedStart.plantId);
+  const isTransplanted = seedStart.status === 'transplanted';
 
   const handleSeedSelection = (value: string) => {
     if (value === '__custom__') {
@@ -139,6 +141,11 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (formData.status === 'failed' && isTransplanted) {
+      showError('Seed start is already transplanted');
+      return;
+    }
 
     // Intercept: if changing to 'failed' and there's a linked planting event, open cascade dialog
     if (
@@ -210,7 +217,9 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
             <option value="growing">Growing</option>
             <option value="hardening">Hardening Off</option>
             <option value="transplanted">Transplanted</option>
-            <option value="failed">Failed</option>
+            <option value="failed" disabled={isTransplanted}>
+              {isTransplanted ? 'Failed (not available after transplant)' : 'Failed'}
+            </option>
           </select>
         </div>
 
@@ -413,13 +422,13 @@ export const EditSeedStartModal: React.FC<EditSeedStartModalProps> = ({
           {seedStart.expectedGerminationDate && (
             <div className="flex justify-between">
               <span className="text-gray-600">Expected Germination:</span>
-              <span className="font-medium">{new Date(seedStart.expectedGerminationDate).toLocaleDateString()}</span>
+              <span className="font-medium">{formatDisplayDate(seedStart.expectedGerminationDate)}</span>
             </div>
           )}
           {seedStart.expectedTransplantDate && (
             <div className="flex justify-between">
               <span className="text-gray-600">Expected Transplant:</span>
-              <span className="font-medium">{new Date(seedStart.expectedTransplantDate).toLocaleDateString()}</span>
+              <span className="font-medium">{formatDisplayDate(seedStart.expectedTransplantDate)}</span>
             </div>
           )}
         </div>

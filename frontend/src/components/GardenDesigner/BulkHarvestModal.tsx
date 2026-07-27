@@ -1,8 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal } from '../common/Modal';
-import { PlantedItem } from '../../types';
+import { PlantedItem, PlantOutcome, PlantOutcomeReason } from '../../types';
 import { apiPost } from '../../utils/api';
 import { useToday } from '../../contexts/SimulationContext';
+import { createIdempotencyKey } from '../../utils/idempotency';
+import {
+  defaultReasonByOutcome,
+  plantOutcomeLabels,
+  plantOutcomeReasonLabels,
+  reasonOptionsByOutcome,
+} from '../common/PlantOutcomeDialog';
 
 interface BulkHarvestModalProps {
   isOpen: boolean;
@@ -15,11 +22,35 @@ interface BulkHarvestModalProps {
   variety?: string;
   /** Items eligible for this bulk harvest. Must all belong to the current user. */
   eligibleItems: PlantedItem[];
-  onSuccess: () => void;
+  initialMode?: 'harvest' | 'failure';
+  failureScopeLabel?: string;
+  onSuccess: (result?: BulkHarvestResult) => void;
+}
+
+export interface BulkHarvestRecordResult {
+  id?: number;
+  plantId?: string;
+  plantedItemId?: number | null;
+  quality?: string;
+  outcome?: PlantOutcome | null;
+  outcomeReason?: PlantOutcomeReason | null;
+  yieldExcluded?: boolean;
+  harvestGroupId?: string | null;
+}
+
+export interface BulkHarvestResult {
+  harvestGroupId?: string;
+  records?: BulkHarvestRecordResult[];
+  plantedItems?: PlantedItem[];
+  plantingEvents?: unknown[];
+  harvestRecords?: BulkHarvestRecordResult[];
 }
 
 type Unit = 'lbs' | 'oz' | 'count' | 'bunches';
 type Quality = 'excellent' | 'good' | 'fair' | 'poor';
+type FailureOutcome = Extract<PlantOutcome, 'failed' | 'didnt_establish'>;
+type BulkMode = 'harvest' | 'failure';
+const failureOutcomes: FailureOutcome[] = ['didnt_establish', 'failed'];
 
 const BulkHarvestModal: React.FC<BulkHarvestModalProps> = ({
   isOpen,
@@ -28,128 +59,266 @@ const BulkHarvestModal: React.FC<BulkHarvestModalProps> = ({
   plantName,
   variety,
   eligibleItems,
+  initialMode = 'harvest',
+  failureScopeLabel,
   onSuccess,
 }) => {
   const today = useToday();
+  const [mode, setMode] = useState<BulkMode>(initialMode);
   const [harvestDate, setHarvestDate] = useState(today);
   const [totalQuantity, setTotalQuantity] = useState<number>(1);
   const [unit, setUnit] = useState<Unit>('lbs');
   const [quality, setQuality] = useState<Quality>('good');
+  const [finalHarvest, setFinalHarvest] = useState(false);
+  const [outcome, setOutcome] = useState<FailureOutcome>('didnt_establish');
+  const [outcomeReason, setOutcomeReason] = useState<PlantOutcomeReason>('poor_germination');
   const [notes, setNotes] = useState('');
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const itemCount = eligibleItems.length;
+  const eligibleItemKey = eligibleItems.map(item => item.id).join(',');
+  const failureScope = failureScopeLabel || (itemCount === 1 ? 'cell' : `${itemCount} cells`);
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+      setHarvestDate(today);
+      setTotalQuantity(1);
+      setUnit('lbs');
+      setQuality('good');
+      setFinalHarvest(false);
+      setOutcome('didnt_establish');
+      setOutcomeReason(defaultReasonByOutcome.didnt_establish);
+      setNotes('');
+      setError(null);
+      setIdempotencyKey(createIdempotencyKey());
+    }
+  }, [isOpen, eligibleItemKey, initialMode, today]);
+
+  const handleModeChange = (nextMode: BulkMode) => {
+    setMode(nextMode);
+    if (nextMode === 'failure') {
+      setFinalHarvest(false);
+    }
+    setError(null);
+  };
+
+  const handleOutcomeChange = (nextOutcome: FailureOutcome) => {
+    setOutcome(nextOutcome);
+    setOutcomeReason(defaultReasonByOutcome[nextOutcome]);
+  };
 
   const handleSubmit = async () => {
     setError(null);
     if (!harvestDate) {
-      setError('Harvest date is required');
+      setError(mode === 'failure' ? 'Outcome date is required' : 'Harvest date is required');
       return;
     }
-    if (!(totalQuantity > 0)) {
+    if (mode === 'harvest' && !(totalQuantity > 0)) {
       setError('Total quantity must be greater than 0');
       return;
     }
     if (itemCount === 0) {
-      setError('No eligible items to harvest');
+      setError(mode === 'failure' ? 'No eligible items to mark failed' : 'No eligible items to harvest');
       return;
     }
 
     setSubmitting(true);
     try {
-      const response = await apiPost('/api/harvests/bulk', {
-        plantedItemIds: eligibleItems.map(i => i.id),
-        plantId,
-        harvestDate,
-        totalQuantity,
-        unit,
-        quality,
-        notes: notes || undefined,
-      });
+      const response = mode === 'failure'
+        ? await apiPost('/api/planted-items/bulk-outcome', {
+          plantedItemIds: eligibleItems.map(i => i.id),
+          outcome,
+          outcomeReason,
+          outcomeDate: harvestDate,
+          outcomeNotes: notes || undefined,
+          idempotencyKey,
+        })
+        : await apiPost('/api/harvests/bulk', {
+          plantedItemIds: eligibleItems.map(i => i.id),
+          plantId,
+          harvestDate,
+          totalQuantity,
+          unit,
+          quality,
+          notes: notes || undefined,
+          idempotencyKey,
+          finalHarvest,
+        });
 
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to log harvest');
+        const errData = result as { error?: string };
+        throw new Error(errData.error || (mode === 'failure' ? 'Failed to record outcome' : 'Failed to log harvest'));
       }
 
-      onSuccess();
+      onSuccess(result as BulkHarvestResult);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to log harvest');
+      setError(err instanceof Error ? err.message : (mode === 'failure' ? 'Failed to record outcome' : 'Failed to log harvest'));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Bulk Harvest" size="small">
+    <Modal isOpen={isOpen} onClose={onClose} title={mode === 'failure' ? 'Bulk Plant Outcome' : 'Bulk Harvest'} size="small">
       <div className="space-y-4">
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-          <p className="text-sm font-medium text-green-800">
-            Harvesting {plantName}{variety ? ` (${variety})` : ''}
+        <div className={`${mode === 'failure' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'} border rounded-lg p-3`}>
+          <p className={`text-sm font-medium ${mode === 'failure' ? 'text-red-800' : 'text-green-800'}`}>
+            {mode === 'failure' ? 'Marking outcome for ' : 'Harvesting '}{plantName}{variety ? ` (${variety})` : ''}
           </p>
-          <p className="text-xs text-green-600 mt-1">
-            {itemCount} {itemCount === 1 ? 'cell' : 'cells'} ready
+          <p className={`text-xs mt-1 ${mode === 'failure' ? 'text-red-600' : 'text-green-600'}`}>
+            {mode === 'failure'
+              ? `${failureScope} selected`
+              : `${itemCount} ${itemCount === 1 ? 'cell' : 'cells'} ready`}
           </p>
         </div>
 
+        <div className="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1">
+          <button
+            type="button"
+            onClick={() => handleModeChange('harvest')}
+            disabled={submitting}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              mode === 'harvest'
+                ? 'bg-white text-green-800 shadow-sm'
+                : 'text-gray-700 hover:bg-white/70'
+            } disabled:opacity-50`}
+          >
+            Harvested
+          </button>
+          <button
+            type="button"
+            onClick={() => handleModeChange('failure')}
+            disabled={submitting}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              mode === 'failure'
+                ? 'bg-white text-red-800 shadow-sm'
+                : 'text-gray-700 hover:bg-white/70'
+            } disabled:opacity-50`}
+          >
+            Failed
+          </button>
+        </div>
+
         <div>
-          <label htmlFor="bulk-harvest-date" className="block text-sm font-medium text-gray-700 mb-1">Harvest Date</label>
+          <label htmlFor="bulk-harvest-date" className="block text-sm font-medium text-gray-700 mb-1">
+            {mode === 'failure' ? 'Outcome Date' : 'Harvest Date'}
+          </label>
           <input
             id="bulk-harvest-date"
             type="date"
             value={harvestDate}
             onChange={(e) => setHarvestDate(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:border-transparent ${
+              mode === 'failure' ? 'focus:ring-red-500' : 'focus:ring-green-500'
+            }`}
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="bulk-harvest-quantity" className="block text-sm font-medium text-gray-700 mb-1">
-              Total Quantity
-            </label>
-            <input
-              id="bulk-harvest-quantity"
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={totalQuantity}
-              onChange={(e) => setTotalQuantity(parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label htmlFor="bulk-harvest-unit" className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
-            <select
-              id="bulk-harvest-unit"
-              value={unit}
-              onChange={(e) => setUnit(e.target.value as Unit)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            >
-              <option value="lbs">Pounds (lbs)</option>
-              <option value="oz">Ounces (oz)</option>
-              <option value="count">Count</option>
-              <option value="bunches">Bunches</option>
-            </select>
-          </div>
-        </div>
+        {mode === 'failure' ? (
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="bulk-outcome" className="block text-sm font-medium text-gray-700 mb-1">Outcome</label>
+              <select
+                id="bulk-outcome"
+                value={outcome}
+                onChange={(e) => handleOutcomeChange(e.target.value as FailureOutcome)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              >
+                {failureOutcomes.map(option => (
+                  <option key={option} value={option}>
+                    {plantOutcomeLabels[option]}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        <div>
-          <label htmlFor="bulk-harvest-quality" className="block text-sm font-medium text-gray-700 mb-1">Quality</label>
-          <select
-            id="bulk-harvest-quality"
-            value={quality}
-            onChange={(e) => setQuality(e.target.value as Quality)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-          >
-            <option value="excellent">Excellent</option>
-            <option value="good">Good</option>
-            <option value="fair">Fair</option>
-            <option value="poor">Poor</option>
-          </select>
-        </div>
+            <div>
+              <label htmlFor="bulk-outcome-reason" className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+              <select
+                id="bulk-outcome-reason"
+                value={outcomeReason}
+                onChange={(e) => setOutcomeReason(e.target.value as PlantOutcomeReason)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              >
+                {reasonOptionsByOutcome[outcome].map(reason => (
+                  <option key={reason} value={reason}>
+                    {plantOutcomeReasonLabels[reason]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="bulk-harvest-quantity" className="block text-sm font-medium text-gray-700 mb-1">
+                  Total Quantity
+                </label>
+                <input
+                  id="bulk-harvest-quantity"
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={totalQuantity}
+                  onChange={(e) => setTotalQuantity(parseFloat(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="bulk-harvest-unit" className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+                <select
+                  id="bulk-harvest-unit"
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value as Unit)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  <option value="lbs">Pounds (lbs)</option>
+                  <option value="oz">Ounces (oz)</option>
+                  <option value="count">Count</option>
+                  <option value="bunches">Bunches</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="bulk-harvest-quality" className="block text-sm font-medium text-gray-700 mb-1">Quality</label>
+              <select
+                id="bulk-harvest-quality"
+                value={quality}
+                onChange={(e) => setQuality(e.target.value as Quality)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              >
+                <option value="excellent">Excellent</option>
+                <option value="good">Good</option>
+                <option value="fair">Fair</option>
+                <option value="poor">Poor</option>
+              </select>
+            </div>
+
+            <label className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900">
+              <input
+                type="checkbox"
+                data-testid="bulk-harvest-final-checkbox"
+                checked={finalHarvest}
+                onChange={(e) => setFinalHarvest(e.target.checked)}
+                disabled={submitting}
+                className="mt-0.5 h-4 w-4 rounded border-green-300 text-green-700 focus:ring-green-500"
+              />
+              <span>
+                <span className="block font-medium">Final harvest</span>
+                <span className="block text-xs text-green-700">
+                  Clear these plantings from the bed after saving.
+                </span>
+              </span>
+            </label>
+          </>
+        )}
 
         <div>
           <label htmlFor="bulk-harvest-notes" className="block text-sm font-medium text-gray-700 mb-1">
@@ -161,8 +330,12 @@ const BulkHarvestModal: React.FC<BulkHarvestModalProps> = ({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            placeholder="e.g. End of season pull, light pest damage on a few"
+            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:border-transparent ${
+              mode === 'failure' ? 'focus:ring-red-500' : 'focus:ring-green-500'
+            }`}
+            placeholder={mode === 'failure'
+              ? 'e.g. Whole row failed to germinate'
+              : 'e.g. End of season pull, light pest damage on a few'}
           />
         </div>
 
@@ -184,9 +357,17 @@ const BulkHarvestModal: React.FC<BulkHarvestModalProps> = ({
             data-testid="bulk-harvest-submit"
             onClick={handleSubmit}
             disabled={submitting}
-            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+            className={`flex-1 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 ${
+              mode === 'failure' ? 'bg-red-700 hover:bg-red-800' : 'bg-green-600 hover:bg-green-700'
+            }`}
           >
-            {submitting ? 'Saving...' : `Log Harvest (${itemCount})`}
+            {submitting
+              ? 'Saving...'
+              : mode === 'failure'
+                ? `Mark Failed (${itemCount})`
+                : finalHarvest
+                  ? `Log Final Harvest (${itemCount})`
+                  : `Log Harvest (${itemCount})`}
           </button>
         </div>
       </div>

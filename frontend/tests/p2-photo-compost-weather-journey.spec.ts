@@ -56,6 +56,8 @@ test.describe.serial('P2 Journey: Photos, Compost & Weather', () => {
   });
 
   test('PW-03: Upload a photo through the modal', async ({ page }) => {
+    const before = ((await (await ctx.get('/api/photos')).json()) as unknown[]).length;
+
     await page.goto('/');
     await login(page, SHARED_USER.username, SHARED_USER.password);
     await navigateTo(page, TABS.PHOTOS);
@@ -91,12 +93,22 @@ test.describe.serial('P2 Journey: Photos, Compost & Weather', () => {
     // Wait for modal to close or success indication
     await page.waitForLoadState('networkidle');
 
+    // Assert the upload actually happened, and poll rather than assume it has
+    // landed by the time networkidle fires.
+    //
+    // This step previously only did `if (photos.length > 0) { ... }`, so a
+    // failed or slow upload still passed here and surfaced later as PW-04
+    // ("uploaded photo appears in gallery") failing for no visible reason —
+    // an intermittent failure pointing at the wrong test.
+    await expect
+      .poll(async () => ((await (await ctx.get('/api/photos')).json()) as unknown[]).length, {
+        timeout: 15000,
+      })
+      .toBeGreaterThan(before);
+
     // Track the photo ID via API for cleanup
-    const resp = await ctx.get('/api/photos');
-    const photos = await resp.json();
-    if (photos.length > 0) {
-      photoIds.push(photos[photos.length - 1].id);
-    }
+    const photos = await (await ctx.get('/api/photos')).json();
+    photoIds.push(photos[photos.length - 1].id);
   });
 
   test('PW-04: Uploaded photo appears in gallery grid', async ({ page }) => {

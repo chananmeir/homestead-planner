@@ -14,7 +14,7 @@ Routes:
 """
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, and_
 from datetime import datetime
 from utils.helpers import parse_iso_date
 import logging
@@ -53,6 +53,21 @@ def validate_plant_id(plant_id):
 
 
 # ==================== SEED INVENTORY ====================
+
+def _include_archived_requested():
+    return request.args.get('includeArchived', 'false').lower() == 'true'
+
+
+def _visible_seed_filter(include_archived=False):
+    personal_filters = [SeedInventory.user_id == current_user.id]
+    if not include_archived:
+        personal_filters.append(SeedInventory.is_archived == False)
+
+    return or_(
+        SeedInventory.is_global == True,
+        and_(*personal_filters),
+    )
+
 
 @seeds_bp.route('/seeds', methods=['GET', 'POST'])
 @login_required
@@ -119,12 +134,9 @@ def api_seeds():
             db.session.rollback()
             return jsonify({'error': 'Failed to create seed'}), 500
 
-    # GET: Return global seeds + user's personal seeds
+    # GET: Return global seeds + user's personal seeds. Archived personal seeds are opt-in.
     seeds = SeedInventory.query.filter(
-        or_(
-            SeedInventory.is_global == True,
-            SeedInventory.user_id == current_user.id
-        )
+        _visible_seed_filter(include_archived=_include_archived_requested())
     ).all()
     return jsonify([seed.to_dict() for seed in seeds])
 
@@ -136,13 +148,17 @@ def get_varieties_by_plant(plant_id):
     try:
         catalog_only = request.args.get('catalogOnly', 'false').lower() == 'true'
         my_seeds_only = request.args.get('mySeedsOnly', 'false').lower() == 'true'
+        include_archived = _include_archived_requested()
 
         if my_seeds_only:
-            # Return only the current user's personal seeds
-            seeds = SeedInventory.query.filter_by(
+            # Return only the current user's personal seeds. Archived personal seeds are opt-in.
+            query = SeedInventory.query.filter_by(
                 plant_id=plant_id,
                 user_id=current_user.id
-            ).all()
+            )
+            if not include_archived:
+                query = query.filter(SeedInventory.is_archived == False)
+            seeds = query.all()
         elif catalog_only:
             # Return only global catalog varieties
             seeds = SeedInventory.query.filter_by(
@@ -150,13 +166,10 @@ def get_varieties_by_plant(plant_id):
                 is_global=True
             ).all()
         else:
-            # Return global + user's personal seeds
+            # Return global + user's personal seeds. Archived personal seeds are opt-in.
             seeds = SeedInventory.query.filter(
                 SeedInventory.plant_id == plant_id,
-                or_(
-                    SeedInventory.is_global == True,
-                    SeedInventory.user_id == current_user.id
-                )
+                _visible_seed_filter(include_archived=include_archived)
             ).all()
 
         # Return just variety names (unique, sorted, non-empty)
@@ -193,6 +206,10 @@ def seed_item(seed_id):
     seed.quantity = data.get('quantity', seed.quantity)
     seed.germination_rate = data.get('germinationRate', seed.germination_rate)
     seed.notes = data.get('notes', seed.notes)
+    if 'isArchived' in data:
+        if seed.is_global:
+            return jsonify({'error': 'Global catalog varieties cannot be archived'}), 400
+        seed.is_archived = bool(data.get('isArchived'))
 
     # Update agronomic overrides using field mapping
     field_mapping = {
@@ -309,21 +326,22 @@ def get_my_seeds():
     """Get current user's personal seed inventory (optionally include global catalog)"""
     # Check if we should include global catalog seeds (for variety dropdowns)
     include_global = request.args.get('includeGlobal', 'false').lower() == 'true'
+    include_archived = _include_archived_requested()
 
     if include_global:
         # Include both personal seeds and global catalog (for Garden Designer)
         my_seeds = SeedInventory.query.filter(
-            or_(
-                SeedInventory.is_global == True,
-                SeedInventory.user_id == current_user.id
-            )
+            _visible_seed_filter(include_archived=include_archived)
         ).all()
     else:
-        # Only personal seeds (for Seed Inventory page)
-        my_seeds = SeedInventory.query.filter_by(
+        # Only personal seeds (for Seed Inventory page). Archived seeds are opt-in.
+        query = SeedInventory.query.filter_by(
             user_id=current_user.id,
             is_global=False
-        ).all()
+        )
+        if not include_archived:
+            query = query.filter(SeedInventory.is_archived == False)
+        my_seeds = query.all()
 
     return jsonify([seed.to_dict() for seed in my_seeds])
 

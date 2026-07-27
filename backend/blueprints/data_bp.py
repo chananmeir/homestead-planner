@@ -15,13 +15,16 @@ Routes:
 (Removed Jun 2026 — no callers anywhere incl. backend/templates:
 /plants/<id>, /plant-guilds/<id>, /garden-methods[/<id>].)
 """
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 
 from plant_database import PLANT_DATABASE
 from structures_database import STRUCTURES_DATABASE, STRUCTURE_CATEGORIES
 from garden_methods import PLANT_GUILDS, BED_TEMPLATES, get_guild_by_id, get_template_by_id
 from models import GardenBed
+from services.guild_service import validate_guild_placement
+from simulation_clock import get_now
+from utils.helpers import parse_iso_date
 
 data_bp = Blueprint('data', __name__, url_prefix='/api')
 
@@ -68,6 +71,42 @@ def get_guild(guild_id):
     if guild:
         return jsonify(guild)
     return jsonify({'error': 'Guild not found'}), 404
+
+
+@data_bp.route('/guilds/<guild_id>/validate-placement', methods=['POST'])
+@login_required
+def validate_guild(guild_id):
+    """Validate a guild placement against one of the user's garden beds."""
+    data = request.get_json(silent=True) or {}
+    bed_id = data.get('gardenBedId')
+    if bed_id is None:
+        return jsonify({'error': 'gardenBedId is required'}), 400
+
+    bed = GardenBed.query.filter_by(
+        id=bed_id,
+        user_id=current_user.id,
+    ).first()
+    if not bed:
+        return jsonify({'error': 'Garden bed not found'}), 404
+
+    origin = data.get('origin') or {}
+    try:
+        planted_date = parse_iso_date(data.get('plantedDate')) or get_now()
+    except ValueError:
+        return jsonify({'error': 'Invalid plantedDate'}), 400
+    validation = validate_guild_placement(
+        current_user.id,
+        bed,
+        guild_id,
+        origin.get('x', 0),
+        origin.get('y', 0),
+        planted_date=planted_date,
+        conflict_override=bool(data.get('conflictOverride', False)),
+    )
+    if validation is None:
+        return jsonify({'error': 'Guild not found'}), 404
+
+    return jsonify(validation)
 
 
 @data_bp.route('/plant-guilds')

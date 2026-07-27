@@ -7,7 +7,7 @@ import { ChevronDown, ChevronUp, Package, AlertTriangle, Info, MapPin, Calendar,
 import { extractCropName } from '../../utils/plantUtils';
 import { coordinateToGridLabel } from './utils/gridCoordinates';
 import { calculateSpaceRequirement } from '../../utils/gardenPlannerSpaceCalculator';
-import { parseLocalDate } from '../../utils/dateUtils';
+import { formatDisplayDate, formatLocalDate, parseLocalDate } from '../../utils/dateUtils';
 import { useNow } from '../../contexts/SimulationContext';
 
 /**
@@ -64,8 +64,19 @@ function getDateAwarePlannedCount(
 
 /** Format a date string as a short human-readable label (e.g., "Apr 15") */
 function formatShortDate(dateStr: string): string {
-  const d = parseLocalDate(dateStr);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return formatDisplayDate(dateStr, { month: 'short', day: 'numeric' });
+}
+
+function normalizeDateValue(value: unknown): Date | null {
+  if (!value) return null;
+  const date = typeof value === 'string'
+    ? parseLocalDate(value)
+    : value instanceof Date
+      ? new Date(value)
+      : new Date(value as string | number);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
 /** Detail for a single succession planting within a planned item */
@@ -148,11 +159,11 @@ function computeSuccessionDetails(
   for (let i = 0; i < succCount; i++) {
     const plantDate = new Date(firstDate);
     plantDate.setDate(plantDate.getDate() + i * intervalDays);
-    const plantDateStr = `${plantDate.getFullYear()}-${String(plantDate.getMonth() + 1).padStart(2, '0')}-${String(plantDate.getDate()).padStart(2, '0')}`;
+    const plantDateStr = formatLocalDate(plantDate);
 
     const harvestDate = new Date(plantDate);
     harvestDate.setDate(harvestDate.getDate() + resolvedDtm);
-    const harvestDateStr = `${harvestDate.getFullYear()}-${String(harvestDate.getMonth() + 1).padStart(2, '0')}-${String(harvestDate.getDate()).padStart(2, '0')}`;
+    const harvestDateStr = formatLocalDate(harvestDate);
 
     const qty = baseQty + (i < remainder ? 1 : 0);
     const plantDateMs = plantDate.getTime();
@@ -164,8 +175,8 @@ function computeSuccessionDetails(
     const placedForSuccession = itemsAreLinked
       ? matchingPlantedItems.filter(pi => {
           if (!pi.plantedDate) return false;
-          const pd = new Date(pi.plantedDate);
-          pd.setHours(0, 0, 0, 0);
+          const pd = normalizeDateValue(pi.plantedDate);
+          if (!pd) return false;
           return Math.abs(pd.getTime() - plantDateMs) <= TOLERANCE_MS;
         })
       : [];
@@ -187,8 +198,7 @@ function computeSuccessionDetails(
       // Legacy fallback: date proximity matching
       const evtDateStr = evt.directSeedDate || evt.transplantDate || evt.seedStartDate;
       if (!evtDateStr) return false;
-      const evtDate = new Date(evtDateStr);
-      evtDate.setHours(0, 0, 0, 0);
+      const evtDate = parseLocalDate(evtDateStr);
       return Math.abs(evtDate.getTime() - plantDateMs) <= TOLERANCE_MS;
     });
 
@@ -280,8 +290,8 @@ const SuccessionTimeline: React.FC<{ details: SuccessionDetail[] }> = ({ details
     <div className="mb-2">
       {/* Date labels */}
       <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
-        <span>{formatShortDate(new Date(minMs).toISOString().slice(0, 10))}</span>
-        <span>{formatShortDate(new Date(maxMs).toISOString().slice(0, 10))}</span>
+        <span>{formatShortDate(formatLocalDate(new Date(minMs)))}</span>
+        <span>{formatShortDate(formatLocalDate(new Date(maxMs)))}</span>
       </div>
       {/* Timeline bar */}
       <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden">
@@ -704,7 +714,7 @@ const PlannedPlantsSection: React.FC<PlannedPlantsSectionProps> = ({
       try {
         // Derive year from dateFilter or default to current year
         const year = dateFilter?.date
-          ? new Date(dateFilter.date).getFullYear()
+          ? parseLocalDate(dateFilter.date).getFullYear()
           : now.getFullYear();
 
         const response = await fetch(

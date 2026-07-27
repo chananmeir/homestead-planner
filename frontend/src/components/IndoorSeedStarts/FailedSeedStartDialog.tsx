@@ -3,6 +3,7 @@ import { apiPost } from '../../utils/api';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { IndoorSeedStart } from './EditSeedStartModal';
+import { formatDisplayDate } from '../../utils/dateUtils';
 
 interface FailedSeedStartDialogProps {
   isOpen: boolean;
@@ -58,7 +59,7 @@ export const FailedSeedStartDialog: React.FC<FailedSeedStartDialogProps> = ({
           <strong>{displayName}</strong> has a linked planting event
           {seedStart.expectedTransplantDate && (
             <> scheduled for transplant on{' '}
-              <strong>{new Date(seedStart.expectedTransplantDate).toLocaleDateString()}</strong>
+              <strong>{formatDisplayDate(seedStart.expectedTransplantDate)}</strong>
             </>
           )}.
         </p>

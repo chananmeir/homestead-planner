@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Plant, PlantingEvent, FrostTolerance, GardenBed } from '../../types';
 import { API_BASE_URL } from '../../config';
+import { formatDisplayDate } from '../../utils/dateUtils';
 
 interface WeatherAlertBannerProps {
   date: string; // ISO date from dateFilter
@@ -282,8 +283,7 @@ const WeatherAlertBanner: React.FC<WeatherAlertBannerProps> = ({
   }
 
   const formatDate = () => {
-    const [year, month, day] = date.split('-').map(Number);
-    return new Date(year, month - 1, day).toLocaleDateString();
+    return formatDisplayDate(date);
   };
 
   // Cold alert style

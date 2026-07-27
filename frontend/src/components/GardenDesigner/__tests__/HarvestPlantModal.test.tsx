@@ -134,6 +134,8 @@ describe('HarvestPlantModal', () => {
         unit: 'lbs',
         quality: 'good',
         notes: 'first pick',
+        idempotencyKey: expect.any(String),
+        finalHarvest: false,
       });
       await waitFor(() => expect(props.onSuccess).toHaveBeenCalledTimes(1));
       expect(props.onClose).toHaveBeenCalledTimes(1);
@@ -148,6 +150,22 @@ describe('HarvestPlantModal', () => {
       expect(body.notes).toBeUndefined();
     });
 
+    test('sends finalHarvest when the final harvest checkbox is selected', async () => {
+      mockApiPost.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 100, plantedItem: { id: 42, clearedAt: '2026-05-04T00:00:00' } }),
+      });
+      renderModal();
+
+      fireEvent.click(screen.getByLabelText(/Final harvest/i));
+      fireEvent.click(screen.getByTestId('harvest-plant-submit'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledTimes(1));
+      const [, body] = mockApiPost.mock.calls[0];
+      expect(body.finalHarvest).toBe(true);
+      expect(screen.getByTestId('harvest-plant-submit')).toHaveTextContent('Log Final Harvest');
+    });
+
     test('shows backend error message when response is not ok and does not call onSuccess', async () => {
       mockApiPost.mockResolvedValueOnce({
         ok: false,
@@ -159,6 +177,53 @@ describe('HarvestPlantModal', () => {
       expect(await screen.findByText('Plant not found')).toBeInTheDocument();
       expect(props.onSuccess).not.toHaveBeenCalled();
       expect(props.onClose).not.toHaveBeenCalled();
+    });
+
+    test('records a zero-yield establishment failure from the harvest modal', async () => {
+      mockApiPost.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ plantedItem: { id: 42 }, harvestRecord: { quantity: 0 } }),
+      });
+      const plannedItem: PlantedItem = { ...baseItem, status: 'planned' };
+      const { props } = renderModal({ plantedItem: plannedItem });
+
+      fireEvent.click(screen.getByTestId('zero-yield-toggle'));
+      expect(screen.getByRole('button', { name: /Record 0 Yield/i })).toBeInTheDocument();
+      expect((screen.getByLabelText('Outcome') as HTMLSelectElement).value).toBe('didnt_establish');
+      expect((screen.getByLabelText('Reason') as HTMLSelectElement).value).toBe('poor_germination');
+
+      fireEvent.change(screen.getByLabelText(/Notes/), { target: { value: 'No germination in A2' } });
+      fireEvent.click(screen.getByTestId('harvest-plant-submit'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledTimes(1));
+      expect(mockApiPost).toHaveBeenCalledWith('/api/planted-items/42/outcome', {
+        outcome: 'didnt_establish',
+        outcomeReason: 'poor_germination',
+        outcomeDate: '2026-05-04',
+        outcomeNotes: 'No germination in A2',
+      });
+      await waitFor(() => expect(props.onSuccess).toHaveBeenCalledTimes(1));
+      expect(props.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test('can record a failed-after-growing zero-yield outcome', async () => {
+      mockApiPost.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ plantedItem: { id: 42 }, harvestRecord: { quantity: 0 } }),
+      });
+      renderModal();
+
+      fireEvent.click(screen.getByTestId('zero-yield-toggle'));
+      fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'failed' } });
+      fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'pest' } });
+      fireEvent.click(screen.getByTestId('harvest-plant-submit'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledTimes(1));
+      expect(mockApiPost).toHaveBeenCalledWith('/api/planted-items/42/outcome', {
+        outcome: 'failed',
+        outcomeReason: 'pest',
+        outcomeDate: '2026-05-04',
+      });
     });
   });
 });

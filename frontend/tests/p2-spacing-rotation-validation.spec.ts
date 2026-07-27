@@ -131,7 +131,7 @@ test.describe.serial('P2: Spacing, Rotation & Validation', () => {
     await navigateTo(page, TABS.GARDEN_PLANNER);
 
     // Planner page loads successfully
-    await expect(page.locator('text=Garden Planner').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Garden Season Planner' })).toBeVisible({ timeout: 10000 });
   });
 
   test('SV-08: Rotation data accessible via API', async () => {

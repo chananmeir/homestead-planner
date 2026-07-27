@@ -28,6 +28,15 @@ interface PlantValidationStatus {
   };
 }
 
+const isPersonalSeed = (seed: SeedInventoryItem): boolean => seed.isGlobal !== true;
+
+const isSeedOutOfStock = (seed: Pick<SeedInventoryItem, 'quantity' | 'seedsAvailable'>): boolean => {
+  if (seed.seedsAvailable != null) {
+    return seed.seedsAvailable <= 0;
+  }
+  return (seed.quantity ?? 0) <= 0;
+};
+
 type CategoryFilter = 'all' | 'vegetable' | 'herb' | 'flower' | 'fruit';
 type LifecycleFilter = 'all' | 'annual' | 'biennial' | 'perennial';
 
@@ -84,6 +93,31 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
     }
   }, [daysToHarvestFilter, showDaysToHarvestFilter, onQuickHarvestChange]);
 
+  const plantCropNamesById = useMemo(() => {
+    const cropNames = new Map<string, string>();
+    plants.forEach(plant => {
+      cropNames.set(plant.id, extractCropName(plant.name));
+    });
+    return cropNames;
+  }, [plants]);
+
+  const personalSeedsByCrop = useMemo(() => {
+    const seedsByCrop = new Map<string, SeedInventoryItem[]>();
+
+    mySeedData.forEach(seed => {
+      if (!isPersonalSeed(seed)) return;
+
+      const cropName = plantCropNamesById.get(seed.plantId);
+      if (!cropName) return;
+
+      const cropSeeds = seedsByCrop.get(cropName) ?? [];
+      cropSeeds.push(seed);
+      seedsByCrop.set(cropName, cropSeeds);
+    });
+
+    return seedsByCrop;
+  }, [mySeedData, plantCropNamesById]);
+
   // Filter plants based on search and category, then deduplicate by crop type
   const filteredPlants = useMemo(() => {
     return plants
@@ -93,8 +127,8 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
         const matchesLifecycle = selectedLifecycle === 'all' || plant.lifecycle === selectedLifecycle;
 
         // My Seeds filter - only show plants that have matching personal seeds (exclude global catalog)
-        const matchesSeeds = !showMySeedsOnly ||
-          mySeedData.some(seed => seed.plantId === plant.id && seed.isGlobal !== true);
+        const cropSeeds = personalSeedsByCrop.get(extractCropName(plant.name)) ?? [];
+        const matchesSeeds = !showMySeedsOnly || cropSeeds.length > 0;
 
         // Days to Harvest filter - only show plants that mature within X days
         const matchesDaysToHarvest = !showDaysToHarvestFilter ||
@@ -103,7 +137,7 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
 
         return matchesSearch && matchesCategory && matchesLifecycle && matchesSeeds && matchesDaysToHarvest;
       });
-  }, [plants, searchTerm, selectedCategory, selectedLifecycle, showMySeedsOnly, mySeedData, showDaysToHarvestFilter, daysToHarvestFilter]);
+  }, [plants, searchTerm, selectedCategory, selectedLifecycle, showMySeedsOnly, personalSeedsByCrop, showDaysToHarvestFilter, daysToHarvestFilter]);
 
   // Deduplicate plants by crop name (group varieties together)
   const deduplicatedPlants = useMemo(() => {
@@ -271,7 +305,13 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
 
   // Helper function to count seed varieties for a plant (personal seeds only, exclude global catalog)
   const getSeedVarietyCount = (plantId: string): number => {
-    return mySeedData.filter(seed => seed.plantId === plantId && seed.isGlobal !== true).length;
+    const cropName = plantCropNamesById.get(plantId);
+    return cropName ? (personalSeedsByCrop.get(cropName)?.length ?? 0) : 0;
+  };
+
+  const getPlantOutOfStock = (plant: Plant): boolean => {
+    const cropSeeds = personalSeedsByCrop.get(extractCropName(plant.name)) ?? [];
+    return cropSeeds.length > 0 && cropSeeds.every(isSeedOutOfStock);
   };
 
   // Category tabs
@@ -386,7 +426,7 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
             My Seeds Only
             {loadingSeeds && <span className="text-xs text-gray-500 ml-1">(loading...)</span>}
             {!loadingSeeds && mySeedData.length > 0 && (
-              <span className="text-xs text-gray-500 ml-1">({mySeedData.filter(s => s.isGlobal !== true).length} varieties)</span>
+              <span className="text-xs text-gray-500 ml-1">({mySeedData.filter(isPersonalSeed).length} varieties)</span>
             )}
           </span>
         </label>
@@ -554,6 +594,7 @@ const PlantPalette: React.FC<PlantPaletteProps> = ({ plants, plantingDate, onPla
                 onSelect={onPlantSelect}
                 showMySeedsOnly={showMySeedsOnly}
                 seedVarietyCount={getSeedVarietyCount(plant.id)}
+                outOfStock={getPlantOutOfStock(plant)}
                 plantingMethod={plantingMethod}
                 showDaysToHarvestFilter={showDaysToHarvestFilter}
               />
@@ -579,6 +620,7 @@ interface DraggablePlantItemProps {
   onSelect?: (plant: Plant, initialPlantingMethod?: 'direct' | 'transplant') => void;
   showMySeedsOnly: boolean;
   seedVarietyCount: number;
+  outOfStock: boolean;
   plantingMethod: 'seed' | 'transplant';
   showDaysToHarvestFilter: boolean;
 }
@@ -589,6 +631,7 @@ const DraggablePlantItem: React.FC<DraggablePlantItemProps> = ({
   onSelect,
   showMySeedsOnly,
   seedVarietyCount,
+  outOfStock,
   plantingMethod,
   showDaysToHarvestFilter
 }) => {
@@ -644,13 +687,26 @@ const DraggablePlantItem: React.FC<DraggablePlantItemProps> = ({
   return (
     <div
       ref={setNodeRef}
+      data-testid={`palette-plant-${plant.id}`}
       {...attributes}
       {...listeners}
       onClick={!isDragging ? () => onSelect?.(plant, initialPlantingMethod) : undefined}
-      className={`bg-transparent p-2 rounded cursor-grab active:cursor-grabbing transition-all ${
+      // Keyboard activation. dnd-kit's `attributes` already give this element
+      // role="button" and a tab stop, so it announces as a button to assistive
+      // tech — but without this it does nothing when activated, which is worse
+      // than having no role at all. Only Mouse and Touch sensors are
+      // configured, so there is no keyboard drag activator to conflict with.
+      onKeyDown={(e) => {
+        if (isDragging) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault(); // Space would otherwise scroll the palette
+          onSelect?.(plant, initialPlantingMethod);
+        }
+      }}
+      className={`${outOfStock ? 'bg-gray-50' : 'bg-transparent'} p-2 rounded cursor-grab active:cursor-grabbing transition-all ${
         isDragging ? 'opacity-0' : 'hover:bg-gray-100'
       } group relative`}
-      title={indicator?.tooltip}
+      title={[outOfStock ? 'Out of stock' : null, indicator?.tooltip].filter(Boolean).join(' - ') || undefined}
     >
       <div className="flex items-center gap-2">
         {/* Plant Icon */}
@@ -658,12 +714,12 @@ const DraggablePlantItem: React.FC<DraggablePlantItemProps> = ({
           plantId={plant.id}
           plantIcon={plant.icon || '🌱'}
           size={32}
-          className="flex-shrink-0"
+          className={`flex-shrink-0 ${outOfStock ? 'opacity-50 grayscale' : ''}`}
         />
 
         {/* Plant Info */}
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm text-gray-800 truncate flex items-center gap-1">
+          <div className={`font-medium text-sm truncate flex items-center gap-1 ${outOfStock ? 'text-gray-500' : 'text-gray-800'}`}>
             <span className="truncate">{plant.name}</span>
             {plant.lifecycle === 'perennial' && (
               <span
@@ -687,7 +743,7 @@ const DraggablePlantItem: React.FC<DraggablePlantItemProps> = ({
               </span>
             )}
           </div>
-          <div className="text-xs text-gray-600 flex items-center gap-1 flex-wrap">
+          <div className={`text-xs flex items-center gap-1 flex-wrap ${outOfStock ? 'text-gray-500' : 'text-gray-600'}`}>
             <span>{plant.spacing}" spacing</span>
             <span>•</span>
             {showDaysToHarvestFilter ? (
@@ -696,6 +752,14 @@ const DraggablePlantItem: React.FC<DraggablePlantItemProps> = ({
               </span>
             ) : (
               <span>{plant.daysToMaturity}d</span>
+            )}
+            {outOfStock && (
+              <>
+                <span>&bull;</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                  Out of stock
+                </span>
+              </>
             )}
             {plant.lifecycle === 'perennial' && plant.yearsToMaturity && (
               <>

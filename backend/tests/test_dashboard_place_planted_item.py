@@ -6,7 +6,7 @@ direct-seed / transplant signal pattern in `dashboard_service.py`.
 """
 from datetime import datetime
 
-from models import db, GardenBed, PlantedItem
+from models import db, GardenBed, PlantedItem, PlantingEvent
 from services.dashboard_service import _build_place_planted_item
 
 
@@ -36,6 +36,28 @@ def _item(user, bed, planted_date, status='planned', cancelled_at=None, **overri
     db.session.add(item)
     db.session.commit()
     return item
+
+
+def _event(user, bed, item, **overrides):
+    defaults = {
+        'plant_id': item.plant_id,
+        'variety': item.variety,
+        'garden_bed_id': bed.id,
+        'event_type': 'planting',
+        'direct_seed_date': item.planted_date,
+        'expected_harvest_date': datetime(2026, 6, 30),
+        'position_x': item.position_x,
+        'position_y': item.position_y,
+        'quantity': item.quantity,
+        'quantity_completed': 0,
+        'completed': False,
+        'harvest_completed': False,
+    }
+    defaults.update(overrides)
+    event = PlantingEvent(user_id=user.id, **defaults)
+    db.session.add(event)
+    db.session.commit()
+    return event
 
 
 def test_planned_item_with_today_planted_date_appears_in_active(auth_client_a, user_a):
@@ -141,3 +163,39 @@ def test_dashboard_endpoint_includes_place_planted_item(auth_client_a, user_a):
     assert len(payload['signals']['placePlantedItem']) == 1
     assert payload['signals']['placePlantedItem'][0]['plantName'] == 'Lettuce'
     assert 'placePlantedItem' in payload['missed']
+
+
+def test_confirm_planted_item_advances_status_and_matching_event(auth_client_a, user_a):
+    bed = _bed(user_a)
+    item = _item(user_a, bed, planted_date=datetime(2026, 5, 13), quantity=4)
+    event = _event(user_a, bed, item)
+
+    response = auth_client_a.post(f'/api/planted-items/{item.id}/confirm-planted')
+
+    assert response.status_code == 200
+    refreshed_item = db.session.get(PlantedItem, item.id)
+    refreshed_event = db.session.get(PlantingEvent, event.id)
+    assert refreshed_item.status == 'growing'
+    assert refreshed_item.outcome is None
+    assert refreshed_event.completed is True
+    assert refreshed_event.harvest_completed is False
+    assert refreshed_event.quantity_completed == 4
+
+    result = _build_place_planted_item(user_a.id, datetime(2026, 5, 13).date())
+    assert result == {'active': [], 'missed': []}
+
+
+def test_confirm_planted_item_rejects_existing_outcome(auth_client_a, user_a):
+    bed = _bed(user_a)
+    item = _item(
+        user_a,
+        bed,
+        planted_date=datetime(2026, 5, 13),
+        outcome='not_planted',
+        outcome_reason='changed_plan',
+    )
+
+    response = auth_client_a.post(f'/api/planted-items/{item.id}/confirm-planted')
+
+    assert response.status_code == 409
+    assert db.session.get(PlantedItem, item.id).status == 'planned'

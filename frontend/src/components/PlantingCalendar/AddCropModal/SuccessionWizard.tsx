@@ -9,6 +9,7 @@ import { apiGet } from '../../../utils/api';
 import PlantIcon from '../../common/PlantIcon';
 import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 import { useNow } from '../../../contexts/SimulationContext';
+import { formatDateInputValue, parseDateInputValue } from '../../../utils/dateUtils';
 
 interface SuccessionWizardProps {
   isOpen: boolean;
@@ -416,8 +417,8 @@ const SuccessionWizard: React.FC<SuccessionWizardProps> = ({
                   </label>
                   <input
                     type="date"
-                    value={startDate.toISOString().split('T')[0]}
-                    onChange={(e) => setStartDate(new Date(e.target.value))}
+                    value={formatDateInputValue(startDate)}
+                    onChange={(e) => setStartDate(parseDateInputValue(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                   <p className="mt-1 text-xs text-gray-500">

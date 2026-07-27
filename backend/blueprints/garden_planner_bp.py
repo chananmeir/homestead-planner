@@ -23,6 +23,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime
 from utils.helpers import parse_iso_date
+from utils.ownership import get_usable_seed
 from simulation_clock import get_now
 import logging
 import json
@@ -49,8 +50,29 @@ from services.rotation_checker import (
 
 garden_planner_bp = Blueprint('garden_planner', __name__, url_prefix='/api')
 
+CALCULATION_STRATEGIES = {'balanced', 'maximize_harvest', 'use_all_seeds'}
+PERSISTED_STRATEGIES = CALCULATION_STRATEGIES | {'manual'}
+
 
 # ==================== VALIDATION HELPERS ====================
+
+def _validate_strategy(strategy, *, allow_manual=False):
+    """Validate a garden-plan strategy from an API payload."""
+    allowed = PERSISTED_STRATEGIES if allow_manual else CALCULATION_STRATEGIES
+    if strategy not in allowed:
+        return None, (
+            'strategy must be one of: '
+            + ', '.join(sorted(allowed))
+        )
+    return strategy, None
+
+
+def _calculation_strategy_or_default(strategy):
+    """Convert non-calculation persisted strategies to the balanced calculator."""
+    if strategy in CALCULATION_STRATEGIES:
+        return strategy
+    return 'balanced'
+
 
 def validate_bed_assignments(bed_assignments_data, target_value, allocation_mode):
     """
@@ -96,9 +118,13 @@ def validate_bed_assignments(bed_assignments_data, target_value, allocation_mode
     return True, None, normalized
 
 
-def create_plan_item_from_data(item_data, garden_plan_id):
+def create_plan_item_from_data(item_data, garden_plan_id, user_id=None):
     """
     Create a GardenPlanItem from request data, handling bed assignments properly.
+
+    Args:
+        user_id: Owner of the plan, used to validate referenced foreign keys.
+                 Falls back to ``current_user`` when omitted.
 
     Returns:
         Tuple of (item: GardenPlanItem | None, error_message: str | None)
@@ -114,6 +140,13 @@ def create_plan_item_from_data(item_data, garden_plan_id):
     if not is_valid:
         return None, error
 
+    # Validate the referenced seed. Shared catalog seeds are allowed; another
+    # user's private packet is not — the shopping-list endpoint dereferences
+    # this id and reports the seed's quantity, packet size and price.
+    seed_inventory_id = item_data.get('seedInventoryId')
+    if seed_inventory_id is not None and get_usable_seed(seed_inventory_id, user_id) is None:
+        return None, 'Seed inventory item not found'
+
     # Handle trellis assignments
     trellis_assignments_data = item_data.get('trellisAssignments', [])
     trellis_assignments_json = json.dumps(trellis_assignments_data) if trellis_assignments_data else None
@@ -127,7 +160,7 @@ def create_plan_item_from_data(item_data, garden_plan_id):
 
     item = GardenPlanItem(
         garden_plan_id=garden_plan_id,
-        seed_inventory_id=item_data.get('seedInventoryId'),
+        seed_inventory_id=seed_inventory_id,
         plant_id=item_data['plantId'],
         variety=item_data.get('variety'),
         unit_type=item_data.get('unitType', 'plants'),
@@ -166,13 +199,20 @@ def api_garden_plans():
         if not data.get('name') or not data.get('year'):
             return jsonify({'error': 'Name and year are required'}), 400
 
+        strategy, strategy_error = _validate_strategy(
+            data.get('strategy', 'balanced'),
+            allow_manual=True,
+        )
+        if strategy_error:
+            return jsonify({'error': strategy_error}), 400
+
         # Create new plan
         plan = GardenPlan(
             user_id=current_user.id,
             name=data['name'],
             season=data.get('season'),
             year=data['year'],
-            strategy=data.get('strategy', 'balanced'),
+            strategy=strategy,
             succession_preference=normalize_succession_preference(data.get('successionPreference', '4')),
             target_total_plants=data.get('targetTotalPlants'),
             target_diversity=data.get('targetDiversity'),
@@ -186,7 +226,7 @@ def api_garden_plans():
             # Add plan items if provided
             if data.get('items'):
                 for item_data in data['items']:
-                    item, error = create_plan_item_from_data(item_data, plan.id)
+                    item, error = create_plan_item_from_data(item_data, plan.id, current_user.id)
                     if error:
                         db.session.rollback()
                         return jsonify({'error': error}), 400
@@ -235,7 +275,10 @@ def api_garden_plan_detail(plan_id):
         if 'year' in data:
             plan.year = data['year']
         if 'strategy' in data:
-            plan.strategy = data['strategy']
+            strategy, strategy_error = _validate_strategy(data['strategy'], allow_manual=True)
+            if strategy_error:
+                return jsonify({'error': strategy_error}), 400
+            plan.strategy = strategy
         if 'successionPreference' in data:
             plan.succession_preference = normalize_succession_preference(data['successionPreference'])
         if 'targetTotalPlants' in data:
@@ -254,7 +297,7 @@ def api_garden_plan_detail(plan_id):
 
             # Add new items
             for item_data in data['items']:
-                item, error = create_plan_item_from_data(item_data, plan.id)
+                item, error = create_plan_item_from_data(item_data, plan.id, current_user.id)
                 if error:
                     db.session.rollback()
                     return jsonify({'error': error}), 400
@@ -288,7 +331,7 @@ def api_garden_plan_items(plan_id):
     if not data or not data.get('plantId') or data.get('plantEquivalent') is None:
         return jsonify({'error': 'plantId and plantEquivalent are required'}), 400
 
-    item, error = create_plan_item_from_data(data, plan.id)
+    item, error = create_plan_item_from_data(data, plan.id, current_user.id)
     if error:
         return jsonify({'error': error}), 400
 
@@ -344,10 +387,14 @@ def api_calculate_plan():
     logging.info(f"Global Succession: {data.get('successionPreference', 'moderate')}")
     logging.info(f"Seed Selections: {len(data.get('seedSelections', []))} seeds")
 
+    strategy, strategy_error = _validate_strategy(data.get('strategy', 'balanced'))
+    if strategy_error:
+        return jsonify({'error': strategy_error}), 400
+
     try:
         result = calculate_plant_quantities(
             seed_selections=data['seedSelections'],
-            strategy=data.get('strategy', 'balanced'),
+            strategy=strategy,
             succession_preference=normalize_succession_preference(data.get('successionPreference', '4')),
             user_id=current_user.id,
             manual_quantities=manual_quantities,
@@ -395,16 +442,24 @@ def api_optimize_plan(plan_id):
 
         # Recalculate fresh — do NOT carry forward old target_value as manual overrides,
         # because the whole point of recalculating is to get correct quantities.
+        requested_strategy = data.get('strategy', plan.strategy)
+        if 'strategy' in data:
+            strategy, strategy_error = _validate_strategy(requested_strategy)
+            if strategy_error:
+                return jsonify({'error': strategy_error}), 400
+        else:
+            strategy = _calculation_strategy_or_default(requested_strategy)
+
         result = calculate_plant_quantities(
             seed_selections=seed_selections,
-            strategy=data.get('strategy', plan.strategy),
+            strategy=strategy,
             succession_preference=normalize_succession_preference(data.get('successionPreference', plan.succession_preference)),
             user_id=current_user.id
         )
 
         # Update plan metadata
         if 'strategy' in data:
-            plan.strategy = data['strategy']
+            plan.strategy = strategy
         if 'successionPreference' in data:
             plan.succession_preference = normalize_succession_preference(data['successionPreference'])
 
@@ -603,6 +658,30 @@ def api_plan_nutrition(plan_id):
 
 # ==================== CROP ROTATION OPERATIONS ====================
 
+def _serialize_rotation_dates(value):
+    """Convert date/datetime values inside rotation payloads to ISO strings."""
+    if isinstance(value, list):
+        return [_serialize_rotation_dates(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _serialize_rotation_dates(item) for key, item in value.items()}
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return value
+
+
+def _parse_rotation_window(data):
+    raw = data.get('rotationWindow', data.get('rotation_window'))
+    if raw is None or raw == '':
+        return None
+    try:
+        window = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError('rotationWindow must be an integer')
+    if window < 0 or window > 6:
+        raise ValueError('rotationWindow must be between 0 and 6')
+    return window
+
+
 @garden_planner_bp.route('/rotation/check', methods=['POST'])
 @login_required
 def api_check_rotation():
@@ -637,19 +716,19 @@ def api_check_rotation():
     year = data.get('year', get_now().year)
 
     try:
+        rotation_window = _parse_rotation_window(data)
         result = check_rotation_conflict(
             plant_id=plant_id,
             bed_id=bed_id,
             user_id=current_user.id,
             planting_year=year,
-            rotation_window=3
+            rotation_window=rotation_window
         )
 
-        # Convert datetime to ISO string for JSON serialization
-        if result.get('last_planted'):
-            result['last_planted'] = result['last_planted'].isoformat()
+        return jsonify(_serialize_rotation_dates(result)), 200
 
-        return jsonify(result), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     except Exception as e:
         logging.error(f"Error checking rotation: {e}")
@@ -698,19 +777,18 @@ def api_suggest_beds():
     year = data.get('year', get_now().year)
 
     try:
+        rotation_window = _parse_rotation_window(data)
         suggestions = suggest_safe_beds(
             plant_id=plant_id,
             user_id=current_user.id,
             planting_year=year,
-            rotation_window=3
+            rotation_window=rotation_window
         )
 
-        # Convert datetime objects to ISO strings in conflict_info
-        for suggestion in suggestions:
-            if suggestion.get('conflict_info') and suggestion['conflict_info'].get('last_planted'):
-                suggestion['conflict_info']['last_planted'] = suggestion['conflict_info']['last_planted'].isoformat()
+        return jsonify(_serialize_rotation_dates(suggestions)), 200
 
-        return jsonify(suggestions), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     except Exception as e:
         logging.error(f"Error suggesting beds: {e}")
@@ -748,12 +826,7 @@ def api_bed_history(bed_id):
             years_back=years_back
         )
 
-        # Convert datetime objects to ISO strings
-        for entry in history:
-            if entry.get('planted_date'):
-                entry['planted_date'] = entry['planted_date'].isoformat()
-
-        return jsonify(history), 200
+        return jsonify(_serialize_rotation_dates(history)), 200
 
     except Exception as e:
         logging.error(f"Error getting bed history: {e}")
@@ -1500,6 +1573,11 @@ def api_designer_sync(plan_id):
                 return jsonify({'error': 'Indoor seed start plant does not match placement plant'}), 400
             if seed_inventory_id is None:
                 seed_inventory_id = source_seed_start.seed_inventory_id
+
+        # Placed after the seed-start block so a value inherited from it is
+        # validated too. Shared catalog seeds pass; another user's do not.
+        if seed_inventory_id is not None and get_usable_seed(seed_inventory_id) is None:
+            return jsonify({'error': 'Seed inventory not found'}), 404
 
         # ---- ACTION: REMOVE ----
         if action == 'remove':

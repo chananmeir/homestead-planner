@@ -8,6 +8,7 @@ import StructureIcon, { StructureIconSVG } from './common/StructureIcon';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
 import { Plant, TrellisStructure } from '../types';
 import { useNow, useToday } from '../contexts/SimulationContext';
+import { formatLocalDate } from '../utils/dateUtils';
 interface Property {
   id: number;
   name: string;
@@ -708,7 +709,7 @@ const PropertyDesigner: React.FC = () => {
       // Calculate expected harvest date
       const harvestDate = new Date(now);
       harvestDate.setDate(harvestDate.getDate() + plant.daysToMaturity);
-      const expectedHarvestDate = harvestDate.toISOString().split('T')[0];
+      const expectedHarvestDate = formatLocalDate(harvestDate);
 
       // Calculate space required (circular area)
       const radiusFeet = (plant.spacing / 12) / 2;

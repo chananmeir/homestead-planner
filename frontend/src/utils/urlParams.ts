@@ -1,4 +1,5 @@
 import { DateFilterValue } from '../components/common/DateFilter';
+import { formatLocalDate } from './dateUtils';
 
 /**
  * Get date filter value from URL query parameters
@@ -14,7 +15,7 @@ export const getDateFilterFromUrl = (fallbackToday?: string): DateFilterValue =>
   }
 
   // Default to today (caller can pass simulated today)
-  const today = fallbackToday || new Date().toISOString().split('T')[0];
+  const today = fallbackToday || formatLocalDate(new Date());
   return { mode: 'single', date: today };
 };
 

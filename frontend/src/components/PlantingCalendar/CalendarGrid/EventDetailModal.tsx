@@ -6,6 +6,7 @@ import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import PlantIcon from '../../common/PlantIcon';
 import { apiGet, apiPut, apiPatch, apiDelete } from '../../../utils/api';
 import { EditSeedStartModal, IndoorSeedStart } from '../../IndoorSeedStarts/EditSeedStartModal';
+import { getEventDetail, parseEventDetails } from '../../../utils/eventDetails';
 
 interface EventDetailModalProps {
   isOpen: boolean;
@@ -19,6 +20,105 @@ interface EventDetailModalProps {
   /** All events sharing this event's successionGroupId (enables "shift entire series"). */
   seriesEvents?: PlantingCalendar[];
 }
+
+const MAINTENANCE_EVENT_META: Record<string, { title: string; badge: string; icon: string; badgeClass: string; dateLabel: string }> = {
+  'mulch': {
+    title: 'Mulch Application',
+    badge: 'Mulch',
+    icon: '\uD83D\uDEE1\uFE0F',
+    badgeClass: 'bg-amber-100 text-amber-800',
+    dateLabel: 'Application Date',
+  },
+  'fertilizing': {
+    title: 'Fertilizing',
+    badge: 'Fertilizer',
+    icon: '\u2697\uFE0F',
+    badgeClass: 'bg-lime-100 text-lime-800',
+    dateLabel: 'Application Date',
+  },
+  'irrigation': {
+    title: 'Irrigation',
+    badge: 'Water',
+    icon: '\uD83D\uDCA7',
+    badgeClass: 'bg-sky-100 text-sky-800',
+    dateLabel: 'Watering Date',
+  },
+  'maple-tapping': {
+    title: 'Maple Tapping',
+    badge: 'Maple',
+    icon: '\uD83C\uDF41',
+    badgeClass: 'bg-orange-100 text-orange-800',
+    dateLabel: 'Tapping Date',
+  },
+  'custom': {
+    title: 'Garden Event',
+    badge: 'Custom',
+    icon: '\u2022',
+    badgeClass: 'bg-gray-100 text-gray-700',
+    dateLabel: 'Event Date',
+  },
+};
+
+const MULCH_LABELS: Record<string, string> = {
+  'none': 'Remove Mulch',
+  'straw': 'Straw Mulch',
+  'wood-chips': 'Wood Chips',
+  'leaves': 'Leaf Mulch',
+  'grass': 'Grass Clippings',
+  'compost': 'Compost',
+  'black-plastic': 'Black Plastic',
+  'clear-plastic': 'Clear Plastic',
+};
+
+const FERTILIZER_LABELS: Record<string, string> = {
+  'compost': 'Compost',
+  'compost-tea': 'Compost Tea',
+  'fish-emulsion': 'Fish Emulsion',
+  'kelp': 'Kelp',
+  'blood-meal': 'Blood Meal',
+  'bone-meal': 'Bone Meal',
+  'balanced-organic': 'Balanced Organic',
+  'slow-release': 'Slow Release',
+  'synthetic': 'Synthetic',
+  'custom': 'Custom Fertilizer',
+};
+
+const FERTILIZER_METHOD_LABELS: Record<string, string> = {
+  'top-dress': 'Top Dress',
+  'side-dress': 'Side Dress',
+  'soil-drench': 'Soil Drench',
+  'foliar': 'Foliar',
+  'broadcast': 'Broadcast',
+  'fertigation': 'Fertigation',
+};
+
+const IRRIGATION_METHOD_LABELS: Record<string, string> = {
+  'drip': 'Drip',
+  'soaker-hose': 'Soaker Hose',
+  'sprinkler': 'Sprinkler',
+  'hand-water': 'Hand Water',
+  'overhead': 'Overhead',
+  'flood': 'Flood',
+  'other': 'Other',
+};
+
+const TREE_LABELS: Record<string, string> = {
+  'sugar': 'Sugar Maple',
+  'red': 'Red Maple',
+  'black': 'Black Maple',
+  'boxelder': 'Box Elder',
+};
+
+const compactValue = (value: unknown): string | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  return String(value);
+};
+
+const formatFieldLabel = (key: string): string =>
+  key
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, char => char.toUpperCase());
 
 const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onClose, gardenBeds, onEventUpdated, onNavigateToBed, coldWarning, soilTempForecast, seriesEvents }) => {
   const [seedStart, setSeedStart] = useState<IndoorSeedStart | null>(null);
@@ -45,11 +145,13 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
   // Sibling events in the same succession series (excluding this event).
   const seriesSiblings = (seriesEvents || []).filter(e => e.id !== event?.id);
 
-  const isIndoorStart = !!event?.seedStartDate;
+  const eventType = event?.eventType || 'planting';
+  const isMaintenanceEvent = eventType !== 'planting';
+  const isIndoorStart = !isMaintenanceEvent && !!event?.seedStartDate;
 
   // Fetch linked indoor seed start when event is an indoor start type
   const fetchSeedStart = useCallback(async () => {
-    if (!event || !isIndoorStart) {
+    if (!event || !isIndoorStart || isMaintenanceEvent) {
       setSeedStart(null);
       return;
     }
@@ -67,7 +169,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
     } finally {
       setLoadingSeedStart(false);
     }
-  }, [event, isIndoorStart]);
+  }, [event, isIndoorStart, isMaintenanceEvent]);
 
   const [rescheduleError, setRescheduleError] = useState('');
 
@@ -209,11 +311,13 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
       setRescheduleError('');
       fetchSeedStart();
       // Fetch varieties from user's personal seed inventory
-      if (event.plantId) {
+      if ((event.eventType || 'planting') === 'planting' && event.plantId) {
         apiGet(`/api/seeds/varieties/${event.plantId}?mySeedsOnly=true`)
           .then(r => r.ok ? r.json() : [])
           .then(setAvailableVarieties)
           .catch(() => setAvailableVarieties([]));
+      } else {
+        setAvailableVarieties([]);
       }
     } else {
       setSeedStart(null);
@@ -260,8 +364,8 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
     }
   };
 
-  const hasHarvestPhase = !!event?.expectedHarvestDate;
-  const hasPlantingPhase = !!event?.directSeedDate || !!event?.transplantDate;
+  const hasHarvestPhase = !isMaintenanceEvent && !!event?.expectedHarvestDate;
+  const hasPlantingPhase = !isMaintenanceEvent && (!!event?.directSeedDate || !!event?.transplantDate);
 
   const saveVariety = async () => {
     if (!event) return;
@@ -335,7 +439,9 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
     if (!event) return;
 
     const plantData = PLANT_DATABASE.find(p => p.id === event.plantId);
-    const plantName = plantData?.name || event.plantId || 'this event';
+    const plantName = isMaintenanceEvent
+      ? MAINTENANCE_EVENT_META[eventType]?.title || 'garden event'
+      : plantData?.name || event.plantId || 'this event';
 
     let scope: 'single' | 'series' = 'single';
     if (event.successionGroupId) {
@@ -345,7 +451,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
       if (!choice) return;
       scope = 'series';
     } else {
-      const ok = window.confirm(`Delete "${plantName}" planting event? This cannot be undone.`);
+      const ok = window.confirm(`Delete "${plantName}" event? This cannot be undone.`);
       if (!ok) return;
     }
 
@@ -367,11 +473,66 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
 
   if (!isOpen || !event) return null;
 
-  const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
+  const plant = isMaintenanceEvent ? undefined : PLANT_DATABASE.find(p => p.id === event.plantId);
   const bedName = gardenBeds?.find(b => b.id === event.gardenBedId)?.name;
+  const eventDetails = parseEventDetails(event.eventDetails);
+  const maintenanceMeta = MAINTENANCE_EVENT_META[eventType] || MAINTENANCE_EVENT_META.custom;
 
   const isDirectSeed = !!event.directSeedDate && !event.seedStartDate;
-  const eventLabel = isIndoorStart ? 'Start Indoors & Transplant' : isDirectSeed ? 'Direct Seed' : 'Planting';
+  const customLabel = getEventDetail<string>(eventDetails, 'label', 'name', 'title');
+  const eventLabel = isMaintenanceEvent
+    ? (eventType === 'custom' && customLabel ? customLabel : maintenanceMeta.title)
+    : isIndoorStart ? 'Start Indoors & Transplant' : isDirectSeed ? 'Direct Seed' : 'Planting';
+
+  const maintenanceDetails: Array<{ label: string; value?: string }> = [];
+  if (isMaintenanceEvent) {
+    if (eventType === 'mulch') {
+      const mulchType = getEventDetail<string>(eventDetails, 'mulch_type', 'mulchType');
+      const depth = getEventDetail<number | string>(eventDetails, 'depth_inches', 'depthInches');
+      const coverageValue = getEventDetail<string>(eventDetails, 'coverage');
+      maintenanceDetails.push(
+        { label: 'Mulch Type', value: mulchType ? MULCH_LABELS[mulchType] || mulchType : undefined },
+        { label: 'Depth', value: depth !== undefined ? `${depth} in` : undefined },
+        { label: 'Coverage', value: coverageValue ? formatFieldLabel(coverageValue) : undefined },
+      );
+    } else if (eventType === 'fertilizing') {
+      const fertilizerType = getEventDetail<string>(eventDetails, 'fertilizer_type', 'fertilizerType');
+      const amount = compactValue(getEventDetail(eventDetails, 'amount'));
+      const unit = compactValue(getEventDetail(eventDetails, 'amount_unit', 'amountUnit'));
+      const method = getEventDetail<string>(eventDetails, 'application_method', 'applicationMethod');
+      maintenanceDetails.push(
+        { label: 'Fertilizer Type', value: fertilizerType ? FERTILIZER_LABELS[fertilizerType] || fertilizerType : undefined },
+        { label: 'Amount', value: amount && unit ? `${amount} ${unit}` : amount },
+        { label: 'Application Method', value: method ? FERTILIZER_METHOD_LABELS[method] || method : undefined },
+        { label: 'NPK', value: compactValue(getEventDetail(eventDetails, 'npk')) },
+      );
+    } else if (eventType === 'irrigation') {
+      const method = getEventDetail<string>(eventDetails, 'method');
+      const duration = compactValue(getEventDetail(eventDetails, 'duration_minutes', 'durationMinutes'));
+      const gallons = compactValue(getEventDetail(eventDetails, 'amount_gallons', 'amountGallons'));
+      maintenanceDetails.push(
+        { label: 'Method', value: method ? IRRIGATION_METHOD_LABELS[method] || method : undefined },
+        { label: 'Duration', value: duration ? `${duration} min` : undefined },
+        { label: 'Gallons', value: gallons },
+        { label: 'Zone', value: compactValue(getEventDetail(eventDetails, 'zone')) },
+      );
+    } else if (eventType === 'maple-tapping') {
+      const treeType = getEventDetail<string>(eventDetails, 'tree_type', 'treeType');
+      const tapCount = compactValue(getEventDetail(eventDetails, 'tap_count', 'tapCount'));
+      maintenanceDetails.push(
+        { label: 'Tree Type', value: treeType ? TREE_LABELS[treeType] || treeType : undefined },
+        { label: 'Tap Count', value: tapCount },
+      );
+    } else {
+      Object.entries(eventDetails).slice(0, 5).forEach(([key, value]) => {
+        if (key === 'label' || key === 'name' || key === 'title') return;
+        maintenanceDetails.push({
+          label: formatFieldLabel(key),
+          value: typeof value === 'object' ? JSON.stringify(value) : compactValue(value),
+        });
+      });
+    }
+  }
 
   const formatDate = (date?: Date) => {
     if (!date) return null;
@@ -467,8 +628,23 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
               </div>
             )}
 
+            {isMaintenanceEvent && (
+              <div className="flex items-center gap-3 pb-3 border-b">
+                <div className={`h-10 w-10 rounded-full flex items-center justify-center text-lg ${maintenanceMeta.badgeClass}`}>
+                  {maintenanceMeta.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-gray-800 truncate">{eventLabel}</div>
+                  {bedName && <div className="text-sm text-gray-500 truncate">{bedName}</div>}
+                </div>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${maintenanceMeta.badgeClass}`}>
+                  {maintenanceMeta.badge}
+                </span>
+              </div>
+            )}
+
             {/* Weather Warning Banner */}
-            {coldWarning && !isCompleted && (() => {
+            {coldWarning && !isCompleted && !isMaintenanceEvent && (() => {
               const relevantDate = event.directSeedDate ?? event.transplantDate;
               const dateKey = relevantDate ? format(new Date(relevantDate), 'yyyy-MM-dd') : null;
               const soilTemp = dateKey && soilTempForecast ? soilTempForecast[dateKey] : null;
@@ -617,9 +793,15 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
                   <span className="font-medium">{formatDate(event.directSeedDate)}</span>
                 </div>
               )}
-              {event.expectedHarvestDate && (
+              {!isMaintenanceEvent && event.expectedHarvestDate && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Expected Harvest:</span>
+                  <span className="font-medium">{formatDate(event.expectedHarvestDate)}</span>
+                </div>
+              )}
+              {isMaintenanceEvent && event.expectedHarvestDate && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">{maintenanceMeta.dateLabel}:</span>
                   <span className="font-medium">{formatDate(event.expectedHarvestDate)}</span>
                 </div>
               )}
@@ -673,13 +855,21 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
 
             {/* Details */}
             <div className="space-y-2 pt-2 border-t">
-              {event.quantity != null && (
+              {isMaintenanceEvent && maintenanceDetails
+                .filter(row => row.value !== undefined)
+                .map(row => (
+                  <div key={row.label} className="flex justify-between gap-4">
+                    <span className="text-gray-600">{row.label}:</span>
+                    <span className="font-medium text-right">{row.value}</span>
+                  </div>
+                ))}
+              {event.quantity != null && !isMaintenanceEvent && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Quantity:</span>
                   <span className="font-medium">{event.quantity} plants</span>
                 </div>
               )}
-              {(bedName || gardenBeds?.length) && (
+              {(bedName || (!isMaintenanceEvent && gardenBeds?.length)) && (
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Garden Bed:</span>
                   {isEditingBed ? (
@@ -720,7 +910,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ isOpen, event, onCl
                   )}
                 </div>
               )}
-              {event.successionPlanting && event.successionInterval && (
+              {event.successionPlanting && event.successionInterval && !isMaintenanceEvent && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Succession:</span>
                   <span className="font-medium">Every {event.successionInterval} days</span>

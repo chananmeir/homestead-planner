@@ -5,6 +5,7 @@ import { UploadPhotoModal } from './PhotoGallery/UploadPhotoModal';
 import { EditPhotoModal } from './PhotoGallery/EditPhotoModal';
 
 import { API_BASE_URL } from '../config';
+import { formatDisplayDate, formatLocalDate } from '../utils/dateUtils';
 interface Photo {
   id: number;
   filename: string;
@@ -145,7 +146,7 @@ const PhotoGallery: React.FC = () => {
     // Date range filter
     if (dateRange.startDate || dateRange.endDate) {
       result = result.filter(photo => {
-        const photoDate = new Date(photo.uploadedAt).toISOString().split('T')[0];
+        const photoDate = formatLocalDate(new Date(photo.uploadedAt));
 
         if (dateRange.startDate && photoDate < dateRange.startDate) {
           return false;
@@ -330,7 +331,7 @@ const PhotoGallery: React.FC = () => {
                     </p>
                   )}
                   <p className="text-xs text-gray-500">
-                    {new Date(photo.uploadedAt).toLocaleDateString()}
+                    {formatDisplayDate(new Date(photo.uploadedAt))}
                   </p>
                 </div>
               </div>

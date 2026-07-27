@@ -247,8 +247,17 @@ test.describe.serial('Planting Calendar — E2E Tests', () => {
     const gridBtn = page.locator('[data-testid="view-toggle-grid"]');
     await gridBtn.click();
     await expect(gridBtn).toHaveClass(/bg-green-600/);
-    // Calendar header should be visible (month navigation)
-    await expect(page.locator('text=/January|February|March|April|May|June|July|August|September|October|November|December/')).toBeVisible({ timeout: 5000 });
+    // Calendar header should be visible (month navigation).
+    // Match the heading specifically: a bare month-name regex also matches
+    // prose elsewhere on the page — notably the USDA hardiness-zone warning
+    // banner, which appears only for users without a zone set. That made this
+    // assertion resolve to one or two elements depending on unrelated data,
+    // so it passed or failed run to run.
+    await expect(
+      page.getByRole('heading', {
+        name: /January|February|March|April|May|June|July|August|September|October|November|December/,
+      }),
+    ).toBeVisible({ timeout: 5000 });
 
     // Switch to timeline view
     const timelineBtn = page.locator('[data-testid="view-toggle-timeline"]');
@@ -295,9 +304,13 @@ test.describe.serial('Planting Calendar — E2E Tests', () => {
   });
 
   test('PC-11: Delete event via API', async () => {
-    // Delete one of the carrot succession events
+    // Delete one of the carrot succession events.
+    // The endpoint answers 200 with {deleted, planItemsReset} rather than a
+    // bare 204 — the counts matter for scope=series deletions, which remove
+    // a whole succession chain and reset the linked plan items.
     const resp = await ctx.delete(`/api/planting-events/${carrotEventId}`);
-    expect(resp.status()).toBe(204);
+    expect(resp.status()).toBe(200);
+    expect((await resp.json()).deleted).toBeGreaterThanOrEqual(1);
 
     // Verify it's gone from the list
     const allResp = await ctx.get('/api/planting-events');
@@ -308,7 +321,8 @@ test.describe.serial('Planting Calendar — E2E Tests', () => {
 
   test('PC-12: Delete mulch event via API', async () => {
     const resp = await ctx.delete(`/api/planting-events/${mulchEventId}`);
-    expect(resp.status()).toBe(204);
+    expect(resp.status()).toBe(200);
+    expect((await resp.json()).deleted).toBeGreaterThanOrEqual(1);
 
     // Verify it's gone
     const allResp = await ctx.get('/api/planting-events');

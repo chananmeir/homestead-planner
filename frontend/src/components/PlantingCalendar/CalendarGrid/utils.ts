@@ -1,7 +1,16 @@
 import { format, addWeeks } from 'date-fns';
 import { PlantingCalendar, Plant } from '../../../types';
 
-export type EventMarkerType = 'seed-start' | 'transplant' | 'direct-seed' | 'harvest' | 'mulch-application' | 'maple-tapping';
+export type EventMarkerType =
+  | 'seed-start'
+  | 'transplant'
+  | 'direct-seed'
+  | 'harvest'
+  | 'mulch-application'
+  | 'maple-tapping'
+  | 'fertilizing'
+  | 'irrigation'
+  | 'custom-event';
 
 export interface DateMarker {
   date: Date;
@@ -77,6 +86,18 @@ export const createDateMarkers = (events: PlantingCalendar[], plants: Plant[]): 
         markers.push({
           date: tappingDate,
           type: 'maple-tapping',
+          event
+        });
+      }
+    } else if (event.eventType === 'fertilizing' || event.eventType === 'irrigation' || event.eventType === 'custom') {
+      // MAINTENANCE EVENT - use expectedHarvestDate as the event date
+      const eventDate = toSafeDate(event.expectedHarvestDate);
+      if (eventDate) {
+        markers.push({
+          date: eventDate,
+          type: event.eventType === 'fertilizing'
+            ? 'fertilizing'
+            : event.eventType === 'irrigation' ? 'irrigation' : 'custom-event',
           event
         });
       }
@@ -206,6 +227,9 @@ export const getEventIcon = (type: EventMarkerType): string => {
     'harvest': '🎉',
     'mulch-application': '🛡️',
     'maple-tapping': '🍁',
+    'fertilizing': '\u2697\uFE0F',
+    'irrigation': '\uD83D\uDCA7',
+    'custom-event': '\u2022',
   };
 
   return iconMap[type];
@@ -215,8 +239,8 @@ export const getEventIcon = (type: EventMarkerType): string => {
  * Maps a marker type to the PlantingEvent date field that marker represents.
  * Used by drag-to-reschedule and the quick-reschedule popover so that moving a
  * marker updates the correct date (e.g. dragging a harvest marker moves
- * expectedHarvestDate, not the planting date). Mulch/maple events store their
- * application date in expectedHarvestDate by convention.
+ * expectedHarvestDate, not the planting date). Maintenance events store their
+ * event date in expectedHarvestDate by convention.
  */
 export type ReschedulableDateField =
   | 'seedStartDate'
@@ -235,6 +259,9 @@ export const getDateFieldForMarkerType = (type: EventMarkerType): ReschedulableD
     case 'harvest':
     case 'mulch-application':
     case 'maple-tapping':
+    case 'fertilizing':
+    case 'irrigation':
+    case 'custom-event':
       return 'expectedHarvestDate';
   }
 };
@@ -388,6 +415,9 @@ export const getEventLabel = (type: EventMarkerType): string => {
     'harvest': 'Harvest',
     'mulch-application': 'Apply Mulch',
     'maple-tapping': 'Tap Maple Tree',
+    'fertilizing': 'Apply Fertilizer',
+    'irrigation': 'Water',
+    'custom-event': 'Garden Event',
   };
 
   return labelMap[type];

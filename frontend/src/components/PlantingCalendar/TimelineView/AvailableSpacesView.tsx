@@ -5,6 +5,7 @@ import { PLANT_DATABASE } from '../../../data/plantDatabase';
 import { apiGet } from '../../../utils/api';
 import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
 import { useNow } from '../../../contexts/SimulationContext';
+import { formatDateInputValue, parseDateInputValue, parseLocalDate } from '../../../utils/dateUtils';
 import {
   getOccupiedCells,
   getAvailableCells,
@@ -113,10 +114,10 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
           // Parse date strings to Date objects
           const eventsWithDates = data.map((event: any) => ({
             ...event,
-            seedStartDate: event.seedStartDate ? new Date(event.seedStartDate) : undefined,
-            transplantDate: event.transplantDate ? new Date(event.transplantDate) : undefined,
-            directSeedDate: event.directSeedDate ? new Date(event.directSeedDate) : undefined,
-            expectedHarvestDate: new Date(event.expectedHarvestDate),
+            seedStartDate: event.seedStartDate ? parseLocalDate(event.seedStartDate) : undefined,
+            transplantDate: event.transplantDate ? parseLocalDate(event.transplantDate) : undefined,
+            directSeedDate: event.directSeedDate ? parseLocalDate(event.directSeedDate) : undefined,
+            expectedHarvestDate: parseLocalDate(event.expectedHarvestDate),
           }));
           setPlantingEvents(eventsWithDates);
         } else {
@@ -218,9 +219,9 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
               </label>
               <input
                 type="date"
-                value={startDate.toISOString().split('T')[0]}
+                value={formatDateInputValue(startDate)}
                 onChange={(e) => {
-                  setStartDate(new Date(e.target.value));
+                  setStartDate(parseDateInputValue(e.target.value));
                   setSelectedPosition(null);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
@@ -234,9 +235,9 @@ const AvailableSpacesView: React.FC<AvailableSpacesViewProps> = ({
               </label>
               <input
                 type="date"
-                value={endDate.toISOString().split('T')[0]}
+                value={formatDateInputValue(endDate)}
                 onChange={(e) => {
-                  setEndDate(new Date(e.target.value));
+                  setEndDate(parseDateInputValue(e.target.value));
                   setSelectedPosition(null);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"

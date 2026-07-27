@@ -6,6 +6,7 @@ import { CSVImportModal } from './SeedInventory/CSVImportModal';
 import { useAuth } from '../contexts/AuthContext';
 
 import { API_BASE_URL } from '../config';
+import { formatLocalDate } from '../utils/dateUtils';
 
 interface Seed {
   id: number;
@@ -460,7 +461,7 @@ const SeedCatalog: React.FC = () => {
       const url = URL.createObjectURL(blob);
 
       link.setAttribute('href', url);
-      link.setAttribute('download', `seed-catalog-${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `seed-catalog-${formatLocalDate(new Date())}.csv`);
       link.style.visibility = 'hidden';
 
       document.body.appendChild(link);

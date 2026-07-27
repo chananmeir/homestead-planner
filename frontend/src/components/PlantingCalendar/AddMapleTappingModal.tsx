@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { apiGet, apiPost } from '../../utils/api';
 import { useProperty } from '../../hooks/useProperty';
+import { formatDisplayDate, formatLocalDate, parseDateInputValue } from '../../utils/dateUtils';
 
 interface PlacedStructure {
   id: number;
@@ -189,7 +190,7 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
         ? {
             gallons: parseFloat(syrupGallons),
             grade: syrupGrade,
-            boilDate: boilDate || new Date().toISOString().split('T')[0],
+            boilDate: boilDate || formatLocalDate(new Date()),
             notes: syrupNotes
           }
         : undefined;
@@ -205,7 +206,7 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
 
       const eventData = {
         eventType: 'maple-tapping',
-        tappingDate: new Date(tappingDate).toISOString(),
+        tappingDate: parseDateInputValue(tappingDate).toISOString(),
         treeStructureId: selectedTreeId,
         treeType,
         tapCount,
@@ -285,7 +286,7 @@ const AddMapleTappingModal: React.FC<AddMapleTappingModalProps> = ({
                   <div key={i} className={`text-xs px-2 py-1 rounded ${
                     day.ideal ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
                   }`}>
-                    <div className="font-medium">{new Date(day.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                    <div className="font-medium">{formatDisplayDate(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}</div>
                     <div>{Math.round(day.min_temp)}°/{Math.round(day.max_temp)}°F</div>
                   </div>
                 ))}

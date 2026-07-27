@@ -14,8 +14,23 @@ import csv
 from datetime import datetime
 
 # Paths
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'instance', 'homestead.db')
-CSV_PATH = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'baseline_nutrition.csv')
+_BACKEND_DIR = os.path.join(os.path.dirname(__file__), '..', '..', '..')
+CSV_PATH = os.path.join(_BACKEND_DIR, 'data', 'baseline_nutrition.csv')
+
+
+def _db_path():
+    """Target the database the app is configured to use.
+
+    Honours DATABASE_URL so this can seed a test or CI database instead of
+    always writing to the developer's instance/homestead.db.
+    """
+    url = os.environ.get('DATABASE_URL', '')
+    if url.startswith('sqlite:///'):
+        return url[len('sqlite:///'):]
+    return os.path.join(_BACKEND_DIR, 'instance', 'homestead.db')
+
+
+DB_PATH = _db_path()
 
 def main():
     print("[INFO] Importing baseline nutritional data from CSV...")

@@ -11,12 +11,14 @@ import json
 import logging
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional
-from models import db, GardenPlan, SeedInventory, GardenBed, PlantingEvent, TrellisStructure
+from historical_soil_temp import get_historical_daily_soil_temps
+from models import db, GardenPlan, SeedInventory, GardenBed, PlantingEvent, TrellisStructure, Property
 from plant_database import get_plant_by_id
 from services.space_calculator import calculate_space_requirement
 from services.rotation_checker import get_rotation_status_for_plan_item
 from services.trellis_validation import validate_trellis_segment
 from services.indoor_start_service import create_indoor_start_for_event
+from utils.ownership import get_usable_seed
 from simulation_clock import get_now
 
 logger = logging.getLogger(__name__)
@@ -149,7 +151,8 @@ def calculate_plant_quantities(
             plant=plant,
             target_plants=target_plants,
             succession_preference=effective_succession,
-            user_id=user_id
+            user_id=user_id,
+            seed=seed,
         )
 
         # Calculate seed requirements
@@ -216,8 +219,7 @@ def calculate_plant_quantities(
             rotation_status = get_rotation_status_for_plan_item(
                 plan_item=item,
                 user_id=user_id,
-                planting_year=current_year,
-                rotation_window=3
+                planting_year=current_year
             )
             if rotation_status['has_warnings']:
                 item['rotation_warnings'] = rotation_status['warnings']
@@ -381,7 +383,8 @@ def _calculate_succession(
     plant: Dict,
     target_plants: int,
     succession_preference: str,
-    user_id: int
+    user_id: int,
+    seed: Optional[Dict] = None,
 ) -> Dict:
     """
     Calculate succession planting schedule.
@@ -399,7 +402,7 @@ def _calculate_succession(
 
     # Skip succession for special cases
     if dtm > 90 or succession_policy == 'never' or succession_preference == '0':
-        first_date = _calculate_first_plant_date(plant, last_frost_date)
+        first_date = _calculate_first_plant_date(plant, last_frost_date, seed, user_id)
         harvest_start = first_date + timedelta(days=dtm) if first_date else None
 
         return {
@@ -420,7 +423,7 @@ def _calculate_succession(
     interval_days = max(14, int(dtm / 2))
 
     # Calculate first and last planting dates
-    first_date = _calculate_first_plant_date(plant, last_frost_date)
+    first_date = _calculate_first_plant_date(plant, last_frost_date, seed, user_id)
     if not first_date:
         return {
             'enabled': False,
@@ -475,20 +478,162 @@ def _get_first_frost_date(user_id: int) -> date:
     return result['first_frost']
 
 
-def _calculate_first_plant_date(plant: Dict, last_frost_date: date) -> Optional[date]:
+def _get_seed_value(seed: Optional[Dict], snake_key: str, camel_key: str = None):
+    """Read a value from either a seed dict or SeedInventory-like object."""
+    if seed is None:
+        return None
+    if isinstance(seed, dict):
+        if camel_key and camel_key in seed:
+            return seed.get(camel_key)
+        return seed.get(snake_key)
+    return getattr(seed, snake_key, None)
+
+
+def _month_day_override_date(seed: Optional[Dict], year: int, snake_key: str, camel_key: str) -> Optional[date]:
+    month_day = _get_seed_value(seed, snake_key, camel_key)
+    if not month_day:
+        return None
+    try:
+        parsed = datetime.strptime(f'{year}-{month_day}', '%Y-%m-%d')
+    except (TypeError, ValueError):
+        return None
+    return parsed.date()
+
+
+def _proven_sow_override_date(seed: Optional[Dict], year: int) -> Optional[date]:
+    return _month_day_override_date(seed, year, 'proven_sow_month_day', 'provenSowMonthDay')
+
+
+def _earliest_sow_override_date(seed: Optional[Dict], year: int) -> Optional[date]:
+    return _month_day_override_date(seed, year, 'earliest_sow_month_day', 'earliestSowMonthDay')
+
+
+def _numeric_seed_or_plant_value(value) -> Optional[float]:
+    if value is None or value == '':
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _germination_floor_for_planner(seed: Optional[Dict], plant: Optional[Dict]) -> Optional[float]:
+    seed_floor = _numeric_seed_or_plant_value(
+        _get_seed_value(seed, 'germination_temp_min', 'germinationTempMin')
+    )
+    if seed_floor is not None:
+        return seed_floor
+
+    seed_floor = _numeric_seed_or_plant_value(
+        _get_seed_value(seed, 'soil_temp_min', 'soilTempMin')
+    )
+    if seed_floor is not None:
+        return seed_floor
+
+    if plant is None:
+        return None
+
+    plant_floor = _numeric_seed_or_plant_value(
+        plant.get('soil_temp_min') if plant.get('soil_temp_min') is not None else plant.get('soilTempMin')
+    )
+    if plant_floor is not None:
+        return plant_floor
+
+    germination_temp = plant.get('germinationTemp') or plant.get('germination_temp') or {}
+    return _numeric_seed_or_plant_value(germination_temp.get('min'))
+
+
+def _first_property_with_location(user_id: Optional[int]) -> Optional[Property]:
+    if not user_id:
+        return None
+    prop = Property.query.filter_by(user_id=user_id).order_by(Property.id.asc()).first()
+    if prop is None or prop.latitude is None or prop.longitude is None:
+        return None
+    return prop
+
+
+def _find_sustained_normals_crossing(
+    latitude: float,
+    longitude: float,
+    floor_f: float,
+    sustained_days: int = 5,
+) -> Optional[str]:
+    days = []
+    for month in range(1, 13):
+        daily = get_historical_daily_soil_temps(latitude, longitude, month)
+        if not daily:
+            continue
+        for day in sorted(k for k in daily.keys() if isinstance(k, int)):
+            try:
+                datetime.strptime(f'2001-{month:02d}-{day:02d}', '%Y-%m-%d')
+            except ValueError:
+                continue
+            days.append((f'{month:02d}-{day:02d}', daily.get(day)))
+
+    for index in range(0, max(0, len(days) - sustained_days + 1)):
+        window = days[index:index + sustained_days]
+        if len(window) == sustained_days and all(temp is not None and temp >= floor_f for _, temp in window):
+            return window[0][0]
+    return None
+
+
+def _soil_temp_clamped_proven_date(
+    proven_date: date,
+    seed: Optional[Dict],
+    plant: Dict,
+    user_id: Optional[int],
+) -> date:
+    floor_f = _germination_floor_for_planner(seed, plant)
+    if floor_f is None:
+        return proven_date
+
+    prop = _first_property_with_location(user_id)
+    if prop is None:
+        return proven_date
+
+    crossing = _find_sustained_normals_crossing(prop.latitude, prop.longitude, floor_f)
+    if crossing is None:
+        return proven_date
+
+    try:
+        soil_safe_date = datetime.strptime(f'{proven_date.year}-{crossing}', '%Y-%m-%d').date()
+    except ValueError:
+        return proven_date
+    return max(proven_date, soil_safe_date)
+
+
+def _calculate_first_plant_date(
+    plant: Dict,
+    last_frost_date: date,
+    seed: Optional[Dict] = None,
+    user_id: Optional[int] = None,
+) -> Optional[date]:
     """Calculate first safe planting date based on plant frost tolerance."""
     frost_tolerance = plant.get('frostTolerance') or plant.get('frost_tolerance', 'tender')
 
     # Adjust based on frost tolerance
     if frost_tolerance in ['very_hardy', 'hardy']:
         # Can plant 2 weeks before last frost
-        return last_frost_date - timedelta(days=14)
+        first_date = last_frost_date - timedelta(days=14)
     elif frost_tolerance in ['very_tender', 'tender']:
         # Wait 2 weeks after last frost
-        return last_frost_date + timedelta(days=14)
+        first_date = last_frost_date + timedelta(days=14)
     else:
         # Moderate - plant around last frost date
-        return last_frost_date
+        first_date = last_frost_date
+
+    # Learned sow-date feedback is an outdoor direct-sow constraint. It should
+    # only affect direct-sown crops. Proven outcome history has precedence;
+    # negative germination feedback still only pushes dates later.
+    if (plant.get('weeksIndoors') or plant.get('weeks_indoors') or 0) == 0:
+        proven_date = _proven_sow_override_date(seed, last_frost_date.year)
+        if proven_date is not None:
+            return _soil_temp_clamped_proven_date(proven_date, seed, plant, user_id)
+        learned_date = _earliest_sow_override_date(seed, last_frost_date.year)
+        if learned_date is not None and learned_date > first_date:
+            return learned_date
+
+    return first_date
 
 
 def _calculate_seeds_needed(
@@ -582,7 +727,11 @@ def calculate_shopping_list(plan_id: int) -> List[Dict]:
     for item in plan.items:
         seed = None
         if item.seed_inventory_id:
-            seed = SeedInventory.query.get(item.seed_inventory_id)
+            # Scoped to the plan owner: this endpoint reports the seed's
+            # quantity, packet size and price, so a stale or injected foreign
+            # seed id must never resolve here even if it reached the DB by some
+            # path that bypassed the write-side validation.
+            seed = get_usable_seed(item.seed_inventory_id, plan.user_id)
 
         seeds_needed = item.seeds_required or 0
         seeds_have = (seed.quantity * seed.seeds_per_packet) if seed and seed.quantity else None
@@ -702,7 +851,7 @@ def export_to_calendar(plan_id: int, user_id: int, create_indoor_starts: bool = 
         # Compute days-to-maturity for expected_harvest_date
         dtm = None
         if item.seed_inventory_id:
-            seed = SeedInventory.query.get(item.seed_inventory_id)
+            seed = get_usable_seed(item.seed_inventory_id, user_id)
             if seed and seed.days_to_maturity is not None:
                 dtm = seed.days_to_maturity
         if dtm is None and plant:
@@ -1060,7 +1209,7 @@ def preview_export_conflicts(plan_id: int, user_id: int) -> Dict:
         # Compute DTM
         dtm = None
         if item.seed_inventory_id:
-            seed = SeedInventory.query.get(item.seed_inventory_id)
+            seed = get_usable_seed(item.seed_inventory_id, user_id)
             if seed and seed.days_to_maturity is not None:
                 dtm = seed.days_to_maturity
         if dtm is None and plant:

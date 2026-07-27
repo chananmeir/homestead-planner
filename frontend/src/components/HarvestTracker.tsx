@@ -1,18 +1,27 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ConfirmDialog, useToast, SearchBar, SortDropdown, FilterBar, DateRangePicker } from './common';
 import type { SortOption, SortDirection, FilterGroup, DateRange } from './common';
 import { LogHarvestModal } from './HarvestTracker/LogHarvestModal';
+import type { HarvestLogPrefill, HarvestLogRecordResult, HarvestLogResult } from './HarvestTracker/LogHarvestModal';
 import { EditHarvestModal } from './HarvestTracker/EditHarvestModal';
+import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
+import { useToday } from '../contexts/SimulationContext';
+import { formatDisplayDate, formatLocalDate, parseLocalDate } from '../utils/dateUtils';
 
 import { API_BASE_URL } from '../config';
 interface HarvestRecord {
   id: number;
   plantId: string;
+  plantedItemId?: number | null;
   harvestDate: string;
   quantity: number;
   unit: string;
   quality: string;
+  outcome?: 'failed' | 'didnt_establish' | 'not_planted' | null;
+  outcomeReason?: string | null;
+  yieldExcluded?: boolean;
   notes?: string;
+  harvestGroupId?: string | null;
 }
 
 interface Plant {
@@ -23,26 +32,77 @@ interface Plant {
 
 interface HarvestTrackerProps {
   // Trigger signal for "a Needs Attention 'Harvest ready' item was clicked".
-  // When this value changes to a non-null value, the tracker clears search,
-  // filters, and date range so the user can immediately log a harvest.
-  //
-  // NOTE: This is NOT a row id. HarvestRecord rows have no link to
-  // PlantingEvent in the backend (HarvestRecord has planted_item_id, not
-  // planting_event_id), and the "Harvest ready" signal fires BEFORE any
-  // HarvestRecord exists. Any changing numeric value (including reused
-  // PlantingEvent ids) works as a trigger — we only care about transitions.
+  // These ids point at PlantingEvents; the tracker resolves them into a
+  // ready-to-harvest card, then highlights the created HarvestRecord row.
   focusSignal?: number | null;
+  focusPlantingEventIds?: number[];
 }
 
-const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
+interface ReadyHarvestTask {
+  plantingEventId: number;
+  plantId: string;
+  plantName: string;
+  variety?: string | null;
+  bedId?: number | null;
+  bedName?: string | null;
+  expectedHarvestDate?: string | null;
+  quantity?: number | null;
+  position?: { x: number; y: number } | null;
+  harvestCompleted: boolean;
+  existingHarvestRecordIds: number[];
+  plantedItems: Array<{
+    id: number;
+    quantity?: number | null;
+    status?: string | null;
+    position?: { x: number; y: number } | null;
+  }>;
+}
+
+interface DtmFeedbackPrompt {
+  harvestId: number;
+  plantId: string;
+  plantName: string;
+  additionalDays: number;
+}
+
+const formatReadyDate = (value?: string | null): string => {
+  if (!value) return 'No expected date';
+  return formatDisplayDate(value);
+};
+
+const uniqueNumbers = (values: number[]): number[] => Array.from(new Set(values));
+
+const poorHarvestCandidate = (result?: HarvestLogResult): HarvestLogRecordResult | null => {
+  if (!result) return null;
+  const records = result.records && result.records.length > 0 ? result.records : [result];
+  return records.find(record =>
+    record.id != null &&
+    (record.quality || '').toLowerCase() === 'poor' &&
+    !record.outcome &&
+    record.yieldExcluded !== true
+  ) || null;
+};
+
+const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal, focusPlantingEventIds }) => {
+  const today = useToday();
   const { showSuccess, showError } = useToast();
+  const readyFocusRef = useRef<HTMLDivElement | null>(null);
   const [harvests, setHarvests] = useState<HarvestRecord[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>({});
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [logPrefill, setLogPrefill] = useState<HarvestLogPrefill | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedHarvest, setSelectedHarvest] = useState<HarvestRecord | null>(null);
+  const [readyHarvestTasks, setReadyHarvestTasks] = useState<ReadyHarvestTask[]>([]);
+  const [readyHarvestLoading, setReadyHarvestLoading] = useState(false);
+  const [readyHarvestError, setReadyHarvestError] = useState<string | null>(null);
+  const [createdHarvestFocusId, setCreatedHarvestFocusId] = useState<number | null>(null);
+  const [dtmFeedback, setDtmFeedback] = useState<DtmFeedbackPrompt | null>(null);
+  const [dtmFeedbackSaving, setDtmFeedbackSaving] = useState(false);
+  const { registerRef: registerHarvestRef, highlightedId: highlightedHarvestId } =
+    useFocusHighlight<number>(createdHarvestFocusId, () => setCreatedHarvestFocusId(null));
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; harvestId: number | null }>({
     isOpen: false,
     harvestId: null,
@@ -55,13 +115,68 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
   const [sortBy, setSortBy] = useState<string>('harvestDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
+  const focusEventIds = useMemo(() => {
+    if (focusPlantingEventIds && focusPlantingEventIds.length > 0) {
+      return uniqueNumbers(focusPlantingEventIds.filter(id => Number.isFinite(id)));
+    }
+    return focusSignal != null ? [focusSignal] : [];
+  }, [focusSignal, focusPlantingEventIds]);
+  const focusEventKey = focusEventIds.join(',');
+
   useEffect(() => {
     if (focusSignal != null) {
       setSearchQuery('');
       setActiveFilters({});
       setDateRange({ startDate: null, endDate: null });
     }
-  }, [focusSignal]);
+    if (!focusEventKey) {
+      setReadyHarvestTasks([]);
+      setReadyHarvestError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadReadyHarvest = async () => {
+      try {
+        setReadyHarvestLoading(true);
+        setReadyHarvestError(null);
+        const response = await fetch(
+          `${API_BASE_URL}/api/harvests/ready?plantingEventIds=${encodeURIComponent(focusEventKey)}`,
+          { credentials: 'include' }
+        );
+        if (cancelled) return;
+        if (response.status === 404) {
+          setReadyHarvestTasks([]);
+          return;
+        }
+        if (!response.ok) {
+          setReadyHarvestTasks([]);
+          setReadyHarvestError('Could not load harvest-ready details.');
+          return;
+        }
+        const data = await response.json();
+        setReadyHarvestTasks(Array.isArray(data.tasks) ? data.tasks : []);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Error loading harvest-ready details:', error);
+          setReadyHarvestTasks([]);
+          setReadyHarvestError('Could not load harvest-ready details.');
+        }
+      } finally {
+        if (!cancelled) setReadyHarvestLoading(false);
+      }
+    };
+    loadReadyHarvest();
+    return () => {
+      cancelled = true;
+    };
+  }, [focusSignal, focusEventKey]);
+
+  useEffect(() => {
+    if ((readyHarvestLoading || readyHarvestError || readyHarvestTasks.length > 0) && readyFocusRef.current) {
+      readyFocusRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [readyHarvestLoading, readyHarvestError, readyHarvestTasks.length]);
 
   useEffect(() => {
     loadData();
@@ -158,9 +273,138 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
     }
   };
 
+  const getOutcomeLabel = (outcome?: HarvestRecord['outcome']): string => {
+    switch (outcome) {
+      case 'failed':
+        return 'Failed';
+      case 'didnt_establish':
+        return "Didn't establish";
+      case 'not_planted':
+        return 'Not planted';
+      default:
+        return '';
+    }
+  };
+
+  const getOutcomeColor = (outcome?: HarvestRecord['outcome']): string => {
+    switch (outcome) {
+      case 'failed':
+      case 'didnt_establish':
+        return 'bg-red-100 text-red-800';
+      case 'not_planted':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const readyHarvestPlantedItemIds = useMemo(
+    () => uniqueNumbers(readyHarvestTasks.flatMap(task => task.plantedItems.map(item => item.id))),
+    [readyHarvestTasks]
+  );
+
+  const readyHarvestQuantity = useMemo(() => {
+    const total = readyHarvestTasks.reduce((sum, task) => sum + (task.quantity ?? 0), 0);
+    return total > 0 ? total : 1;
+  }, [readyHarvestTasks]);
+
+  const readyHarvestSourceLabel = useMemo(() => {
+    if (readyHarvestTasks.length === 0) return '';
+    const first = readyHarvestTasks[0];
+    const crop = `${first.plantName}${first.variety ? ` (${first.variety})` : ''}`;
+    const bedNames = Array.from(new Set(
+      readyHarvestTasks
+        .map(task => task.bedName)
+        .filter((value): value is string => !!value)
+    ));
+    const bedText = bedNames.length > 0 ? ` in ${bedNames.join(', ')}` : '';
+    const countText = readyHarvestTasks.length > 1 ? `${readyHarvestTasks.length} plantings of ` : '';
+    return `Ready to harvest: ${countText}${crop}${bedText}`;
+  }, [readyHarvestTasks]);
+
+  const openBlankLogModal = () => {
+    setLogPrefill(null);
+    setIsLogModalOpen(true);
+  };
+
+  const openReadyHarvestModal = () => {
+    if (readyHarvestTasks.length === 0) return;
+    const first = readyHarvestTasks[0];
+    const hasExpectedCount = readyHarvestTasks.some(task => (task.quantity ?? 0) > 0);
+    setLogPrefill({
+      plantId: first.plantId,
+      harvestDate: today,
+      quantity: readyHarvestQuantity,
+      unit: hasExpectedCount ? 'count' : 'lbs',
+      quality: 'good',
+      notes: `Dashboard harvest reminder: ${readyHarvestSourceLabel}`,
+      plantedItemId: readyHarvestPlantedItemIds.length === 1 ? readyHarvestPlantedItemIds[0] : undefined,
+      plantedItemIds: readyHarvestPlantedItemIds.length > 1 ? readyHarvestPlantedItemIds : undefined,
+      sourceLabel: readyHarvestSourceLabel,
+    });
+    setIsLogModalOpen(true);
+  };
+
+  const closeLogModal = () => {
+    setIsLogModalOpen(false);
+    setLogPrefill(null);
+  };
+
+  const handleLogModalSuccess = (result?: HarvestLogResult) => {
+    loadData();
+    const createdId = result?.id ?? result?.records?.[0]?.id;
+    if (createdId != null) {
+      setCreatedHarvestFocusId(createdId);
+    }
+    if (logPrefill) {
+      setReadyHarvestTasks([]);
+      setReadyHarvestError(null);
+    }
+    const candidate = poorHarvestCandidate(result);
+    const plantId = candidate?.plantId || logPrefill?.plantId;
+    if (candidate?.id != null && plantId) {
+      setDtmFeedback({
+        harvestId: candidate.id,
+        plantId,
+        plantName: getPlantName(plantId),
+        additionalDays: 7,
+      });
+    }
+  };
+
+  const handleApplyDtmFeedback = async () => {
+    if (!dtmFeedback) return;
+    const additionalDays = Math.max(1, Math.min(60, Math.round(dtmFeedback.additionalDays)));
+    setDtmFeedbackSaving(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/feedback/harvests/${dtmFeedback.harvestId}/dtm-adjustment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ additionalDays }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save days-to-maturity adjustment');
+      }
+      showSuccess(data.message || 'Days-to-maturity adjustment saved');
+      setDtmFeedback(null);
+      loadData();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to save days-to-maturity adjustment');
+    } finally {
+      setDtmFeedbackSaving(false);
+    }
+  };
+
   // Filter and Sort Configuration
   const uniquePlants = Array.from(new Set(harvests.map(h => h.plantId)));
   const uniqueUnits = Array.from(new Set(harvests.map(h => h.unit)));
+  const uniqueOutcomes = Array.from(new Set(
+    harvests
+      .map(h => h.outcome)
+      .filter((value): value is NonNullable<HarvestRecord['outcome']> => !!value)
+  ));
 
   const sortOptions: SortOption[] = [
     { value: 'harvestDate', label: 'Harvest Date' },
@@ -197,6 +441,15 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
         count: harvests.filter(h => h.unit === u).length,
       })),
     },
+    {
+      id: 'outcome',
+      label: 'Outcome',
+      options: uniqueOutcomes.map(outcome => ({
+        value: outcome,
+        label: getOutcomeLabel(outcome),
+        count: harvests.filter(h => h.outcome === outcome).length,
+      })),
+    },
   ];
 
   const handleFilterChange = (groupId: string, values: string[]) => {
@@ -230,7 +483,7 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
     // Date range filter
     if (dateRange.startDate || dateRange.endDate) {
       result = result.filter(h => {
-        const date = new Date(h.harvestDate).toISOString().split('T')[0];
+        const date = formatLocalDate(parseLocalDate(h.harvestDate));
         if (dateRange.startDate && date < dateRange.startDate) return false;
         if (dateRange.endDate && date > dateRange.endDate) return false;
         return true;
@@ -253,6 +506,11 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
     const unitFilters = activeFilters['unit'] || [];
     if (unitFilters.length > 0) {
       result = result.filter(h => unitFilters.includes(h.unit));
+    }
+
+    const outcomeFilters = activeFilters['outcome'] || [];
+    if (outcomeFilters.length > 0) {
+      result = result.filter(h => h.outcome != null && outcomeFilters.includes(h.outcome));
     }
 
     // Sorting
@@ -293,8 +551,14 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harvests, searchQuery, activeFilters, dateRange, sortBy, sortDirection, getPlantName]);
 
-  const totalHarvested = harvests.reduce((sum, h) => sum + h.quantity, 0);
+  const yieldHarvests = harvests.filter(h => !h.yieldExcluded);
+  const totalHarvested = yieldHarvests.reduce((sum, h) => sum + h.quantity, 0);
   const uniquePlantCount = new Set(harvests.map(h => h.plantId)).size;
+  const readyHarvestPrimary = readyHarvestTasks[0] ?? null;
+  const readyHarvestExistingCount = readyHarvestTasks.reduce(
+    (sum, task) => sum + task.existingHarvestRecordIds.length,
+    0
+  );
 
   return (
     <div className="space-y-6">
@@ -307,8 +571,8 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
-            <div data-testid="harvest-count" className="text-3xl font-bold text-green-700 mb-2">{harvests.length}</div>
-            <div className="text-sm text-green-600 font-medium">Total Harvests</div>
+            <div data-testid="harvest-count" className="text-3xl font-bold text-green-700 mb-2">{yieldHarvests.length}</div>
+            <div className="text-sm text-green-600 font-medium">Yield Records</div>
           </div>
 
           <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border border-blue-200">
@@ -327,11 +591,109 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
           <button
             data-testid="btn-log-harvest"
             className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
-            onClick={() => setIsLogModalOpen(true)}
+            onClick={openBlankLogModal}
           >
             Log New Harvest
           </button>
         </div>
+
+        {(readyHarvestLoading || readyHarvestError || readyHarvestTasks.length > 0) && (
+          <div
+            ref={readyFocusRef}
+            data-testid="ready-harvest-focus-card"
+            className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 ring-2 ring-amber-300 ring-offset-2"
+          >
+            {readyHarvestLoading ? (
+              <div className="text-sm font-medium text-amber-900">Loading harvest details...</div>
+            ) : readyHarvestError ? (
+              <div className="text-sm font-medium text-amber-900">{readyHarvestError}</div>
+            ) : readyHarvestPrimary ? (
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-wide text-amber-700">
+                    Ready to Harvest
+                  </div>
+                  <div className="mt-1 text-lg font-bold text-amber-950">
+                    {readyHarvestPrimary.plantName}
+                    {readyHarvestPrimary.variety ? ` (${readyHarvestPrimary.variety})` : ''}
+                  </div>
+                  <div className="mt-1 text-sm text-amber-900">
+                    {readyHarvestTasks.length > 1 && `${readyHarvestTasks.length} grouped plantings | `}
+                    {readyHarvestPrimary.bedName && `${readyHarvestPrimary.bedName} | `}
+                    Expected {formatReadyDate(readyHarvestPrimary.expectedHarvestDate)}
+                    {readyHarvestPrimary.quantity != null && ` | Expected count ${readyHarvestQuantity}`}
+                  </div>
+                  {readyHarvestExistingCount > 0 && (
+                    <div className="mt-2 text-xs font-medium text-amber-800">
+                      {readyHarvestExistingCount} matching harvest record{readyHarvestExistingCount === 1 ? '' : 's'} already exist.
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  data-testid="ready-harvest-log-button"
+                  onClick={openReadyHarvestModal}
+                  className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+                >
+                  Log Harvest
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {dtmFeedback && (
+          <div
+            data-testid="dtm-feedback-card"
+            className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4"
+          >
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+                  Harvest Feedback
+                </div>
+                <div className="mt-1 text-base font-bold text-blue-950">
+                  Did {dtmFeedback.plantName} need more time in the ground?
+                </div>
+                <div className="mt-1 text-sm text-blue-900">
+                  Save a per-variety days-to-maturity adjustment for future harvest dates.
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="block text-sm font-medium text-blue-950">
+                  Extra days
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={dtmFeedback.additionalDays}
+                    onChange={(e) => setDtmFeedback(prev => prev ? {
+                      ...prev,
+                      additionalDays: Math.max(1, Math.min(60, Number(e.target.value) || 1)),
+                    } : prev)}
+                    className="mt-1 w-24 rounded-lg border border-blue-200 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleApplyDtmFeedback}
+                  disabled={dtmFeedbackSaving}
+                  className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
+                >
+                  {dtmFeedbackSaving ? 'Saving...' : 'Save Adjustment'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDtmFeedback(null)}
+                  disabled={dtmFeedbackSaving}
+                  className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Search Bar */}
         <SearchBar
@@ -419,11 +781,14 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
                 {filteredAndSortedHarvests.map((harvest) => (
                   <tr
                     key={harvest.id}
+                    ref={registerHarvestRef(harvest.id)}
                     data-testid={`harvest-row-${harvest.id}`}
-                    className="hover:bg-gray-50"
+                    className={`hover:bg-gray-50 ${
+                      highlightedHarvestId === harvest.id ? 'ring-2 ring-amber-400 ring-offset-2 bg-amber-50' : ''
+                    }`}
                   >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(harvest.harvestDate).toLocaleDateString()}
+                      {formatDisplayDate(harvest.harvestDate)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">
@@ -431,11 +796,18 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {harvest.quantity} {harvest.unit}
+                      <div>
+                        <div>{harvest.quantity} {harvest.unit}</div>
+                        {harvest.yieldExcluded && (
+                          <div className="text-xs font-medium text-gray-500">Excluded from totals</div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getQualityColor(harvest.quality)}`}>
-                        {harvest.quality}
+                      <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        harvest.outcome ? getOutcomeColor(harvest.outcome) : getQualityColor(harvest.quality)
+                      }`}>
+                        {harvest.outcome ? getOutcomeLabel(harvest.outcome) : harvest.quality}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
@@ -508,8 +880,9 @@ const HarvestTracker: React.FC<HarvestTrackerProps> = ({ focusSignal }) => {
       {/* Modals */}
       <LogHarvestModal
         isOpen={isLogModalOpen}
-        onClose={() => setIsLogModalOpen(false)}
-        onSuccess={loadData}
+        onClose={closeLogModal}
+        onSuccess={handleLogModalSuccess}
+        initialValues={logPrefill}
       />
 
       {selectedHarvest && (

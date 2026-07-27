@@ -1,6 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI, login } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
+import { openDesignerDetailView } from './helpers/data-setup';
 
 const BACKEND_URL = 'http://localhost:5000';
 const RUN_ID = Date.now().toString(36);
@@ -320,18 +321,29 @@ test.describe.serial('E2E Journey: Garden Planning Pipeline', () => {
   test('J-18: Garden Designer shows the bed with planted items', async ({ page }) => {
     await page.goto('/');
     await login(page, JOURNEY_USER.username, JOURNEY_USER.password);
-    await page.getByRole('button', { name: 'Garden Designer' }).click();
+    await navigateTo(page, TABS.GARDEN_DESIGNER);
     await page.waitForLoadState('networkidle');
 
-    // Bed name appears in the bed selector dropdown — verify option exists
-    const bedOption = page.locator(`option:has-text("Journey Bed ${RUN_ID}")`);
-    await expect(bedOption).toBeAttached({ timeout: 10000 });
+    // The designer opens on the overview, where each bed is a summary card.
+    // Assert there first, then open it — the <option> list only exists once a
+    // bed has been selected and the detail view is showing.
+    await expect(
+      page.locator('[data-testid^="bed-card-"]').filter({ hasText: `Journey Bed ${RUN_ID}` }),
+    ).toBeVisible({ timeout: 10000 });
+
+    await openDesignerDetailView(page, `Journey Bed ${RUN_ID}`);
+    // Scope to the bed selector: the designer renders more than one <select>
+    // containing bed names, so an unscoped option lookup matches several.
+    const bedOption = page
+      .locator('[data-testid="bed-selector"]')
+      .locator(`option:has-text("Journey Bed ${RUN_ID}")`);
+    await expect(bedOption.first()).toBeAttached({ timeout: 10000 });
   });
 
   test('J-19: Garden Planner shows the plan', async ({ page }) => {
     await page.goto('/');
     await login(page, JOURNEY_USER.username, JOURNEY_USER.password);
-    await page.getByRole('button', { name: 'Garden Planner' }).click();
+    await navigateTo(page, TABS.GARDEN_PLANNER);
     await page.waitForLoadState('networkidle');
 
     // Should see our plan
@@ -341,7 +353,7 @@ test.describe.serial('E2E Journey: Garden Planning Pipeline', () => {
   test('J-20: Harvests tab shows our harvest', async ({ page }) => {
     await page.goto('/');
     await login(page, JOURNEY_USER.username, JOURNEY_USER.password);
-    await page.getByRole('button', { name: 'Harvests' }).click();
+    await navigateTo(page, TABS.HARVESTS);
     await page.waitForLoadState('networkidle');
 
     // Should see harvest records area
@@ -351,7 +363,7 @@ test.describe.serial('E2E Journey: Garden Planning Pipeline', () => {
   test('J-21: Nutrition tab loads without error', async ({ page }) => {
     await page.goto('/');
     await login(page, JOURNEY_USER.username, JOURNEY_USER.password);
-    await page.getByRole('button', { name: 'Nutrition' }).click();
+    await navigateTo(page, TABS.NUTRITION);
     await page.waitForLoadState('networkidle');
 
     // Should see nutrition content

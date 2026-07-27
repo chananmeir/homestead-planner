@@ -1,7 +1,7 @@
 """
 Event details JSON validation for PlantingEvent.event_details.
 
-Validates write-path data for non-planting event types (mulch, maple-tapping).
+Validates write-path data for non-planting event types.
 Read paths remain defensive (try-except + .get() defaults) and are unchanged.
 
 Pattern matches trellis_validation.py — pure functions, no database access.
@@ -25,6 +25,50 @@ VALID_TREE_TYPES = frozenset({'sugar', 'red', 'black', 'boxelder'})
 VALID_SYRUP_GRADES = frozenset({'Golden', 'Amber', 'Dark', 'VeryDark'})
 
 VALID_TAP_HEALING = frozenset({'good', 'fair', 'poor'})
+
+VALID_FERTILIZER_TYPES = frozenset({
+    'compost',
+    'compost-tea',
+    'fish-emulsion',
+    'kelp',
+    'blood-meal',
+    'bone-meal',
+    'balanced-organic',
+    'slow-release',
+    'synthetic',
+    'custom',
+})
+
+VALID_FERTILIZER_UNITS = frozenset({
+    'tsp',
+    'tbsp',
+    'oz',
+    'lb',
+    'cup',
+    'gallon',
+    'ml',
+    'l',
+    'custom',
+})
+
+VALID_FERTILIZER_APPLICATION_METHODS = frozenset({
+    'top-dress',
+    'side-dress',
+    'soil-drench',
+    'foliar',
+    'broadcast',
+    'fertigation',
+})
+
+VALID_IRRIGATION_METHODS = frozenset({
+    'drip',
+    'soaker-hose',
+    'sprinkler',
+    'hand-water',
+    'overhead',
+    'flood',
+    'other',
+})
 
 
 def validate_event_details(
@@ -59,9 +103,33 @@ def validate_event_details(
             return False, ['event_details must be a dict']
         return _validate_maple_tapping(details)
 
-    # Unknown event type — accept for forward compatibility, but log
-    logger.warning("Unknown event_type '%s'; skipping event_details validation.", event_type)
-    return True, []
+    if event_type == 'fertilizing':
+        if details is None:
+            return False, ['event_details is required for fertilizing events']
+        if not isinstance(details, dict):
+            return False, ['event_details must be a dict']
+        return _validate_fertilizing(details)
+
+    if event_type == 'irrigation':
+        if details is None:
+            return False, ['event_details is required for irrigation events']
+        if not isinstance(details, dict):
+            return False, ['event_details must be a dict']
+        return _validate_irrigation(details)
+
+    if event_type == 'custom':
+        if details is None:
+            return False, ['event_details is required for custom events']
+        if not isinstance(details, dict):
+            return False, ['event_details must be a dict']
+        return True, []
+
+    logger.warning("Unsupported event_type '%s'; rejecting event_details.", event_type)
+    return False, [f"Unsupported event_type: {event_type}"]
+
+
+def _is_number(value) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +181,130 @@ def _validate_mulch(details: dict) -> Tuple[bool, List[str]]:
     unknown = set(details.keys()) - known
     if unknown:
         logger.warning("Mulch event_details has unknown keys: %s", unknown)
+
+    return (len(errors) == 0, errors)
+
+
+# ---------------------------------------------------------------------------
+# Fertilizing validation
+# ---------------------------------------------------------------------------
+
+def _validate_fertilizing(details: dict) -> Tuple[bool, List[str]]:
+    errors: List[str] = []
+
+    if 'fertilizer_type' not in details:
+        errors.append("Missing required field: fertilizer_type")
+    else:
+        fertilizer_type = details['fertilizer_type']
+        if not isinstance(fertilizer_type, str):
+            errors.append(
+                f"fertilizer_type must be a string, got {type(fertilizer_type).__name__}"
+            )
+        elif fertilizer_type not in VALID_FERTILIZER_TYPES:
+            errors.append(
+                f"Invalid fertilizer_type '{fertilizer_type}'; "
+                f"allowed: {sorted(VALID_FERTILIZER_TYPES)}"
+            )
+
+    if 'amount' not in details:
+        errors.append("Missing required field: amount")
+    else:
+        amount = details['amount']
+        if not _is_number(amount):
+            errors.append(f"amount must be a number, got {type(amount).__name__}")
+        elif amount <= 0:
+            errors.append(f"amount must be > 0, got {amount}")
+
+    if 'amount_unit' not in details:
+        errors.append("Missing required field: amount_unit")
+    else:
+        amount_unit = details['amount_unit']
+        if not isinstance(amount_unit, str):
+            errors.append(f"amount_unit must be a string, got {type(amount_unit).__name__}")
+        elif amount_unit not in VALID_FERTILIZER_UNITS:
+            errors.append(
+                f"Invalid amount_unit '{amount_unit}'; "
+                f"allowed: {sorted(VALID_FERTILIZER_UNITS)}"
+            )
+
+    if 'application_method' not in details:
+        errors.append("Missing required field: application_method")
+    else:
+        method = details['application_method']
+        if not isinstance(method, str):
+            errors.append(
+                f"application_method must be a string, got {type(method).__name__}"
+            )
+        elif method not in VALID_FERTILIZER_APPLICATION_METHODS:
+            errors.append(
+                f"Invalid application_method '{method}'; "
+                f"allowed: {sorted(VALID_FERTILIZER_APPLICATION_METHODS)}"
+            )
+
+    if 'npk' in details and details['npk'] is not None:
+        npk = details['npk']
+        if not isinstance(npk, str):
+            errors.append(f"npk must be a string, got {type(npk).__name__}")
+
+    known = {
+        'fertilizer_type', 'amount', 'amount_unit',
+        'application_method', 'npk',
+    }
+    unknown = set(details.keys()) - known
+    if unknown:
+        logger.warning("Fertilizing event_details has unknown keys: %s", unknown)
+
+    return (len(errors) == 0, errors)
+
+
+# ---------------------------------------------------------------------------
+# Irrigation validation
+# ---------------------------------------------------------------------------
+
+def _validate_irrigation(details: dict) -> Tuple[bool, List[str]]:
+    errors: List[str] = []
+
+    if 'method' not in details:
+        errors.append("Missing required field: method")
+    else:
+        method = details['method']
+        if not isinstance(method, str):
+            errors.append(f"method must be a string, got {type(method).__name__}")
+        elif method not in VALID_IRRIGATION_METHODS:
+            errors.append(
+                f"Invalid method '{method}'; "
+                f"allowed: {sorted(VALID_IRRIGATION_METHODS)}"
+            )
+
+    if 'duration_minutes' not in details:
+        errors.append("Missing required field: duration_minutes")
+    else:
+        duration = details['duration_minutes']
+        if not _is_number(duration):
+            errors.append(
+                f"duration_minutes must be a number, got {type(duration).__name__}"
+            )
+        elif duration <= 0:
+            errors.append(f"duration_minutes must be > 0, got {duration}")
+
+    if 'amount_gallons' in details and details['amount_gallons'] is not None:
+        amount = details['amount_gallons']
+        if not _is_number(amount):
+            errors.append(
+                f"amount_gallons must be a number, got {type(amount).__name__}"
+            )
+        elif amount < 0:
+            errors.append(f"amount_gallons must be >= 0, got {amount}")
+
+    if 'zone' in details and details['zone'] is not None:
+        zone = details['zone']
+        if not isinstance(zone, str):
+            errors.append(f"zone must be a string, got {type(zone).__name__}")
+
+    known = {'method', 'duration_minutes', 'amount_gallons', 'zone'}
+    unknown = set(details.keys()) - known
+    if unknown:
+        logger.warning("Irrigation event_details has unknown keys: %s", unknown)
 
     return (len(errors) == 0, errors)
 

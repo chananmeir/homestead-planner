@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.10'
+  NODE_VERSION: '20'
+
+jobs:
+  # ── Gating: both of these are green today and must stay green ──────────
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # -m "not external" skips the handful of tests needing a live
+      # third-party service or an API key absent from a clean checkout
+      # (see backend/pytest.ini). Everything else must pass.
+      - name: Run pytest
+        working-directory: backend
+        run: python -m pytest -m "not external" -q
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: frontend
+        run: npx react-scripts test --watchAll=false
+        env:
+          CI: true
+
+      # Catches TypeScript and bundling errors that unit tests miss.
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+        env:
+          CI: false # CRA treats warnings as errors when CI=true
+
+  # ── Gating: the E2E suite is green and reproducible ───────────────────
+  #
+  # Playwright starts both servers itself against a disposable database, so a
+  # run does not depend on local state and is repeatable from a clean checkout.
+  # Full suite is currently 572 passed / 0 failed / 3 skipped.
+  #
+  # This job takes ~25 minutes, so it runs alongside the fast backend and
+  # frontend jobs rather than after them — a failure in those two surfaces
+  # within a couple of minutes regardless.
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # playwright.config.js expects the interpreter at backend/venv, which is
+      # how developers run it. Create one that points at the CI Python so the
+      # same config works in both places without branching.
+      - name: Provision backend venv for Playwright's webServer
+        working-directory: backend
+        run: |
+          python -m venv venv --system-site-packages
+          ./venv/bin/python -c "import flask; print('backend venv ready')"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # Playwright starts the backend (on a throwaway database) and the
+      # frontend itself — see the webServer block in playwright.config.js.
+      - name: Run Playwright
+        working-directory: frontend
+        run: npx playwright test --reporter=list
+        env:
+          CI: true
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7

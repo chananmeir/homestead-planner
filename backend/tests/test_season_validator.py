@@ -344,3 +344,79 @@ def test_cooler_dates_no_windows_in_window_returns_none_cleanly():
     assert result['optimal_end'] is None
     assert result['earliest_safe_date'] is None
     assert result['reason']  # still provides a human-readable reason
+
+
+def _warning_types(warnings):
+    return {warning['type'] for warning in warnings}
+
+
+def test_future_historical_validation_cools_shaded_bed():
+    """A borderline full-sun planting should become too cold in full shade."""
+    simulation_clock.set_simulated_date(date(2024, 4, 1))
+
+    fake_plant = {
+        'name': 'Borderline Bean',
+        'soil_temp_min': 60,
+        'heat_tolerance': 'medium',
+        'frostTolerance': 'hardy',
+    }
+
+    def may_sixty_four(latitude, longitude, month):
+        return {d: 64.0 for d in range(1, 32)}
+
+    with patch.object(season_validator, 'get_plant_by_id', return_value=fake_plant), \
+         patch.object(season_validator, 'get_historical_daily_soil_temps', side_effect=may_sixty_four), \
+         patch.object(season_validator, 'get_soil_temperature_with_adjustments'):
+        full_sun = season_validator.validate_planting_conditions(
+            plant_id='bean',
+            planting_date=datetime(2024, 5, 1),
+            latitude=42.0,
+            longitude=-83.0,
+            sun_exposure='full-sun',
+        )
+        full_shade = season_validator.validate_planting_conditions(
+            plant_id='bean',
+            planting_date=datetime(2024, 5, 1),
+            latitude=42.0,
+            longitude=-83.0,
+            sun_exposure='shade',
+        )
+
+    assert 'soil_temp_low' not in _warning_types(full_sun)
+    assert 'soil_temp_low' in _warning_types(full_shade)
+
+
+def test_future_historical_validation_credits_shade_for_heat_sensitive_crops():
+    """Shade should reduce too-hot warnings for cool-weather crops."""
+    simulation_clock.set_simulated_date(date(2024, 6, 1))
+
+    fake_plant = {
+        'name': 'Heat Sensitive Greens',
+        'soil_temp_min': 60,
+        'heat_tolerance': 'low',
+        'frostTolerance': 'hardy',
+    }
+
+    def july_eighty_two(latitude, longitude, month):
+        return {d: 82.0 for d in range(1, 32)}
+
+    with patch.object(season_validator, 'get_plant_by_id', return_value=fake_plant), \
+         patch.object(season_validator, 'get_historical_daily_soil_temps', side_effect=july_eighty_two), \
+         patch.object(season_validator, 'get_soil_temperature_with_adjustments'):
+        full_sun = season_validator.validate_planting_conditions(
+            plant_id='greens',
+            planting_date=datetime(2024, 7, 1),
+            latitude=42.0,
+            longitude=-83.0,
+            sun_exposure='full-sun',
+        )
+        full_shade = season_validator.validate_planting_conditions(
+            plant_id='greens',
+            planting_date=datetime(2024, 7, 1),
+            latitude=42.0,
+            longitude=-83.0,
+            sun_exposure='shade',
+        )
+
+    assert 'soil_temp_high' in _warning_types(full_sun)
+    assert 'soil_temp_high' not in _warning_types(full_shade)

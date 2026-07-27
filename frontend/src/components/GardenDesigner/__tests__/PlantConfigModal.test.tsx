@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import PlantConfigModal from '../PlantConfigModal';
 import { ToastProvider } from '../../common/Toast';
 
@@ -157,5 +157,44 @@ describe('PlantConfigModal indoor-start transplant scheduling', () => {
     });
     expect(screen.getByRole('option', { name: 'Yellow Sweet Spanish (current start)' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Sweet Spanish' })).toBeInTheDocument();
+  });
+
+  test('stops checking planting conditions when validation requests time out', async () => {
+    jest.useFakeTimers();
+    localStorage.setItem('weatherZipCode', '53209');
+
+    const hangingFetch = jest.fn((_url: string, init?: RequestInit) => (
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          const error = new Error('Aborted');
+          error.name = 'AbortError';
+          reject(error);
+        });
+      })
+    ));
+    (global as any).fetch = hangingFetch;
+
+    try {
+      renderModal({
+        initialPlantingMethod: 'direct',
+        suppressIndoorStartAutoShift: true,
+      });
+
+      expect(await screen.findByText(/Checking planting conditions/i)).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(10000);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Checking planting conditions/i)).not.toBeInTheDocument();
+      });
+
+      const validationCall = hangingFetch.mock.calls.find(([url]) => String(url).includes('/api/validate-planting'));
+      expect(validationCall?.[1]?.signal).toBeDefined();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

@@ -12,7 +12,7 @@ from PIL import Image
 from datetime import datetime
 import os
 
-from models import db, Photo
+from models import db, Photo, GardenBed
 from utils.validators import allowed_file
 
 photos_bp = Blueprint('photos', __name__, url_prefix='/api/photos')
@@ -31,6 +31,14 @@ def photos():
             return jsonify({'error': 'No file selected'}), 400
 
         if file and allowed_file(file.filename):
+            # Verify bed ownership BEFORE writing the image to disk — a later
+            # rejection would leave an orphan file in the upload folder.
+            garden_bed_id = request.form.get('gardenBedId') or None
+            if garden_bed_id and not GardenBed.query.filter_by(
+                id=garden_bed_id, user_id=current_user.id
+            ).first():
+                return jsonify({'error': 'Unauthorized'}), 403
+
             filename = secure_filename(file.filename)
             # Add timestamp to filename to avoid conflicts
             name, ext = os.path.splitext(filename)
@@ -50,7 +58,7 @@ def photos():
                 filepath=f"/static/uploads/{filename}",
                 caption=request.form.get('caption', ''),
                 category=request.form.get('category', 'garden'),
-                garden_bed_id=request.form.get('gardenBedId') or None
+                garden_bed_id=garden_bed_id
             )
             db.session.add(photo)
             db.session.commit()
@@ -89,7 +97,12 @@ def manage_photo(photo_id):
     if 'category' in data:
         photo.category = data['category']
     if 'gardenBedId' in data:
-        photo.garden_bed_id = data['gardenBedId'] if data['gardenBedId'] else None
+        new_bed_id = data['gardenBedId'] or None
+        if new_bed_id and not GardenBed.query.filter_by(
+            id=new_bed_id, user_id=current_user.id
+        ).first():
+            return jsonify({'error': 'Unauthorized'}), 403
+        photo.garden_bed_id = new_bed_id
 
     db.session.commit()
 

@@ -43,6 +43,38 @@ If a proposed "data" script needs to `ALTER` a table or add a column to make its
 
 ### Recent Migrations
 
+**2026-07-10**: Added archive flag to `seed_inventory`
+- **Migration**: `6c8db43be093_add_is_archived_to_seed_inventory.py` (Flask-Migrate)
+- **Purpose**: Let users hide exhausted or retired personal seed lots from everyday seed inventory and Garden Designer flows without deleting historical records.
+- **Columns added**: `seed_inventory.is_archived` (Boolean, non-null, indexed, default false)
+- **Backfill**: Existing seed records default to active (`false`). Archived personal seeds are hidden unless an endpoint is called with `includeArchived=true`.
+- **Hand-trimmed**: autogenerate proposed unrelated schema drift changes; those were removed so this revision only adds the archive column and index.
+
+**2026-06-22**: Added feedback-loop location and learned sow-date fields
+- **Migration**: `4c1d2e3f4a5b_add_feedback_loop_location_and_sow_overrides.py` (Flask-Migrate)
+- **Purpose**: Store the primary property ZIP used for soil-temperature feedback and persist opt-in per-variety earliest-sow adjustments from did-not-establish outcomes.
+- **Columns added**:
+  - `property.zipcode` (String(10), nullable)
+  - `seed_inventory.earliest_sow_month_day` (String(5), nullable, `MM-DD`)
+  - `seed_inventory.sow_adjustment_notes` (Text, nullable)
+  - `seed_inventory.sow_adjustment_updated_at` (DateTime, nullable)
+- **Backfill**: None. Existing properties keep null ZIP values until the owner saves a ZIP in Settings; existing seed lots have no learned sow-date override until confirmed from feedback.
+- **Runtime note**: The migration has been authored but should be applied with `flask db upgrade` only after review/approval.
+
+**2026-06-19**: Added `transplant_source` to `planting_event`
+- **Migration**: `2ab7c8d9e0f1_add_transplant_source_to_planting_event.py` (Flask-Migrate)
+- **Purpose**: Track the origin of a scheduled transplant when it is completed from the dashboard store-bought transplant flow.
+- **Columns added**: `planting_event.transplant_source` (String(20), nullable)
+- **Semantics**: `NULL` = legacy/unknown or inferred elsewhere; `'store_bought'` = user recorded the transplant as purchased seedlings. Seed-started transplants continue to be inferred from linked `indoor_seed_start` rows.
+- **Backfill**: None. Existing events remain `NULL` to avoid incorrectly classifying historical records.
+
+**2026-06-14**: Added `source_key` idempotency field to `harvest_record`
+- **Migration**: `9f4e72a1c6d0_add_source_key_to_harvest_record.py` (Flask-Migrate)
+- **Purpose**: Prevent duplicate harvest records when a harvest is logged from a specific `PlantedItem`, `PlantingEvent`, or client idempotency key. This supports bed-view and dashboard harvest logging retries without double-counting yield.
+- **Columns added**: `harvest_record.source_key` (String(120), nullable, indexed)
+- **Constraint added**: `UNIQUE(user_id, source_key)` so idempotency is user-scoped.
+- **Backfill**: Existing harvest records with a unique `(user_id, planted_item_id)` pair are backfilled to `planted_item:<id>`. Pre-existing duplicate rows for the same user/item are left `NULL` to preserve data and avoid blocking the uniqueness constraint.
+
 **2026-06-11**: Added `source` provenance field to `indoor_seed_start`
 - **Migration**: `ff46179d637a_add_source_provenance_to_indoor_seed_.py` (Flask-Migrate)
 - **Purpose**: Distinguish auto-created tracking rows from manual ones. `NULL` = manually created (UI / banner / import flows); `'export'` = auto-created by export-to-calendar's `createIndoorStarts` option (Tier 2 bridge). Enables later evaluation of whether auto-created trays actually get used.

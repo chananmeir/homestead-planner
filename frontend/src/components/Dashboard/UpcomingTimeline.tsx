@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../../config';
 import { useNow } from '../../contexts/SimulationContext';
 import { PLANT_DATABASE } from '../../data/plantDatabase';
 import type { PlantingEvent, GardenBed } from '../../types';
+import { addLocalDays, formatLocalDate, parseLocalDate } from '../../utils/dateUtils';
 
 const humanizePlantId = (id: string): string =>
   id.replace(/-\d+$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -42,10 +43,9 @@ const UpcomingTimeline: React.FC<UpcomingTimelineProps> = ({ onViewCalendar }) =
         setLoading(true);
         setError(null);
         const start = new Date(todayKey);
-        const end = new Date(todayKey);
-        end.setDate(end.getDate() + 14);
-        const startStr = start.toISOString().split('T')[0];
-        const endStr = end.toISOString().split('T')[0];
+        const end = addLocalDays(start, 14);
+        const startStr = formatLocalDate(start);
+        const endStr = formatLocalDate(end);
 
         const [eventsResp, bedsResp] = await Promise.all([
           fetch(
@@ -83,8 +83,7 @@ const UpcomingTimeline: React.FC<UpcomingTimelineProps> = ({ onViewCalendar }) =
       .map((ev): TimelineRow | null => {
         const dateStr = ev.transplantDate || ev.directSeedDate || ev.seedStartDate;
         if (!dateStr) return null;
-        // API returns ISO datetime; if switched to date-only, use parseLocalDate
-        const d = new Date(dateStr);
+        const d = parseLocalDate(dateStr);
         if (d < now) return null;
 
         let typeLabel = 'Planting';

@@ -66,6 +66,7 @@ class TestAPILookup:
         # Minneapolis is on zone boundary, accept both
         assert zone in ["4b", "5a"], f"Expected 4b or 5a, got {zone}"
 
+    @pytest.mark.external
     def test_api_lookup_washington_dc(self):
         """Test API lookup for Washington DC ZIP"""
         zone = self.service._lookup_zone_via_api("20001")
@@ -158,6 +159,7 @@ class TestMultiTierOrchestration:
         # Should get accurate result from API or regional
         assert zone in ["10a", "10b", "11a"], f"Expected tropical zone for Miami, got {zone}"
 
+    @pytest.mark.external
     def test_chicago_api_lookup(self):
         """Test Chicago zone lookup"""
         # Chicago: 41.9°N, -87.6°W → Zone 6a
@@ -171,6 +173,7 @@ class TestZoneAccuracy:
     def setup_method(self):
         self.service = GeocodingService()
 
+    @pytest.mark.external
     def test_known_locations_accuracy(self):
         """Test multiple known locations for accuracy"""
         # Format: (lat, lng, address, expected_zones)
@@ -193,6 +196,7 @@ class TestEdgeCases:
     def setup_method(self):
         self.service = GeocodingService()
 
+    @pytest.mark.external
     def test_extreme_north_coordinates(self):
         """Test very northern coordinates"""
         # Alaska: 61.2°N, -149.9°W → Should return a zone (not None)
@@ -200,6 +204,7 @@ class TestEdgeCases:
         assert zone is not None, "Should return a zone for Alaska coordinates"
         assert zone in ["3a", "4a", "4b"], f"Expected cold zone for Alaska, got {zone}"
 
+    @pytest.mark.external
     def test_extreme_south_coordinates(self):
         """Test very southern coordinates"""
         # South Florida Keys: 24.5°N, -81.8°W → Should return warmest zones

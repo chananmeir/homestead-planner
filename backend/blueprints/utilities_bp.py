@@ -46,7 +46,7 @@ from services.geocoding_service import (
     ZIP_STATUS_PROVIDER_ERROR,
     ZIP_STATUS_INVALID_INPUT,
 )
-from conflict_checker import validate_planting_conflict
+from conflict_checker import check_sun_exposure_compatibility, validate_planting_conflict
 from services.indoor_start_service import (
     calculate_seed_quantity,
     create_indoor_start,
@@ -56,6 +56,7 @@ from season_validator import validate_planting_for_property
 from forward_planting_validator import validate_planting_date, check_future_cold_danger
 from simulation_clock import get_now, get_utc_now
 from utils.helpers import parse_iso_date
+from utils.ownership import get_usable_seed, owns_all_beds
 from utils.constants import DEFAULT_LATITUDE, DEFAULT_LONGITUDE
 from frost_date_lookup import get_frost_dates_for_user
 import math
@@ -944,6 +945,18 @@ def indoor_seed_starts():
             if not plant:
                 return jsonify({'error': 'Plant not found'}), 404
 
+            # Validate referenced FKs before any writes. Own seeds and shared
+            # catalog seeds are fine; another user's private packet is not.
+            seed_inventory_id = data.get('seedInventoryId')
+            if seed_inventory_id is not None and get_usable_seed(seed_inventory_id) is None:
+                return jsonify({'error': 'Seed inventory item not found'}), 404
+
+            destination_bed_ids = data.get('destinationBedIds')
+            if not owns_all_beds(destination_bed_ids):
+                return jsonify({
+                    'error': 'One or more destinationBedIds do not belong to the current user'
+                }), 400
+
             # Calculate expected dates
             start_date = parse_iso_date(data['startDate'])
             germination_days = _get_predicted_germination_days(
@@ -970,7 +983,7 @@ def indoor_seed_starts():
                 user_id=current_user.id,
                 plant_id=data['plantId'],
                 variety=data.get('variety'),
-                seed_inventory_id=data.get('seedInventoryId'),
+                seed_inventory_id=seed_inventory_id,
                 start_date=start_date,
                 expected_germination_date=expected_germination_date,
                 expected_transplant_date=expected_transplant_date,
@@ -1009,7 +1022,6 @@ def indoor_seed_starts():
             seed_start.planting_event_id = planting_event.id
 
             # Auto-create GardenPlanItem if destination beds specified
-            destination_bed_ids = data.get('destinationBedIds')
             if destination_bed_ids:
                 bed_id_list = [int(bid) for bid in destination_bed_ids]
                 seed_start.destination_bed_ids = json.dumps(bed_id_list)
@@ -1210,6 +1222,10 @@ def indoor_seed_start_detail(id):
 
             if 'seedInventoryId' in data:
                 new_seed_inventory_id = data['seedInventoryId']
+                # None stays assignable — clearing the seed link is legitimate.
+                if (new_seed_inventory_id is not None
+                        and get_usable_seed(new_seed_inventory_id) is None):
+                    return jsonify({'error': 'Seed inventory item not found'}), 404
                 sync_planning_links = True
                 seed_start.seed_inventory_id = new_seed_inventory_id
 
@@ -1707,6 +1723,12 @@ def create_indoor_start_from_planting_event():
             }), 400
         dry_run = bool(data.get('dryRun', False))
 
+        # Same pre-write position as the validations above: a seed reference
+        # must be the user's own packet or a shared catalog entry.
+        seed_inventory_id = data.get('seedInventoryId')
+        if seed_inventory_id is not None and get_usable_seed(seed_inventory_id) is None:
+            return jsonify({'error': 'Seed inventory item not found'}), 404
+
         # Creation core (date math, overdue handling, event sync) is shared
         # with export auto-create — see services/indoor_start_service.py.
         result = create_indoor_start(
@@ -1722,7 +1744,7 @@ def create_indoor_start_from_planting_event():
             light_hours=data.get('lightHours', 12),
             temperature=data.get('temperature', 70),
             notes=data.get('notes'),
-            seed_inventory_id=data.get('seedInventoryId'),
+            seed_inventory_id=seed_inventory_id,
             destination_bed_ids_json=destination_bed_ids_json,
             linked_event=linked_event,
             dry_run=dry_run,
@@ -1847,12 +1869,16 @@ def validate_planting():
     first_frost_str = _frost['first_frost'].isoformat()
     frost_date_source = _frost['source']  # 'property' | 'zone' | 'zipcode' | 'default'
 
-    # Calculate protection offset from bed's season extension
+    # Calculate microclimate adjustments from the selected bed.
     protection_offset = 0
     protection_type = None
+    sun_exposure = 'full-sun'
 
     if bed_id:
-        bed = GardenBed.query.get(bed_id)
+        bed = GardenBed.query.filter_by(id=bed_id, user_id=current_user.id).first()
+        if bed:
+            sun_exposure = bed.sun_exposure or 'full-sun'
+
         if bed and bed.season_extension:
             try:
                 season_ext = json.loads(bed.season_extension)
@@ -1875,6 +1901,7 @@ def validate_planting():
         first_frost_str=first_frost_str,
         protection_offset=protection_offset,
         protection_type=protection_type,
+        sun_exposure=sun_exposure,
         planting_method=planting_method
     )
 
@@ -1941,12 +1968,18 @@ def validate_plants_batch():
     last_frost_str = _frost2['last_frost'].isoformat()
     first_frost_str = _frost2['first_frost'].isoformat()
 
-    # Calculate protection offset from bed's season extension
+    # Calculate microclimate adjustments from the selected bed.
     protection_offset = 0
     protection_type = None
+    sun_exposure = 'full-sun'
+    selected_bed_sun_exposure = None
 
     if bed_id:
-        bed = GardenBed.query.get(bed_id)
+        bed = GardenBed.query.filter_by(id=bed_id, user_id=current_user.id).first()
+        if bed:
+            selected_bed_sun_exposure = bed.sun_exposure
+            sun_exposure = selected_bed_sun_exposure or 'full-sun'
+
         if bed and bed.season_extension:
             try:
                 season_ext = json.loads(bed.season_extension)
@@ -1996,6 +2029,7 @@ def validate_plants_batch():
             first_frost_str=first_frost_str,
             protection_offset=protection_offset,
             protection_type=protection_type,
+            sun_exposure=sun_exposure,
             planting_method='seed'
         )
         plant_results['seed'] = seed_result
@@ -2010,9 +2044,28 @@ def validate_plants_batch():
             first_frost_str=first_frost_str,
             protection_offset=protection_offset,
             protection_type=protection_type,
+            sun_exposure=sun_exposure,
             planting_method='transplant'
         )
         plant_results['transplant'] = transplant_result
+
+        if selected_bed_sun_exposure:
+            sun_check = check_sun_exposure_compatibility(
+                plant_id,
+                selected_bed_sun_exposure
+            )
+            if sun_check.get('severity') and sun_check.get('message'):
+                sun_warning = {
+                    'type': 'sun_exposure_mismatch',
+                    'message': sun_check['message'],
+                    'severity': 'warning'
+                }
+                for method in ('seed', 'transplant'):
+                    method_warnings = plant_results[method].get('warnings')
+                    if not isinstance(method_warnings, list):
+                        method_warnings = []
+                        plant_results[method]['warnings'] = method_warnings
+                    method_warnings.append(dict(sun_warning))
 
         # Forward-looking cold danger check (historical cold snaps during growing period)
         if batch_lat is not None and batch_lon is not None:

@@ -270,9 +270,13 @@ test.describe.serial('Indoor Seed Starts — E2E Tests', () => {
       // Card should show plant name
       const firstCard = cards.first();
       await expect(firstCard).toBeVisible();
-      // Status badge should be present (contains status text)
-      const statusBadge = firstCard.locator('.rounded-full');
+      // Status badge should be present (contains status text).
+      // Target it by testid: the card also renders a placement pill with the
+      // same `.rounded-full` class, so a class selector matches two elements
+      // and trips Playwright's strict mode.
+      const statusBadge = firstCard.locator('[data-testid^="iss-status-badge-"]');
       await expect(statusBadge).toBeVisible();
+      await expect(statusBadge).not.toBeEmpty();
     }
     // count may be 0 if the transplanted start was cleaned up or filtered
     // (the test is still valid — it verifies cards render when data exists)

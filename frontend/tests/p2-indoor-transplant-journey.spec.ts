@@ -13,6 +13,24 @@ import { SHARED_USER, BACKEND_URL, RUN_ID } from './helpers/shared-user';
  * Exercises: POST /api/indoor-seed-starts/from-planting-event,
  * PUT /api/indoor-seed-starts/:id, POST /api/indoor-seed-starts/:id/transplant
  */
+/**
+ * Transplant date far enough ahead that the derived indoor-start date is still
+ * in the future.
+ *
+ * The from-planting-event endpoint refuses to backdate: if
+ * transplantDate minus the crop's weeks-indoors has already passed, it answers
+ * {skipped:true} and creates nothing (overdueMode defaults to 'skip'). A
+ * hardcoded date therefore works until the calendar passes it and then fails
+ * forever, so derive it from today instead.
+ */
+function daysFromToday(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const TRANSPLANT_DATE = daysFromToday(90);
+
 test.describe.serial('P2 Journey: Indoor Start to Transplant', () => {
   let ctx: APIRequestContext;
   let bedId: number;
@@ -45,7 +63,7 @@ test.describe.serial('P2 Journey: Indoor Start to Transplant', () => {
       plantId: 'tomato-1',
       variety: `IT Tomato ${RUN_ID}`,
       quantity: 4,
-      firstPlantDate: '2026-05-15',
+      firstPlantDate: TRANSPLANT_DATE,
     });
     planItemId = item.id;
   });
@@ -105,7 +123,7 @@ test.describe.serial('P2 Journey: Indoor Start to Transplant', () => {
         plantingEventId: tomatoEvent.id,
         plantId: 'tomato-1',
         variety: `IT Tomato ${RUN_ID}`,
-        transplantDate: '2026-05-15',
+        transplantDate: TRANSPLANT_DATE,
         desiredQuantity: 4,
         location: 'south window',
       },
@@ -117,6 +135,16 @@ test.describe.serial('P2 Journey: Indoor Start to Transplant', () => {
     }
     expect(resp.ok()).toBeTruthy();
     const seedStart = JSON.parse(body);
+
+    // The endpoint answers 200 with {skipped:true} rather than creating a row
+    // when the derived indoor-start date is already past (overdueMode 'skip' is
+    // the default, so it never silently backdates). Surface that explicitly —
+    // otherwise a skipped response looks like a missing id further down.
+    expect(
+      seedStart.skipped,
+      `start was skipped: ${seedStart.skippedReason}`,
+    ).toBeFalsy();
+
     // Response may nest the seed start under a key or use different field names
     const startData = seedStart.seedStart || seedStart.indoorSeedStart || seedStart;
     seedStartId = startData.id ?? startData.seedStartId;
@@ -178,7 +206,7 @@ test.describe.serial('P2 Journey: Indoor Start to Transplant', () => {
     const resp = await ctx.post(`/api/indoor-seed-starts/${seedStartId}/transplant`, {
       data: {
         gardenBedId: bedId,
-        transplantDate: '2026-05-15',
+        transplantDate: TRANSPLANT_DATE,
         quantity: 4,
         position: { x: 0, y: 0 },
       },

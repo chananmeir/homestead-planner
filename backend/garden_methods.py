@@ -308,8 +308,8 @@ PLANT_GUILDS = {
         'description': 'Native American companion planting: corn, beans, squash',
         'plants': [
             {'id': 'corn-1', 'quantity': 4, 'role': 'Structure for beans'},
-            {'id': 'bean-pole-1', 'quantity': 4, 'role': 'Nitrogen fixation'},
-            {'id': 'squash-summer-1', 'quantity': 2, 'role': 'Ground cover, weed suppression'}
+            {'id': 'pole-beans-1', 'quantity': 4, 'role': 'Nitrogen fixation'},
+            {'id': 'squash-1', 'quantity': 2, 'role': 'Ground cover, weed suppression'}
         ],
         'bedSize': {'width': 4, 'length': 4},
         'method': 'permaculture'

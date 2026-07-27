@@ -3,6 +3,7 @@ import { Plant, ConflictCheck } from '../../../types';
 import { apiGet, apiPost } from '../../../utils/api';
 import { PlantIconSVG } from '../../common/PlantIcon';
 import { coordinateToGridLabel } from '../../GardenDesigner/utils/gridCoordinates';
+import { formatLocalDate } from '../../../utils/dateUtils';
 
 interface GardenBed {
   id: number;
@@ -54,7 +55,7 @@ const PositionSelector: React.FC<PositionSelectorProps> = ({
         // Use planning_mode=true to check expected_harvest_date (not actual_harvest_date)
         // This allows planning future plantings in spaces that will be available
         const response = await apiGet(
-          `/api/planting-events?start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}&planning_mode=true`
+          `/api/planting-events?start_date=${formatLocalDate(startDate)}&end_date=${formatLocalDate(endDate)}&planning_mode=true`
         );
 
         if (response.ok) {

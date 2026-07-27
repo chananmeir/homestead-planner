@@ -1,7 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI, login } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
-import { createBed, createPlan, addPlanItem, exportPlan, placePlant, selectBedByName } from './helpers/data-setup';
+import { createBed, createPlan, addPlanItem, exportPlan, placePlant, selectBedByName, openDesignerSettingsPanel } from './helpers/data-setup';
 import { SHARED_USER, BACKEND_URL, RUN_ID } from './helpers/shared-user';
 
 /**
@@ -13,6 +13,26 @@ import { SHARED_USER, BACKEND_URL, RUN_ID } from './helpers/shared-user';
  *   - Future planting indicators (FUTURE badges) render for upcoming events
  *   - Quick harvest filter narrows visible future plantings by harvest window
  */
+/**
+ * First succession date, ahead of today.
+ *
+ * This suite is specifically about FUTURE plantings: the designer hides the
+ * future-plantings toggle entirely when nothing is future-dated
+ * (`if (totalFutureCount === 0) return null`). A hardcoded date therefore works
+ * only until the calendar passes it, after which every test here fails because
+ * the control legitimately isn't rendered. Derive it from today instead.
+ *
+ * +30 days, with 14-day succession intervals, keeps all three successions
+ * comfortably in the future.
+ */
+function daysFromToday(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const FIRST_PLANT_DATE = daysFromToday(30);
+
 test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
   let ctx: APIRequestContext;
   let bedId: number;
@@ -49,7 +69,7 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
       quantity: 12,
       successionCount: 3,
       successionIntervalDays: 14,
-      firstPlantDate: '2026-04-01',
+      firstPlantDate: FIRST_PLANT_DATE,
     });
   });
 
@@ -70,7 +90,7 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
       plantId: 'lettuce-1',
       variety: `FP Lettuce ${RUN_ID}`,
       quantity: 4,
-      plantedDate: '2026-04-01',
+      plantedDate: FIRST_PLANT_DATE,
       position: { x: 0, y: 0 },
     });
   });
@@ -96,6 +116,9 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
     // Select bed first
     await selectBedByName(page, `FP Bed ${RUN_ID}`);
 
+    // The toggle lives in the collapsible settings panel, closed by default.
+    await openDesignerSettingsPanel(page);
+
     // Find and click the future plantings toggle
     const toggle = page.locator('[data-testid="future-plantings-toggle"]');
     await expect(toggle).toBeVisible({ timeout: 10000 });
@@ -115,6 +138,9 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
     await navigateTo(page, TABS.GARDEN_DESIGNER);
 
     await selectBedByName(page, `FP Bed ${RUN_ID}`);
+
+    // The toggle lives in the collapsible settings panel, closed by default.
+    await openDesignerSettingsPanel(page);
 
     // Enable future plantings
     const toggle = page.locator('[data-testid="future-plantings-toggle"]');
@@ -146,7 +172,8 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
 
     await selectBedByName(page, `FP Bed ${RUN_ID}`);
 
-    const toggle = page.locator('[data-testid="future-plantings-toggle"]');
+    // The toggle lives in the collapsible settings panel, closed by default.
+    await openDesignerSettingsPanel(page);const toggle = page.locator('[data-testid="future-plantings-toggle"]');
     await toggle.click();
     await page.waitForTimeout(1000);
 
@@ -169,18 +196,31 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
 
     await selectBedByName(page, `FP Bed ${RUN_ID}`);
 
+    // The toggle lives in the collapsible settings panel, closed by default.
+    await openDesignerSettingsPanel(page);
+
     const toggle = page.locator('[data-testid="future-plantings-toggle"]');
     await toggle.click();
     await page.waitForTimeout(1000);
 
-    // Click a future planting indicator
-    const futureCell = page.locator('text:has-text("FUTURE")').first();
-    if (await futureCell.isVisible().catch(() => false)) {
-      await futureCell.click();
-      // A popup/tooltip may appear with plant info
-      await page.waitForTimeout(500);
-      // Just verify no crash occurred
-    }
+    // Click a future planting's origin cell.
+    //
+    // NOT the "FUTURE" badge — that label is decorative and carries
+    // pointerEvents="none" on both its group and its <text>, so clicking it
+    // waits for actionability forever. The click target is the overlay cell
+    // group, which owns the onClick handler.
+    const futureCell = page.locator('[data-testid="future-planting-cell"]').first();
+    await expect(futureCell).toBeAttached({ timeout: 10000 });
+    // force: Playwright's actionability heuristics never settle on this SVG <g>
+    // (it is attached and rendered, but never reported "visible, enabled and
+    // stable"). The handler lives on the group, so dispatch directly rather
+    // than waiting on a check that cannot pass for this element type.
+    await futureCell.click({ force: true });
+
+    // A popup/tooltip may appear with plant info; the assertion here is simply
+    // that the overlay is interactive and clicking it does not break the page.
+    await page.waitForTimeout(500);
+    await expect(page.locator('[data-testid="bed-selector"]')).toBeVisible();
   });
 
   test('FP-08: Toggle future plantings OFF hides overlay', async ({ page }) => {
@@ -189,6 +229,9 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
     await navigateTo(page, TABS.GARDEN_DESIGNER);
 
     await selectBedByName(page, `FP Bed ${RUN_ID}`);
+
+    // The toggle lives in the collapsible settings panel, closed by default.
+    await openDesignerSettingsPanel(page);
 
     // Enable first
     const toggle = page.locator('[data-testid="future-plantings-toggle"]');
@@ -288,6 +331,9 @@ test.describe.serial('P2 Journey: Future Plantings & Quick Harvest', () => {
     await navigateTo(page, TABS.GARDEN_DESIGNER);
 
     await selectBedByName(page, `FP Bed ${RUN_ID}`);
+
+    // The toggle lives in the collapsible settings panel, closed by default.
+    await openDesignerSettingsPanel(page);
 
     // Enable future plantings directly
     const toggle = page.locator('[data-testid="future-plantings-toggle"]');

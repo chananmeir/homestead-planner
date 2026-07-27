@@ -42,6 +42,13 @@ call venv\Scripts\activate.bat
 echo [3/3] Starting Flask backend server...
 echo.
 set HOMESTEAD_BACKEND_PORT=5051
+
+REM Time-machine (simulation) endpoints. Unauthenticated by design and they
+REM mutate a process-global clock shared by every user, so they are OFF unless
+REM explicitly enabled. Safe here because this script is for local development.
+REM DO NOT set this in a deployed environment.
+set HOMESTEAD_ENABLE_SIMULATION=true
+
 echo Backend will be available at: http://localhost:%HOMESTEAD_BACKEND_PORT%
 echo.
 echo Press Ctrl+C to stop the server

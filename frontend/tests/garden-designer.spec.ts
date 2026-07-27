@@ -1,6 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI, login } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
+import { openDesignerDetailView } from './helpers/data-setup';
 
 const BACKEND_URL = 'http://localhost:5000';
 const RUN_ID = Date.now().toString(36);
@@ -92,6 +93,7 @@ test.describe.serial('Garden Designer — E2E Tests', () => {
     await login(page, GD_USER.username, GD_USER.password);
     await navigateTo(page, TABS.GARDEN_DESIGNER);
     // Wait for beds to load — the bed selector appears when beds exist
+    await openDesignerDetailView(page);
     await expect(page.locator('[data-testid="bed-selector"]')).toBeVisible({ timeout: 10000 });
   }
 
@@ -454,6 +456,7 @@ test.describe.serial('Garden Designer — E2E Tests', () => {
     } else {
       // No future items detected — just verify the page loaded correctly
       // The bed selector should still be visible
+      await openDesignerDetailView(page);
       await expect(page.locator('[data-testid="bed-selector"]')).toBeVisible();
     }
   });

@@ -87,8 +87,8 @@ export const EditSeedModal: React.FC<EditSeedModalProps> = ({ isOpen, onClose, o
       newErrors.plantId = 'Plant is required';
     }
 
-    if (formData.quantity <= 0) {
-      newErrors.quantity = 'Quantity must be greater than 0';
+    if (formData.quantity < 0) {
+      newErrors.quantity = 'Quantity cannot be negative';
     }
 
     if (formData.germinationRate !== '' && (Number(formData.germinationRate) < 0 || Number(formData.germinationRate) > 100)) {

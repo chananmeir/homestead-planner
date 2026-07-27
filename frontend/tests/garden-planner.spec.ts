@@ -438,7 +438,12 @@ test.describe.serial('Garden Planner — Full Lifecycle', () => {
 
   // ── GP-12: Crop rotation — conflict detection ───────────────────────
   test('GP-12: Crop rotation detects family conflict', async () => {
-    // Create a 2025 planting event for tomato (Solanaceae) in bed 1
+    // Rotation risk is GRADED BY EXPOSURE, not a plain same-family match:
+    // a history entry occupying <=2 cells scores as low exposure and only
+    // raises a "concern", while >6 cells is high exposure and a real conflict
+    // (services/rotation_policy.py::exposure_weight). So a meaningful conflict
+    // test needs a substantial historical planting — spaceRequired is sent
+    // explicitly because the server otherwise derives per-plant cell usage.
     const eventResp = await ctx.post('/api/planting-events', {
       data: {
         eventType: 'planting',
@@ -446,7 +451,8 @@ test.describe.serial('Garden Planner — Full Lifecycle', () => {
         gardenBedId: bedIds[0],
         expectedHarvestDate: '2025-09-01',
         directSeedDate: '2025-05-15',
-        quantity: 4,
+        quantity: 16,
+        spaceRequired: 16,
       },
     });
     // Accept 201 (created) or 200
@@ -464,7 +470,38 @@ test.describe.serial('Garden Planner — Full Lifecycle', () => {
     const rotation = await rotResp.json();
 
     expect(rotation.has_conflict).toBe(true);
+    expect(rotation.has_rotation_concern).toBe(true);
     expect(rotation.family).toBe('Solanaceae');
+    expect(rotation.conflict_years).toContain(2025);
+  });
+
+  // ── GP-12b: the graded half of the same model ───────────────────────
+  test('GP-12b: Small same-family history is a concern, not a hard conflict', async () => {
+    // Guards the exposure grading itself: without this, GP-12 would still
+    // pass if the model were reduced to a blunt same-family check.
+    const eventResp = await ctx.post('/api/planting-events', {
+      data: {
+        eventType: 'planting',
+        plantId: 'tomato-1',
+        gardenBedId: bedIds[1],
+        expectedHarvestDate: '2025-09-01',
+        directSeedDate: '2025-05-15',
+        quantity: 1,
+        spaceRequired: 1,
+      },
+    });
+    expect([200, 201]).toContain(eventResp.status());
+
+    const rotResp = await ctx.post('/api/rotation/check', {
+      data: { plantId: 'pepper-1', bedId: bedIds[1], year: 2026 },
+    });
+    expect(rotResp.ok()).toBeTruthy();
+    const rotation = await rotResp.json();
+
+    expect(rotation.family).toBe('Solanaceae');
+    expect(rotation.has_rotation_concern).toBe(true);
+    expect(rotation.has_conflict).toBe(false);
+    expect(rotation.severity).toBe('caution');
   });
 
   // ── GP-13: Nutrition estimate — API structure + UI card ─────────────

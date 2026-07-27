@@ -14,11 +14,47 @@ from flask_login import login_required, current_user
 from models import db, Property, PlacedStructure, GardenBed
 from structures_database import STRUCTURES_DATABASE
 from collision_validator import validate_structure_placement
-from services.geocoding_service import geocoding_service
+from services.geocoding_service import (
+    geocoding_service,
+    ZIP_STATUS_INVALID_INPUT,
+    ZIP_STATUS_OK,
+    ZIP_STATUS_PROVIDER_ERROR,
+)
 from utils.helpers import parse_iso_date
 from frost_date_lookup import get_frost_dates_for_user
 
 properties_bp = Blueprint('properties', __name__, url_prefix='/api')
+
+
+def _geocode_zip_response(zipcode):
+    geo_result, status = geocoding_service.validate_zipcode(zipcode)
+    if status == ZIP_STATUS_OK and geo_result:
+        zone = geocoding_service.get_hardiness_zone(
+            geo_result['latitude'],
+            geo_result['longitude'],
+            geo_result.get('formatted_address')
+        )
+        return {
+            'zipcode': zipcode.strip(),
+            'latitude': geo_result['latitude'],
+            'longitude': geo_result['longitude'],
+            'formatted_address': geo_result.get('formatted_address') or zipcode.strip(),
+            'zone': zone,
+        }, None
+    if status == ZIP_STATUS_INVALID_INPUT:
+        return None, (jsonify({
+            'error': 'ZIP code must be 5 digits.',
+            'errorCode': 'invalid_zipcode_format',
+        }), 400)
+    if status == ZIP_STATUS_PROVIDER_ERROR:
+        return None, (jsonify({
+            'error': 'Geocoding provider unavailable. Please try again shortly.',
+            'errorCode': 'geocoding_provider_unavailable',
+        }), 503)
+    return None, (jsonify({
+        'error': 'Could not geocode ZIP code',
+        'errorCode': 'zipcode_not_found',
+    }), 400)
 
 
 # ==================== PROPERTIES ====================
@@ -35,6 +71,7 @@ def properties():
             width=data['width'],
             length=data['length'],
             address=data.get('address', ''),
+            zipcode=data.get('zipCode') or data.get('zipcode'),
             latitude=data.get('latitude'),
             longitude=data.get('longitude'),
             zone=data.get('zone', ''),
@@ -79,6 +116,7 @@ def property_detail(property_id):
         prop.width = data.get('width', prop.width)
         prop.length = data.get('length', prop.length)
         prop.address = data.get('address', prop.address)
+        prop.zipcode = data.get('zipCode', data.get('zipcode', prop.zipcode))
         prop.latitude = data.get('latitude', prop.latitude)
         prop.longitude = data.get('longitude', prop.longitude)
         prop.zone = data.get('zone', prop.zone)
@@ -101,6 +139,52 @@ def property_detail(property_id):
         db.session.commit()
 
     return jsonify(prop.to_dict())
+
+
+@properties_bp.route('/properties/location', methods=['GET', 'POST'])
+@login_required
+def property_location():
+    """Get or set the primary property location from a ZIP code."""
+    prop = Property.query.filter_by(user_id=current_user.id).order_by(Property.id.asc()).first()
+
+    if request.method == 'GET':
+        return jsonify({
+            'hasLocation': bool(prop and prop.latitude is not None and prop.longitude is not None),
+            'property': prop.to_dict() if prop else None,
+        }), 200
+
+    data = request.json or {}
+    zipcode = data.get('zipCode') or data.get('zipcode')
+    if not zipcode:
+        return jsonify({'error': 'zipCode is required'}), 400
+
+    geo, error_response = _geocode_zip_response(zipcode)
+    if error_response:
+        return error_response
+
+    if prop is None:
+        prop = Property(
+            user_id=current_user.id,
+            name=data.get('name') or 'Home',
+            width=1.0,
+            length=1.0,
+            soil_type='',
+            slope='flat',
+            notes='',
+        )
+        db.session.add(prop)
+
+    prop.zipcode = geo['zipcode']
+    prop.address = geo['formatted_address']
+    prop.latitude = geo['latitude']
+    prop.longitude = geo['longitude']
+    prop.zone = geo['zone'] or prop.zone
+
+    db.session.commit()
+    return jsonify({
+        'hasLocation': True,
+        'property': prop.to_dict(),
+    }), 200
 
 
 @properties_bp.route('/frost-dates', methods=['GET'])

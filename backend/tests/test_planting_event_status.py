@@ -317,6 +317,26 @@ class TestHarvestCompletion:
             assert data['harvestCompleted'] is True
             assert data['quantityCompleted'] == 10
 
+    def test_harvest_replay_preserves_first_actual_date(self, full_app, full_db, user_a, auth_client_a):
+        """Calling PATCH /harvest twice should not move the recorded harvest date."""
+        with full_app.app_context():
+            bed = _create_bed(full_db.session, user_a)
+            event = _create_event(full_db.session, user_a, bed, quantity=10)
+
+            first = auth_client_a.patch(
+                f'/api/planting-events/{event.id}/harvest',
+                json={'harvestDate': '2026-08-15T00:00:00Z'},
+            )
+            second = auth_client_a.patch(
+                f'/api/planting-events/{event.id}/harvest',
+                json={'harvestDate': '2026-08-20T00:00:00Z'},
+            )
+
+            assert first.status_code == 200
+            assert second.status_code == 200
+            refreshed = PlantingEvent.query.get(event.id)
+            assert refreshed.actual_harvest_date == datetime(2026, 8, 15)
+
 
 # =====================================================================
 # Class 5: TestCrossModelIndependence — PlantedItem ↔ PlantingEvent (2 tests)

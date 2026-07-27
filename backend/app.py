@@ -1,5 +1,8 @@
 from dotenv import load_dotenv
+import logging
 import os
+import socket
+import sqlite3
 import sys
 
 # Fix Windows encoding issues for Unicode characters (emojis, etc.)
@@ -16,8 +19,35 @@ from flask import Flask, jsonify
 from flask_migrate import Migrate
 from flask_cors import CORS
 from flask_login import LoginManager
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from models import db, User
+from utils.api_errors import register_api_error_handlers
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
+
+
+@event.listens_for(Engine, 'connect')
+def _configure_sqlite_connection(dbapi_connection, _connection_record):
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute('PRAGMA busy_timeout = 5000')
+        cursor.execute('PRAGMA journal_mode = WAL')
+    except sqlite3.DatabaseError:
+        logger.exception('Failed to configure SQLite connection pragmas')
+    finally:
+        cursor.close()
+
+
+def _port_is_in_use(host, port):
+    probe_host = '127.0.0.1' if host in ('', '0.0.0.0', '::') else host
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex((probe_host, port)) == 0
 
 
 # Blueprint URL prefix for testing (set to '' for production)
@@ -62,6 +92,7 @@ CORS(app, resources={
         "supports_credentials": True  # Required for session cookies to work cross-origin
     }
 })
+register_api_error_handlers(app)
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -84,19 +115,27 @@ register_blueprints(app, wrapper_prefix=BLUEPRINT_PREFIX)
 print(f"[OK] Registered blueprints at {BLUEPRINT_PREFIX or '(no prefix)'}/* for testing")
 
 
-# Create database tables
-with app.app_context():
-    db.create_all()
-    # Default frost dates are now per-user (Settings requires user_id).
-    # Seeding is skipped at startup; defaults are applied on first user login.
+def initialize_database():
+    with app.app_context():
+        db.create_all()
 
-    # Seed default admin user if none exists
-    if not User.query.filter_by(is_admin=True).first():
-        admin = User(username='admin', email='admin@homestead.local', is_admin=True)
-        admin.set_password('admin123')
-        db.session.add(admin)
-        db.session.commit()
-        print("[OK] Created default admin user (admin/admin123)")
+        # nutritional_data is a raw-SQL table, not a SQLAlchemy model, so
+        # db.create_all() does not create it. Without this the nutrition
+        # endpoints raise "no such table" on any database that has not had the
+        # one-off migration script run against it by hand — which is every
+        # fresh install, CI database, and test database.
+        from services.nutritional_service import ensure_nutritional_data_table
+        ensure_nutritional_data_table()
+        # Default frost dates are now per-user (Settings requires user_id).
+        # Seeding is skipped at startup; defaults are applied on first user login.
+
+        # Seed default admin user if none exists
+        if not User.query.filter_by(is_admin=True).first():
+            admin = User(username='admin', email='admin@homestead.local', is_admin=True)
+            admin.set_password('admin123')
+            db.session.add(admin)
+            db.session.commit()
+            print("[OK] Created default admin user (admin/admin123)")
 
 # ==================== ALL ROUTES NOW HANDLED BY BLUEPRINTS ====================
 #
@@ -126,8 +165,15 @@ with app.app_context():
 # ==================== END OF BLUEPRINT DOCUMENTATION ====================
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     backend_host = os.environ.get('HOMESTEAD_BACKEND_HOST', '0.0.0.0')
-    backend_port = int(os.environ.get('HOMESTEAD_BACKEND_PORT', '5000'))
-    app.run(debug=True, host=backend_host, port=backend_port)
+    backend_port = int(os.environ.get('HOMESTEAD_BACKEND_PORT', '5051'))
+    if _port_is_in_use(backend_host, backend_port):
+        print(
+            f"[ERROR] Backend port {backend_port} is already in use. "
+            "Stop the existing backend before starting another copy."
+        )
+        sys.exit(1)
+
+    initialize_database()
+    use_reloader = os.environ.get('HOMESTEAD_USE_RELOADER', '').lower() in {'1', 'true', 'yes'}
+    app.run(debug=True, host=backend_host, port=backend_port, use_reloader=use_reloader)

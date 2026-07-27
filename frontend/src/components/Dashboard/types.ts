@@ -50,9 +50,12 @@ export interface TransplantDueRow {
   signalKey: string;
   plantingEventId: number;
   plantingEventIds?: number[];
+  indoorSeedStartId?: number | null;
+  indoorSeedStartIds?: number[];
   plantName: string;
   variety?: string | null;
   transplantDate: string;
+  transplantSource?: 'seed_start' | 'store_bought' | null;
   quantity: number | null;
   bedId?: number | null;
   bedName?: string | null;
@@ -188,9 +191,10 @@ export interface DashboardTodayMeta {
  * Aged-out rows surfaced in the collapsed "Missed" bucket below the primary
  * feed. The bucket is populated by the backend after applying per-type
  * staleness filters (STALE_INDOOR_START_DAYS etc. in dashboard_service.py).
- * Only the three bucketable types are present here — germination checks drop
- * silently when stale, and harvests stay in `signals.harvestReady` with
- * `isStale=true`. See dashboard-stale-needs-attention-plan.md §2.3.
+ * Aged-out direct-seed germination checks are also present here as
+ * `germinationCheck`. Indoor germination checks still drop silently when
+ * stale, and harvests stay in `signals.harvestReady` with `isStale=true`.
+ * See dashboard-stale-needs-attention-plan.md §2.3.
  *
  * Row shapes are identical to their live counterparts in `DashboardSignals`,
  * so the frontend reuses the same row builders with an `isMissed` flag for
@@ -201,6 +205,7 @@ export interface DashboardMissed {
   transplantsDue: TransplantDueRow[];
   directSeedDue: DirectSeedDueRow[];
   placePlantedItem?: PlacePlantedItemRow[];
+  germinationCheck?: GerminationCheckRow[];
 }
 
 export interface DashboardToday {
@@ -213,7 +218,7 @@ export interface DashboardToday {
 }
 
 export type NeedsAttentionTarget =
-  | { kind: 'harvest'; plantingEventId: number }
+  | { kind: 'harvest'; plantingEventId: number; plantingEventIds?: number[] }
   | { kind: 'harvestBed'; plantingEventId: number; bedId: number }
   | {
       kind: 'indoorStart';

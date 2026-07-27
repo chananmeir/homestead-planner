@@ -8,6 +8,7 @@ import { SeedImportModal } from './SeedInventory/SeedImportModal';
 import { API_BASE_URL } from '../config';
 import { useNow } from '../contexts/SimulationContext';
 import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
+import { formatDisplayDate, formatLocalDate, parseLocalDate } from '../utils/dateUtils';
 interface Seed {
   id: number;
   plantId: string;
@@ -25,6 +26,7 @@ interface Seed {
    * Global varieties display a badge and have disabled edit/delete buttons.
    */
   isGlobal?: boolean;
+  isArchived?: boolean;
   /**
    * Reference to catalog seed if this personal seed was cloned from catalog.
    * NULL = custom variety added by user
@@ -75,6 +77,17 @@ interface Plant {
   germinationTemp: { min: number; max: number };
   idealSeasons?: ('spring' | 'summer' | 'fall' | 'winter')[];
 }
+
+const isSeedOutOfStock = (seed: Pick<Seed, 'quantity' | 'seedsAvailable'>): boolean => {
+  if (seed.seedsAvailable != null) {
+    return seed.seedsAvailable <= 0;
+  }
+  return (seed.quantity ?? 0) <= 0;
+};
+
+const isSeedLowStock = (seed: Pick<Seed, 'quantity' | 'seedsAvailable'>): boolean => {
+  return !isSeedOutOfStock(seed) && (seed.quantity ?? 0) <= 1;
+};
 
 // Helper function for DTM filtering
 const filterByDaysToMaturity = (
@@ -154,6 +167,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
     isOpen: false,
     seedId: null,
   });
+  const [showArchived, setShowArchived] = useState(false);
 
   // Search, Filter, Sort state
   const [searchQuery, setSearchQuery] = useState('');
@@ -170,14 +184,15 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [showArchived]);
 
   const loadData = async () => {
     try {
       setLoading(true);
 
       // Load seeds (personal inventory only)
-      const seedResponse = await fetch(`${API_BASE_URL}/api/my-seeds`, { credentials: 'include' });
+      const seedUrl = `${API_BASE_URL}/api/my-seeds${showArchived ? '?includeArchived=true' : ''}`;
+      const seedResponse = await fetch(seedUrl, { credentials: 'include' });
       if (!seedResponse.ok) {
         showError('Failed to load seed inventory');
         return;
@@ -219,6 +234,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
         'Variety',
         'Brand',
         'Quantity',
+        'Archived',
         'Location',
         'Purchase Date',
         'Expiration Date',
@@ -247,6 +263,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
         seed.variety || '',
         seed.brand || '',
         seed.quantity?.toString() || '0',
+        seed.isArchived ? 'Yes' : 'No',
         seed.location || '',
         seed.purchaseDate || '',
         seed.expirationDate || '',
@@ -287,7 +304,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
       const url = URL.createObjectURL(blob);
 
       link.setAttribute('href', url);
-      link.setAttribute('download', `my-seed-inventory-${now.toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `my-seed-inventory-${formatLocalDate(now)}.csv`);
       link.style.visibility = 'hidden';
 
       document.body.appendChild(link);
@@ -303,15 +320,15 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
 
   const isExpiringSoon = useCallback((expirationDate?: string): boolean => {
     if (!expirationDate) return false;
-    const expDate = new Date(expirationDate);
-    const sixMonthsFromNow = new Date(now);
+    const expDate = parseLocalDate(expirationDate);
+    const sixMonthsFromNow = parseLocalDate(formatLocalDate(now));
     sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
     return expDate < sixMonthsFromNow;
   }, [now]);
 
   const isExpired = useCallback((expirationDate?: string): boolean => {
     if (!expirationDate) return false;
-    return new Date(expirationDate) < now;
+    return parseLocalDate(expirationDate) < parseLocalDate(formatLocalDate(now));
   }, [now]);
 
   const handleEdit = (seed: Seed) => {
@@ -348,6 +365,37 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
     }
   };
 
+  const handleArchiveToggle = async (seed: Seed) => {
+    const nextArchived = seed.isArchived !== true;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/seeds/${seed.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ isArchived: nextArchived }),
+      });
+
+      if (response.ok) {
+        const updatedSeed = await response.json();
+        showSuccess(nextArchived ? 'Seed archived successfully!' : 'Seed restored successfully!');
+        setSeeds(currentSeeds => {
+          if (nextArchived && !showArchived) {
+            return currentSeeds.filter(currentSeed => currentSeed.id !== seed.id);
+          }
+          return currentSeeds.map(currentSeed => currentSeed.id === seed.id ? updatedSeed : currentSeed);
+        });
+      } else {
+        const data = await response.json().catch(() => ({}));
+        showError(data.error || (nextArchived ? 'Failed to archive seed' : 'Failed to restore seed'));
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error updating seed archive state:', error);
+      }
+      showError('Network error occurred');
+    }
+  };
   const handleSync = async (seedId: number) => {
     if (!window.confirm('Sync this seed from catalog? This will update all agronomic data (DTM, spacing, temperatures, etc.) while preserving your personal tracking data (quantity, location, notes).')) {
       return;
@@ -515,19 +563,24 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
         label: 'Stock Level',
         options: [
           {
+            value: 'out',
+            label: 'Out of stock',
+            count: baseFilteredSeeds.filter(isSeedOutOfStock).length,
+          },
+          {
             value: 'low',
-            label: 'Low (≤1 packet)',
-            count: baseFilteredSeeds.filter(s => s.quantity <= 1).length,
+            label: 'Low (1 packet)',
+            count: baseFilteredSeeds.filter(isSeedLowStock).length,
           },
           {
             value: 'medium',
             label: 'Medium (2-5 packets)',
-            count: baseFilteredSeeds.filter(s => s.quantity >= 2 && s.quantity <= 5).length,
+            count: baseFilteredSeeds.filter(s => !isSeedOutOfStock(s) && s.quantity >= 2 && s.quantity <= 5).length,
           },
           {
             value: 'high',
             label: 'High (>5 packets)',
-            count: baseFilteredSeeds.filter(s => s.quantity > 5).length,
+            count: baseFilteredSeeds.filter(s => !isSeedOutOfStock(s) && s.quantity > 5).length,
           },
         ],
       },
@@ -629,9 +682,10 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
     const stockFilters = activeFilters['stock'] || [];
     if (stockFilters.length > 0) {
       result = result.filter(seed => {
-        if (stockFilters.includes('low') && seed.quantity <= 1) return true;
-        if (stockFilters.includes('medium') && seed.quantity >= 2 && seed.quantity <= 5) return true;
-        if (stockFilters.includes('high') && seed.quantity > 5) return true;
+        if (stockFilters.includes('out') && isSeedOutOfStock(seed)) return true;
+        if (stockFilters.includes('low') && isSeedLowStock(seed)) return true;
+        if (stockFilters.includes('medium') && !isSeedOutOfStock(seed) && seed.quantity >= 2 && seed.quantity <= 5) return true;
+        if (stockFilters.includes('high') && !isSeedOutOfStock(seed) && seed.quantity > 5) return true;
         return false;
       });
     }
@@ -671,12 +725,12 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
           bValue = getPlantName(b.plantId).toLowerCase();
           break;
         case 'purchaseDate':
-          aValue = a.purchaseDate ? new Date(a.purchaseDate).getTime() : 0;
-          bValue = b.purchaseDate ? new Date(b.purchaseDate).getTime() : 0;
+          aValue = a.purchaseDate ? parseLocalDate(a.purchaseDate).getTime() : 0;
+          bValue = b.purchaseDate ? parseLocalDate(b.purchaseDate).getTime() : 0;
           break;
         case 'expirationDate':
-          aValue = a.expirationDate ? new Date(a.expirationDate).getTime() : 0;
-          bValue = b.expirationDate ? new Date(b.expirationDate).getTime() : 0;
+          aValue = a.expirationDate ? parseLocalDate(a.expirationDate).getTime() : 0;
+          bValue = b.expirationDate ? parseLocalDate(b.expirationDate).getTime() : 0;
           break;
         case 'quantity':
           aValue = a.quantity;
@@ -698,9 +752,11 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
     return result;
   }, [baseFilteredSeeds, activeFilters, sortBy, sortDirection, getPlantInfo, getPlantName, isExpired, isExpiringSoon]);
 
-  const totalVarieties = seeds.length;
-  const lowStock = seeds.filter(s => s.quantity <= 1).length;
-  const expiringSoon = seeds.filter(s => isExpiringSoon(s.expirationDate) && !isExpired(s.expirationDate)).length;
+  const activeSeeds = seeds.filter(seed => seed.isArchived !== true);
+  const varietiesInStock = activeSeeds.filter(seed => !isSeedOutOfStock(seed)).length;
+  const outOfStockCount = activeSeeds.filter(isSeedOutOfStock).length;
+  const lowStock = activeSeeds.filter(isSeedLowStock).length;
+  const expiringSoon = activeSeeds.filter(s => isExpiringSoon(s.expirationDate) && !isExpired(s.expirationDate)).length;
 
   return (
     <div className="space-y-6">
@@ -711,10 +767,15 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
         </p>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
-            <div data-testid="seed-count" className="text-3xl font-bold text-green-700 mb-2">{totalVarieties}</div>
+            <div data-testid="seed-count" className="text-3xl font-bold text-green-700 mb-2">{varietiesInStock}</div>
             <div className="text-sm text-green-600 font-medium">Varieties in Stock</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-6 border border-red-200">
+            <div className="text-3xl font-bold text-red-700 mb-2">{outOfStockCount}</div>
+            <div className="text-sm text-red-600 font-medium">Out of Stock</div>
           </div>
 
           <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-6 border border-amber-200">
@@ -729,7 +790,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
         </div>
 
         {/* Action Buttons */}
-        <div className="mb-6 flex gap-3">
+        <div className="mb-6 flex flex-wrap items-center gap-3">
           <button
             data-testid="btn-add-seed"
             className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
@@ -756,6 +817,15 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
             </svg>
             Import CSV
           </button>
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(event) => setShowArchived(event.target.checked)}
+              className="w-4 h-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500"
+            />
+            Show archived
+          </label>
         </div>
 
         {/* Search Bar */}
@@ -886,7 +956,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
           </div>
         ) : filteredAndSortedSeeds.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            <div className="text-6xl mb-4">🌾</div>
+            <div className="text-6xl mb-4">??</div>
             <p className="text-lg">
               {seeds.length === 0 ? 'No seeds in inventory yet.' : 'No seeds match your filters.'}
             </p>
@@ -901,7 +971,8 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
             {filteredAndSortedSeeds.map((seed) => {
               const expired = isExpired(seed.expirationDate);
               const expiring = isExpiringSoon(seed.expirationDate);
-              const lowQuantity = seed.quantity <= 1;
+              const seedOutOfStock = isSeedOutOfStock(seed);
+              const lowQuantity = isSeedLowStock(seed);
 
               return (
                 <div
@@ -909,7 +980,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
                   ref={registerRef(seed.id)}
                   data-focus-id={seed.id}
                   data-testid={`seed-card-${seed.id}`}
-                  className={`bg-white border-2 border-gray-200 rounded-lg p-5 hover:shadow-lg transition-shadow ${
+                  className={`${seed.isArchived ? 'bg-gray-50 opacity-80' : 'bg-white'} border-2 border-gray-200 rounded-lg p-5 hover:shadow-lg transition-shadow ${
                     highlightedId === seed.id ? 'ring-2 ring-amber-400 ring-offset-2 transition-all' : ''
                   }`}
                 >
@@ -929,6 +1000,11 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
                         ) : (
                           <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-semibold">
                             Custom
+                          </span>
+                        )}
+                        {seed.isArchived === true && (
+                          <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">
+                            Archived
                           </span>
                         )}
                         {/* Homegrown Badge - seed saved via Collect Seeds flow */}
@@ -951,7 +1027,11 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
                             Expiring
                           </span>
                         )}
-                        {lowQuantity && (
+                        {seedOutOfStock ? (
+                          <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-semibold">
+                            Out
+                          </span>
+                        ) : lowQuantity && (
                           <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded text-xs font-semibold">
                             Low
                           </span>
@@ -980,6 +1060,16 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
                           </button>
                         )}
                         <button
+                          data-testid={`btn-archive-seed-${seed.id}`}
+                          onClick={() => handleArchiveToggle(seed)}
+                          className={`p-1 rounded ${seed.isArchived ? 'text-green-600 hover:bg-green-50' : 'text-gray-600 hover:bg-gray-50'}`}
+                          title={seed.isArchived ? 'Unarchive seed' : 'Archive seed'}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8 5-8-5m16 0l-8-4-8 4m16 0v10l-8 4m0-9v9m0-9L4 7m8 14l-8-4V7" />
+                          </svg>
+                        </button>
+                        <button
                           data-testid={`btn-delete-seed-${seed.id}`}
                           onClick={() => handleDeleteClick(seed.id)}
                           className="p-1 rounded text-red-600 hover:bg-red-50"
@@ -1004,7 +1094,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
 
                     <div className="flex justify-between">
                       <span className="text-gray-600">Quantity:</span>
-                      <span className={`font-medium ${lowQuantity ? 'text-orange-600' : ''}`}>
+                      <span className={`font-medium ${seedOutOfStock ? 'text-red-600' : lowQuantity ? 'text-orange-600' : ''}`}>
                         {seed.quantity} packet{seed.quantity !== 1 ? 's' : ''}
                       </span>
                     </div>
@@ -1012,7 +1102,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
                     {seed.totalSeeds !== undefined && seed.totalSeeds > 0 && (
                       <div className="flex justify-between">
                         <span className="text-gray-600">Seeds:</span>
-                        <span className={`font-medium ${(seed.seedsAvailable ?? 0) <= 0 ? 'text-red-600' : ''}`}>
+                        <span className={`font-medium ${seedOutOfStock ? 'text-red-600' : ''}`}>
                           {seed.seedsUsed || 0} of {seed.totalSeeds} used
                           {seed.seedsAvailable !== undefined && ` (${seed.seedsAvailable} available)`}
                         </span>
@@ -1032,7 +1122,7 @@ const SeedInventory: React.FC<SeedInventoryProps> = ({ focusSeedId, onFocusConsu
                       <div className="flex justify-between">
                         <span className="text-gray-600">Expires:</span>
                         <span className={`font-medium ${expired ? 'text-red-600' : expiring ? 'text-amber-600' : ''}`}>
-                          {new Date(seed.expirationDate).toLocaleDateString()}
+                          {formatDisplayDate(seed.expirationDate)}
                         </span>
                       </div>
                     )}

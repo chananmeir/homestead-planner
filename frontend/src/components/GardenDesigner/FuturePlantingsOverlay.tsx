@@ -70,6 +70,7 @@ export const FuturePlantingsOverlay: React.FC<FuturePlantingsOverlayProps> = ({
         return (
           <g
             key={`future-${pos.x}-${pos.y}-${idx}`}
+            data-testid={isOrigin ? 'future-planting-cell' : 'future-planting-footprint'}
             opacity={isOrigin ? 0.6 : 0.4}
             onClick={(e) => handleClick(pos, e)}
             onMouseEnter={(e) => {

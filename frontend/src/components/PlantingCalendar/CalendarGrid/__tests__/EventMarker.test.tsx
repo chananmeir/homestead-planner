@@ -235,3 +235,55 @@ describe('EventMarker — dashboard-parity attention (Tier 3)', () => {
     expect(chip.getAttribute('title') || '').not.toMatch(/OVERDUE/);
   });
 });
+
+describe('EventMarker maintenance event details', () => {
+  test('fertilizing marker renders backend snake_case details', () => {
+    const marker: DateMarker = {
+      date: new Date('2026-05-15'),
+      type: 'fertilizing',
+      event: {
+        id: 4001,
+        plantId: 'fertilizing-event',
+        eventType: 'fertilizing',
+        expectedHarvestDate: new Date('2026-05-15'),
+        eventDetails: JSON.stringify({
+          fertilizer_type: 'fish-emulsion',
+          amount: 2,
+          amount_unit: 'tbsp',
+          application_method: 'soil-drench',
+        }),
+        completed: false,
+      } as PlantingCalendar,
+    };
+
+    const { container } = render(<EventMarker marker={marker} />);
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.textContent).toContain('Fish Emulsion');
+    expect(chip.textContent).toContain('2 tbsp');
+    expect(chip.getAttribute('title')).toMatch(/Fertilizing: Fish Emulsion - 2 tbsp/);
+  });
+
+  test('irrigation marker renders backend snake_case details', () => {
+    const marker: DateMarker = {
+      date: new Date('2026-06-01'),
+      type: 'irrigation',
+      event: {
+        id: 4002,
+        plantId: 'irrigation-event',
+        eventType: 'irrigation',
+        expectedHarvestDate: new Date('2026-06-01'),
+        eventDetails: JSON.stringify({
+          method: 'soaker-hose',
+          duration_minutes: 45,
+        }),
+        completed: false,
+      } as PlantingCalendar,
+    };
+
+    const { container } = render(<EventMarker marker={marker} />);
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.textContent).toContain('Soaker Hose');
+    expect(chip.textContent).toContain('45 min');
+    expect(chip.getAttribute('title')).toMatch(/Irrigation: Soaker Hose - 45 min/);
+  });
+});

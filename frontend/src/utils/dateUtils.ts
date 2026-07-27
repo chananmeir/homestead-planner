@@ -28,3 +28,34 @@ export const formatLocalDate = (date: Date): string => {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+/**
+ * Parse an <input type="date"> value as a local civil date.
+ */
+export const parseDateInputValue = (value: string): Date => parseLocalDate(value);
+
+/**
+ * Format a Date for an <input type="date"> value.
+ */
+export const formatDateInputValue = (date: Date): string => formatLocalDate(date);
+
+/**
+ * Add days using local date fields, preserving the user's civil date semantics.
+ */
+export const addLocalDays = (date: Date, days: number): Date => {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+/**
+ * Display a date-only or ISO date string without UTC shifting.
+ */
+export const formatDisplayDate = (
+  value: string | Date,
+  options?: Intl.DateTimeFormatOptions
+): string => {
+  const date = value instanceof Date ? value : parseLocalDate(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, options);
+};

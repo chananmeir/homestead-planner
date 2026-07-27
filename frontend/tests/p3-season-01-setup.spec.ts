@@ -47,12 +47,20 @@ test.describe.serial('2025 Season — Part 1: Setup', () => {
       }
     }
 
-    // Delete all garden beds (cascades planted items)
+    // Delete all garden beds (cascades planted items).
+    //
+    // Permanent bed deletion is confirmation-gated — without this body the
+    // request 400s and the .catch() below swallows it, so the "clean slate"
+    // silently left every bed in place. That matters because the p2 specs
+    // share this user AND this RUN_ID, so their leftover beds were counted by
+    // S1-08's "exactly 5 beds" assertion and broke the whole season chain.
     const bedsResp = await ctx.get('/api/garden-beds');
     if (bedsResp.ok()) {
       const beds = await bedsResp.json();
       for (const bed of beds) {
-        await ctx.delete(`/api/garden-beds/${bed.id}`).catch(() => {});
+        await ctx
+          .delete(`/api/garden-beds/${bed.id}`, { data: { confirmation: 'delete' } })
+          .catch(() => {});
       }
     }
 
@@ -207,7 +215,10 @@ test.describe.serial('2025 Season — Part 1: Setup', () => {
     const resp = await ctx.post('/api/garden-beds', {
       data: {
         name: `Row Bed ${RUN_ID}`,
-        width: 4, length: 12, gridSize: 12,
+        // 6" grid → 8 cols x 24 rows for a 4'x12' bed, which is the space the
+        // sowings in parts 2-4 address (columns 0-7, rows 0-23). A 12" grid
+        // makes it 4x12, so half of every row sowing fell outside the bed.
+        width: 4, length: 12, gridSize: 6,
         planningMethod: 'row',
       },
     });
@@ -219,7 +230,11 @@ test.describe.serial('2025 Season — Part 1: Setup', () => {
     const resp = await ctx.post('/api/garden-beds', {
       data: {
         name: `Intensive Bed ${RUN_ID}`,
-        width: 4, length: 8, gridSize: 12,
+        // 6" grid → 8 cols x 16 rows for a 4'x8' bed, which is the space the
+        // placements in parts 2-4 address (see "8 cols x 16 rows = 128 cells"
+        // in p3-season-02). A 12" grid would make this bed 4x8, so rows 8-15
+        // would not exist at all.
+        width: 4, length: 8, gridSize: 6,
         planningMethod: 'intensive',
       },
     });
@@ -231,7 +246,13 @@ test.describe.serial('2025 Season — Part 1: Setup', () => {
     const resp = await ctx.post('/api/garden-beds', {
       data: {
         name: `MIGardener Bed ${RUN_ID}`,
-        width: 4, length: 8, gridSize: 12,
+        // 3" grid → 16 cols x 32 rows for a 4'x8' bed, which is the space the
+        // sowings in parts 2-4 address (they fill columns 0-15 and rows 0-31).
+        // With a 12" grid the bed is only 4x8, so roughly three quarters of
+        // every sowing landed outside it and was silently discarded — the bed
+        // held ~32 plants where the scenario intended a dense ~128 per sowing.
+        // A fine grid also matches MIGardener, which is a seed-density method.
+        width: 4, length: 8, gridSize: 3,
         planningMethod: 'migardener',
       },
     });

@@ -27,6 +27,7 @@ from models import (
     IndoorSeedStart,
 )
 from plant_database import get_plant_by_id
+from services.settings_service import get_flat_settings
 from simulation_clock import get_today
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ RAIN_WINDOW_HOURS = 48
 STALE_INDOOR_START_DAYS = 14      # seed_start_date age threshold
 STALE_TRANSPLANT_DAYS = 10        # transplant_date age threshold
 STALE_DIRECT_SEED_DAYS = 14       # direct_seed_date age threshold
-STALE_GERMINATION_CHECK_DAYS = 14 # expected_germination_date age threshold (silent drop)
+STALE_GERMINATION_CHECK_DAYS = 14 # expected_germination_date age threshold
 HARVEST_DEMOTION_DAYS = 14        # daysPastExpected threshold for isStale flag (never drops)
 STALE_PLACE_PLANTED_DAYS = 14     # planned PlantedItem planted_date age threshold
 
@@ -176,6 +177,52 @@ def _harvested_planted_item_keys(user_id, events):
     }
 
 
+def _cancelled_planted_item_keys(user_id, events):
+    candidate_keys = {_harvested_item_match_key(event) for event in events}
+    candidate_keys.discard(None)
+    if not candidate_keys:
+        return set()
+
+    bed_ids = {key[0] for key in candidate_keys}
+    plant_ids = {key[1] for key in candidate_keys}
+    items = PlantedItem.query.filter(
+        PlantedItem.user_id == user_id,
+        PlantedItem.cancelled_at.isnot(None),
+        PlantedItem.garden_bed_id.in_(bed_ids),
+        PlantedItem.plant_id.in_(plant_ids),
+    ).all()
+
+    return {
+        key
+        for key in (_harvested_item_match_key(item) for item in items)
+        if key in candidate_keys
+    }
+
+
+def _outcome_planted_item_keys(user_id, events):
+    candidate_keys = {_harvested_item_match_key(event) for event in events}
+    candidate_keys.discard(None)
+    if not candidate_keys:
+        return set()
+
+    bed_ids = {key[0] for key in candidate_keys}
+    plant_ids = {key[1] for key in candidate_keys}
+    items = PlantedItem.query.filter(
+        PlantedItem.user_id == user_id,
+        PlantedItem.cancelled_at.is_(None),
+        PlantedItem.cleared_at.is_(None),
+        PlantedItem.outcome.isnot(None),
+        PlantedItem.garden_bed_id.in_(bed_ids),
+        PlantedItem.plant_id.in_(plant_ids),
+    ).all()
+
+    return {
+        key
+        for key in (_harvested_item_match_key(item) for item in items)
+        if key in candidate_keys
+    }
+
+
 # ---------------------------------------------------------------------------
 # Signal builders
 # ---------------------------------------------------------------------------
@@ -216,6 +263,8 @@ def _build_harvest_ready(user_id, target_date):
             PlantingEvent.expected_harvest_date.isnot(None),
             PlantingEvent.expected_harvest_date <= end_of_day,
             PlantingEvent.cancelled_at.is_(None),
+            PlantingEvent.cleared_at.is_(None),
+            PlantingEvent.outcome.is_(None),
             recorded_planting_filter,
             pending_harvest_filter,
         )
@@ -232,6 +281,8 @@ def _build_harvest_ready(user_id, target_date):
             bed_lookup[bed.id] = bed.name
 
     harvested_item_keys = _harvested_planted_item_keys(user_id, events)
+    cancelled_item_keys = _cancelled_planted_item_keys(user_id, events)
+    outcome_item_keys = _outcome_planted_item_keys(user_id, events)
 
     # Group qualifying events by composite key.
     # Variety normalization: empty string → None for key consistency.
@@ -239,7 +290,12 @@ def _build_harvest_ready(user_id, target_date):
     for e in events:
         if not _has_recorded_planting(e) or _is_harvest_recorded(e):
             continue
-        if _harvested_item_match_key(e) in harvested_item_keys:
+        item_key = _harvested_item_match_key(e)
+        if item_key in cancelled_item_keys:
+            continue
+        if item_key in outcome_item_keys:
+            continue
+        if item_key in harvested_item_keys:
             continue
         harvest_date = _as_date(e.expected_harvest_date)
         if harvest_date is None:
@@ -496,6 +552,21 @@ def _build_transplants_due(user_id, target_date):
         .all()
     )
 
+    event_ids = [e.id for e in events]
+    seed_starts_by_event = defaultdict(list)
+    if event_ids:
+        seed_starts = (
+            IndoorSeedStart.query
+            .filter(
+                IndoorSeedStart.user_id == user_id,
+                IndoorSeedStart.planting_event_id.in_(event_ids),
+            )
+            .order_by(IndoorSeedStart.id.asc())
+            .all()
+        )
+        for seed_start in seed_starts:
+            seed_starts_by_event[seed_start.planting_event_id].append(seed_start)
+
     bed_ids = {e.garden_bed_id for e in events if e.garden_bed_id is not None}
     bed_lookup = {}
     if bed_ids:
@@ -524,12 +595,8 @@ def _build_transplants_due(user_id, target_date):
         # missed start as the actionable item when the guard fires.
         seed_start = _as_date(e.seed_start_date)
         if seed_start is not None and seed_start <= target_date:
-            iss = (
-                IndoorSeedStart.query
-                .filter_by(planting_event_id=e.id, user_id=user_id)
-                .first()
-            )
-            if iss is None or iss.status == 'planned':
+            linked_starts = seed_starts_by_event.get(e.id, [])
+            if not linked_starts or all(start.status == 'planned' for start in linked_starts):
                 continue
         transplant = _as_date(e.transplant_date)
         if transplant is None:
@@ -549,10 +616,26 @@ def _build_transplants_due(user_id, target_date):
         rep = members[0]
         transplant = _as_date(rep.transplant_date)
         total_quantity = sum((m.quantity or 0) for m in members)
+        indoor_seed_start_ids = []
+        seen_seed_start_ids = set()
+        for member in members:
+            for seed_start in seed_starts_by_event.get(member.id, []):
+                if seed_start.id in seen_seed_start_ids:
+                    continue
+                seen_seed_start_ids.add(seed_start.id)
+                indoor_seed_start_ids.append(seed_start.id)
         row = {
             'signalKey': f'transplant-{rep.id}',
             'plantingEventId': rep.id,
             'plantingEventIds': [m.id for m in members],
+            'indoorSeedStartId': (
+                indoor_seed_start_ids[0] if indoor_seed_start_ids else None
+            ),
+            'indoorSeedStartIds': indoor_seed_start_ids,
+            'transplantSource': (
+                rep.transplant_source
+                or ('seed_start' if indoor_seed_start_ids else None)
+            ),
             'plantName': _plant_name(rep.plant_id),
             'variety': rep.variety,
             'transplantDate': transplant.isoformat(),
@@ -656,8 +739,8 @@ def _build_place_planted_item(user_id, target_date):
 
     These are drag-and-dropped placements whose due date has arrived (or
     passed) without the user confirming they actually planted them. The
-    dashboard prompts the user to either confirm ("I planted it") or skip
-    ("Didn't plant it" -> POST /planted-items/<id>/cancel).
+    dashboard prompts the user to either confirm ("I planted it") or record
+    a not-planted outcome.
 
     Returns a dict {'active': [...], 'missed': [...]}. Items older than
     STALE_PLACE_PLANTED_DAYS move into `missed`. Model state is not mutated.
@@ -669,6 +752,8 @@ def _build_place_planted_item(user_id, target_date):
         .filter(
             PlantedItem.user_id == user_id,
             PlantedItem.cancelled_at.is_(None),
+            PlantedItem.cleared_at.is_(None),
+            PlantedItem.outcome.is_(None),
             PlantedItem.status == 'planned',
             PlantedItem.planted_date.isnot(None),
             PlantedItem.planted_date <= end_of_day,
@@ -717,6 +802,9 @@ def _build_place_planted_item(user_id, target_date):
 def _build_germination_check(user_id, target_date):
     """PlantingEvents where direct_seed_date + germination_days <= target_date, not complete.
 
+    Returns a dict {'active': [...], 'missed': [...]}. Items older than
+    STALE_GERMINATION_CHECK_DAYS move into `missed`. Model state is not mutated.
+
     Grouping: events sharing
     (direct_seed_date, plant_id, variety, garden_bed_id) collapse to a
     single row. `quantity` is summed; `plantingEventIds` lists members.
@@ -761,17 +849,12 @@ def _build_germination_check(user_id, target_date):
         expected_germ = seed_date + timedelta(days=germ_days)
         if expected_germ > target_date:
             continue  # Not yet time to check
-        # Silent drop for stale germination checks — if germination hasn't
-        # been logged STALE_GERMINATION_CHECK_DAYS past the expected date,
-        # the reminder has no actionable value left (germinated unlogged, or
-        # failed). No `missed` bucket for germ checks per plan §2.2.
-        if (target_date - expected_germ).days > STALE_GERMINATION_CHECK_DAYS:
-            continue
         variety_key = e.variety if e.variety else None
         key = (seed_date, e.plant_id, variety_key, e.garden_bed_id)
         groups[key].append(e)
 
-    results = []
+    active = []
+    missed = []
     sorted_keys = sorted(
         groups.keys(),
         key=lambda k: (k[0], min(ev.id for ev in groups[k])),
@@ -786,7 +869,7 @@ def _build_germination_check(user_id, target_date):
             germ_days = plant.get('germination_days') or DEFAULT_GERMINATION_DAYS
         expected_germ = seed_date + timedelta(days=germ_days)
         total_quantity = sum((m.quantity or 0) for m in members)
-        results.append({
+        row = {
             'signalKey': f'germination-{rep.id}',
             'plantingEventId': rep.id,
             'plantingEventIds': [m.id for m in members],
@@ -798,10 +881,17 @@ def _build_germination_check(user_id, target_date):
             'quantity': total_quantity,
             'bedId': rep.garden_bed_id,
             'bedName': bed_lookup.get(rep.garden_bed_id),
-        })
-        if len(results) >= SIGNAL_CAP:
+        }
+        days_past = (target_date - expected_germ).days
+        if days_past > STALE_GERMINATION_CHECK_DAYS:
+            if len(missed) < SIGNAL_CAP:
+                missed.append(row)
+        else:
+            if len(active) < SIGNAL_CAP:
+                active.append(row)
+        if len(active) >= SIGNAL_CAP and len(missed) >= SIGNAL_CAP:
             break
-    return results
+    return {'active': active, 'missed': missed}
 
 
 def _build_indoor_germination_check(user_id, target_date):
@@ -1086,9 +1176,9 @@ def _build_rain_alert(user_id, target_date):
     }
 
 
-def _build_compost_overdue(user_id, target_date):
+def _build_compost_overdue(user_id, target_date, turn_reminder_days=COMPOST_DEFAULT_TURN_DAYS):
     """
-    CompostPiles whose last_turned is older than COMPOST_DEFAULT_TURN_DAYS.
+    CompostPiles whose last_turned is older than turn_reminder_days.
     (No turn_frequency_days column exists in the schema.)
     """
     piles = (
@@ -1112,7 +1202,7 @@ def _build_compost_overdue(user_id, target_date):
         else:
             days_since = (target_dt - pile.last_turned).days
 
-        if days_since is None or days_since < COMPOST_DEFAULT_TURN_DAYS:
+        if days_since is None or days_since < turn_reminder_days:
             continue
 
         results.append({
@@ -1120,16 +1210,16 @@ def _build_compost_overdue(user_id, target_date):
             'pileId': pile.id,
             'pileName': pile.name,
             'daysSinceLastTurn': days_since,
-            'turnFrequencyDays': COMPOST_DEFAULT_TURN_DAYS,
+            'turnFrequencyDays': turn_reminder_days,
         })
         if len(results) >= SIGNAL_CAP:
             break
     return results
 
 
-def _build_seed_low_stock(user_id, target_date):
+def _build_seed_low_stock(user_id, target_date, low_stock_packets=LOW_STOCK_SEED_PACKETS):
     """
-    SeedInventory entries with quantity (packets) below LOW_STOCK_SEED_PACKETS.
+    SeedInventory entries with quantity (packets) below low_stock_packets.
     We compare packet quantity rather than total seeds because the schema
     tracks packets as the primary unit.
     """
@@ -1137,7 +1227,7 @@ def _build_seed_low_stock(user_id, target_date):
         SeedInventory.query
         .filter(SeedInventory.user_id == user_id)
         .filter(SeedInventory.quantity.isnot(None))
-        .filter(SeedInventory.quantity < LOW_STOCK_SEED_PACKETS)
+        .filter(SeedInventory.quantity < low_stock_packets)
         .order_by(SeedInventory.quantity.asc())
         .limit(SIGNAL_CAP)
         .all()
@@ -1155,10 +1245,10 @@ def _build_seed_low_stock(user_id, target_date):
     ]
 
 
-def _build_seed_expiring(user_id, target_date):
-    """SeedInventory entries expiring within SEED_EXPIRY_WINDOW_DAYS."""
+def _build_seed_expiring(user_id, target_date, expiry_window_days=SEED_EXPIRY_WINDOW_DAYS):
+    """SeedInventory entries expiring within expiry_window_days."""
     start_dt = datetime.combine(target_date, time.min)
-    end_dt = datetime.combine(target_date + timedelta(days=SEED_EXPIRY_WINDOW_DAYS), time.max)
+    end_dt = datetime.combine(target_date + timedelta(days=expiry_window_days), time.max)
 
     seeds = (
         SeedInventory.query
@@ -1237,10 +1327,12 @@ def build_dashboard_today(user_id, target_date):
     # Builders that can age out return {'active': [...], 'missed': [...]}.
     # Unpack and distribute between the `signals` block (active) and the
     # top-level `missed` block (aged out). Model state is never mutated.
+    settings = get_flat_settings(user_id)
     indoor_starts = _build_indoor_starts_due(user_id, target_date)
     transplants = _build_transplants_due(user_id, target_date)
     direct_seeds = _build_direct_seed_due(user_id, target_date)
     place_planted = _build_place_planted_item(user_id, target_date)
+    germination_checks = _build_germination_check(user_id, target_date)
 
     signals = {
         'harvestReady': _build_harvest_ready(user_id, target_date),
@@ -1248,13 +1340,25 @@ def build_dashboard_today(user_id, target_date):
         'transplantsDue': transplants['active'],
         'directSeedDue': direct_seeds['active'],
         'placePlantedItem': place_planted['active'],
-        'germinationCheck': _build_germination_check(user_id, target_date),
+        'germinationCheck': germination_checks['active'],
         'indoorGerminationCheck': _build_indoor_germination_check(user_id, target_date),
         'frostRisk': _build_frost_risk(user_id, target_date),
         'rainAlert': _build_rain_alert(user_id, target_date),
-        'compostOverdue': _build_compost_overdue(user_id, target_date),
-        'seedLowStock': _build_seed_low_stock(user_id, target_date),
-        'seedExpiring': _build_seed_expiring(user_id, target_date),
+        'compostOverdue': _build_compost_overdue(
+            user_id,
+            target_date,
+            settings['compost.turnReminderDays'],
+        ),
+        'seedLowStock': _build_seed_low_stock(
+            user_id,
+            target_date,
+            settings['dashboard.seedLowStockPackets'],
+        ),
+        'seedExpiring': _build_seed_expiring(
+            user_id,
+            target_date,
+            settings['dashboard.seedExpiryWindowDays'],
+        ),
         'livestockActionsDue': _build_livestock_actions(user_id, target_date),
     }
 
@@ -1263,6 +1367,7 @@ def build_dashboard_today(user_id, target_date):
         'transplantsDue': transplants['missed'],
         'directSeedDue': direct_seeds['missed'],
         'placePlantedItem': place_planted['missed'],
+        'germinationCheck': germination_checks['missed'],
     }
 
     # Filter out snoozed signals — runs across BOTH signals.* and missed.*
@@ -1284,7 +1389,8 @@ def build_dashboard_today(user_id, target_date):
                 signals[key] = [r for r in signals[key] if r.get('signalKey') not in snoozed_keys]
 
         # Filter missed buckets using the same snoozed_keys set
-        for key in ['indoorStartsDue', 'transplantsDue', 'directSeedDue', 'placePlantedItem']:
+        for key in ['indoorStartsDue', 'transplantsDue', 'directSeedDue',
+                    'placePlantedItem', 'germinationCheck']:
             if key in missed and isinstance(missed[key], list):
                 missed[key] = [r for r in missed[key] if r.get('signalKey') not in snoozed_keys]
 

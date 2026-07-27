@@ -10,12 +10,22 @@ import logging
 from datetime import datetime, date, timedelta
 from simulation_clock import get_today, is_simulating
 from plant_database import get_plant_by_id
-from soil_temperature import get_soil_temperature_with_adjustments
+from soil_temperature import SUN_EXPOSURE_ADJUSTMENTS, get_soil_temperature_with_adjustments
 from historical_soil_temp import get_historical_soil_temp_for_date, get_historical_daily_soil_temps, get_month_name
 from models import Property
 from services.geocoding_service import geocoding_service
 
 logger = logging.getLogger(__name__)
+
+
+def get_sun_exposure_offset(sun_exposure: str = None) -> float:
+    """Return temperature adjustment relative to full sun."""
+    exposure = str(sun_exposure or 'full-sun').strip().lower().replace('_', '-')
+    if exposure not in SUN_EXPOSURE_ADJUSTMENTS:
+        exposure = 'full-sun'
+
+    full_sun_adjustment = SUN_EXPOSURE_ADJUSTMENTS['full-sun']
+    return SUN_EXPOSURE_ADJUSTMENTS[exposure] - full_sun_adjustment
 
 
 def get_frost_tolerance_label(tolerance: str) -> str:
@@ -38,7 +48,7 @@ def validate_planting_conditions(
     last_frost_date: datetime = None,
     first_frost_date: datetime = None,
     soil_type: str = 'loamy',
-    sun_exposure: str = 'full',
+    sun_exposure: str = 'full-sun',
     protection_offset: int = 0,
     protection_type: str = None,
     planting_method: str = 'seed'
@@ -195,8 +205,11 @@ def validate_planting_conditions(
                                 avg_soil_temp = None
 
                         if avg_soil_temp is not None:
-                            # Apply protection offset to effective temperature
-                            effective_temp = avg_soil_temp + protection_offset
+                            # Historical averages are treated as full-sun baseline;
+                            # adjust selected-bed shade relative to that baseline.
+                            sun_offset = get_sun_exposure_offset(sun_exposure)
+                            base_soil_temp = avg_soil_temp + sun_offset
+                            effective_temp = base_soil_temp + protection_offset
                             month_name = get_month_name(planting_day.month)
 
                             if effective_temp < soil_temp_min:
@@ -205,26 +218,26 @@ def validate_planting_conditions(
                                     protection_label = protection_type or 'protection'
                                     warnings.append({
                                         'type': 'soil_temp_low',
-                                        'message': f"Soil typically too cold for {method_label}: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {avg_soil_temp:.0f}°F (~{effective_temp:.0f}°F with {protection_label}) (10-yr avg)",
+                                        'message': f"Soil typically too cold for {method_label}: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {base_soil_temp:.0f}°F (~{effective_temp:.0f}°F with {protection_label}) (10-yr avg)",
                                         'severity': 'warning'
                                     })
                                 else:
                                     warnings.append({
                                         'type': 'soil_temp_low',
-                                        'message': f"Soil typically too cold for {method_label}: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {avg_soil_temp:.0f}°F historically (10-yr avg)",
+                                        'message': f"Soil typically too cold for {method_label}: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {base_soil_temp:.0f}°F historically (10-yr avg)",
                                         'severity': 'warning'
                                     })
-                            elif avg_soil_temp < soil_temp_min and effective_temp >= soil_temp_min:
+                            elif base_soil_temp < soil_temp_min and effective_temp >= soil_temp_min:
                                 # Protection makes it viable, but check if it's still marginal (not optimal)
                                 protection_label = protection_type or 'protection'
 
                                 # If effective temp is below optimal (min + 10°F), mark as marginal
                                 if effective_temp < soil_temp_min + 10:
                                     warning_type = 'soil_temp_marginal'
-                                    message = f"Soil temp adequate for {method_label} with protection but marginal: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {avg_soil_temp:.0f}°F but {protection_label} adds +{protection_offset}°F (~{effective_temp:.0f}°F)"
+                                    message = f"Soil temp adequate for {method_label} with protection but marginal: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {base_soil_temp:.0f}°F but {protection_label} adds +{protection_offset}°F (~{effective_temp:.0f}°F)"
                                 else:
                                     warning_type = 'soil_temp_protected'
-                                    message = f"Soil temp optimal for {method_label} with protection: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {avg_soil_temp:.0f}°F and {protection_label} adds +{protection_offset}°F (~{effective_temp:.0f}°F)"
+                                    message = f"Soil temp optimal for {method_label} with protection: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {base_soil_temp:.0f}°F and {protection_label} adds +{protection_offset}°F (~{effective_temp:.0f}°F)"
 
                                 warnings.append({
                                     'type': warning_type,
@@ -235,7 +248,7 @@ def validate_planting_conditions(
                                 # Marginal - average is close to minimum
                                 warnings.append({
                                     'type': 'soil_temp_marginal',
-                                    'message': f"Marginal soil temp for {method_label}: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {avg_soil_temp:.0f}°F (10-yr avg)",
+                                    'message': f"Marginal soil temp for {method_label}: {plant_name} needs {soil_temp_min}°F, {month_name} {day_of_month} averages {base_soil_temp:.0f}°F (10-yr avg)",
                                     'severity': 'info'
                                 })
 
@@ -246,11 +259,11 @@ def validate_planting_conditions(
                             if is_cool_weather_crop:
                                 max_acceptable_temp = soil_temp_min + 20  # Too hot threshold
 
-                                if avg_soil_temp > max_acceptable_temp:
+                                if base_soil_temp > max_acceptable_temp:
                                     # Protection doesn't help with heat - note this in message
                                     warnings.append({
                                         'type': 'soil_temp_high',
-                                        'message': f"Too hot: {plant_name} prefers cool weather. {month_name} {day_of_month} averages {avg_soil_temp:.0f}°F, exceeds optimal range (max {max_acceptable_temp:.0f}°F). May bolt or perform poorly (10-yr avg)",
+                                        'message': f"Too hot: {plant_name} prefers cool weather. {month_name} {day_of_month} averages {base_soil_temp:.0f}°F, exceeds optimal range (max {max_acceptable_temp:.0f}°F). May bolt or perform poorly (10-yr avg)",
                                         'severity': 'warning'
                                     })
                     else:
@@ -648,6 +661,7 @@ def validate_planting_for_property(
     first_frost_str: str = None,
     protection_offset: int = 0,
     protection_type: str = None,
+    sun_exposure: str = 'full-sun',
     planting_method: str = 'seed'
 ) -> dict:
     """
@@ -662,6 +676,7 @@ def validate_planting_for_property(
         first_frost_str: First frost date string (YYYY-MM-DD)
         protection_offset: Temperature offset from season extension (°F)
         protection_type: Type of protection structure (for display)
+        sun_exposure: Garden bed sun exposure
         planting_method: 'seed' for direct seeding, 'transplant' for transplants
 
     Returns:
@@ -671,7 +686,6 @@ def validate_planting_for_property(
     latitude = None
     longitude = None
     soil_type = 'loamy'
-    sun_exposure = 'full-sun'  # Must match soil_temperature.py valid values
 
     # Priority 1: Load property data if available
     if property_id:
@@ -738,6 +752,8 @@ def validate_planting_for_property(
         for w in warnings
     )
 
+    suggestion_offset = protection_offset + get_sun_exposure_offset(sun_exposure)
+
     # Always generate suggestions when location is available
     if latitude and longitude:
         # Get plant data to extract requirements
@@ -765,7 +781,7 @@ def validate_planting_for_property(
                         latitude=latitude,
                         longitude=longitude,
                         current_date=planting_date,
-                        protection_offset=protection_offset,
+                        protection_offset=suggestion_offset,
                         plant_id=plant_id,
                         planting_method=planting_method,
                         last_frost_date=last_frost_date.date() if last_frost_date else None,
@@ -779,7 +795,7 @@ def validate_planting_for_property(
                         latitude=latitude,
                         longitude=longitude,
                         current_date=planting_date,
-                        protection_offset=protection_offset,
+                        protection_offset=suggestion_offset,
                         plant_id=plant_id,
                         planting_method=planting_method,
                         last_frost_date=last_frost_date.date() if last_frost_date else None,

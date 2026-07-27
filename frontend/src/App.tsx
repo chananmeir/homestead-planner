@@ -3,6 +3,7 @@ import GardenPlanner from './components/GardenPlanner';
 import WeatherAlerts from './components/WeatherAlerts';
 import CompostTracker from './components/CompostTracker';
 import GardenDesigner from './components/GardenDesigner';
+import GardenAssistant from './components/GardenAssistant/GardenAssistant';
 import PropertyDesigner from './components/PropertyDesigner';
 import Livestock from './components/Livestock';
 import HarvestTracker from './components/HarvestTracker';
@@ -14,6 +15,7 @@ import Dashboard from './components/Dashboard';
 import GardenSnapshot from './components/GardenPlanner/GardenSnapshot';
 import IndoorSeedStarts from './components/IndoorSeedStarts';
 import PlantingCalendar from './components/PlantingCalendar';
+import UserSettings from './components/UserSettings';
 import { ToastProvider, ErrorBoundary } from './components/common';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ActivePlanProvider } from './contexts/ActivePlanContext';
@@ -43,7 +45,8 @@ type Tab =
   | 'snapshot'
   | 'indoor-starts'
   | 'planting-calendar'
-  | 'soil-temp';
+  | 'soil-temp'
+  | 'settings';
 
 type NavGroupId = 'dashboard' | 'plan' | 'design' | 'grow' | 'track' | 'manage' | 'admin';
 
@@ -135,6 +138,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'seeds', name: 'Seeds', icon: '🌾', description: 'Seed inventory and catalog' },
       { id: 'livestock', name: 'Livestock', icon: '🐔', description: 'Animals and production tracking' },
       { id: 'compost', name: 'Compost', icon: '♻️', description: 'Compost batches and additions' },
+      { id: 'settings', name: 'Settings', icon: '⚙️', description: 'Preferences and reminder thresholds' },
     ],
   },
 ];
@@ -155,6 +159,7 @@ const TAB_TO_GROUP: Record<Tab, NavGroupId> = {
   seeds: 'manage',
   livestock: 'manage',
   compost: 'manage',
+  settings: 'manage',
   admin: 'admin',
 };
 
@@ -169,6 +174,7 @@ interface AppRouteState {
   transplantSeedStartId: number | null;
   plantingEventId: number | null;
   harvestFocusId: number | null;
+  harvestFocusIds: number[];
   seedFocusId: number | null;
   compostFocusId: number | null;
   indoorStartFocusId: number | null;
@@ -186,6 +192,7 @@ interface AppRouteDestination {
   seedStartId?: number | null;
   plantingEventId?: number | null;
   harvestFocusId?: number | null;
+  harvestFocusIds?: number[];
   seedId?: number | null;
   compostPileId?: number | null;
   indoorSeedStartId?: number | null;
@@ -204,6 +211,7 @@ const defaultAppRouteState = (): AppRouteState => ({
   transplantSeedStartId: null,
   plantingEventId: null,
   harvestFocusId: null,
+  harvestFocusIds: [],
   seedFocusId: null,
   compostFocusId: null,
   indoorStartFocusId: null,
@@ -249,6 +257,13 @@ const parseInitialAppRoute = (): AppRouteState => {
   route.transplantSeedStartId = readNumberParam(params, 'seedStartId');
   route.plantingEventId = readNumberParam(params, 'plantingEventId');
   route.harvestFocusId = readNumberParam(params, 'harvestFocusId');
+  route.harvestFocusIds = collectNumberIds(
+    [route.harvestFocusId],
+    readNumberListParam(params, 'harvestFocusIds')
+  );
+  if (route.harvestFocusId == null && route.harvestFocusIds.length > 0) {
+    route.harvestFocusId = route.harvestFocusIds[0];
+  }
   route.seedFocusId = readNumberParam(params, 'seedId');
   route.compostFocusId = readNumberParam(params, 'compostPileId');
   route.livestockFocusType = params.get('livestockType');
@@ -297,6 +312,7 @@ const buildAppDestinationUrl = (destination: AppRouteDestination): string => {
   setNumberParam(params, 'seedStartId', destination.seedStartId);
   setNumberParam(params, 'plantingEventId', destination.plantingEventId);
   setNumberParam(params, 'harvestFocusId', destination.harvestFocusId);
+  setNumberListParam(params, 'harvestFocusIds', destination.harvestFocusIds);
   setNumberParam(params, 'seedId', destination.seedId);
   setNumberParam(params, 'compostPileId', destination.compostPileId);
   setNumberParam(params, 'indoorSeedStartId', destination.indoorSeedStartId);
@@ -334,6 +350,7 @@ function AppContent() {
   // Phase B: focus-state atoms for Needs Attention deep-links. Destinations
   // will consume these in Phase C; here we only plumb them through.
   const [harvestFocusId, setHarvestFocusId] = useState<number | null>(initialAppRoute.harvestFocusId);
+  const [harvestFocusIds, setHarvestFocusIds] = useState<number[]>(initialAppRoute.harvestFocusIds);
   const [seedFocusId, setSeedFocusId] = useState<number | null>(initialAppRoute.seedFocusId);
   const [compostFocusId, setCompostFocusId] = useState<number | null>(initialAppRoute.compostFocusId);
   const [indoorStartFocusId, setIndoorStartFocusId] = useState<number | null>(initialAppRoute.indoorStartFocusId);
@@ -429,7 +446,10 @@ function AppContent() {
     }
     // Phase B: clear focus atoms for tabs we're leaving. Clearing them all on
     // every tab switch is simple and prevents stale state.
-    if (tab !== 'harvests') setHarvestFocusId(null);
+    if (tab !== 'harvests') {
+      setHarvestFocusId(null);
+      setHarvestFocusIds([]);
+    }
     if (tab !== 'seeds') setSeedFocusId(null);
     if (tab !== 'compost') setCompostFocusId(null);
     if (tab !== 'indoor-starts') {
@@ -483,13 +503,19 @@ function AppContent() {
   // remains available for reference while the destination view receives focus.
   const handleNeedsAttentionNavigate = (target: NeedsAttentionTarget) => {
     switch (target.kind) {
-      case 'harvest':
+      case 'harvest': {
+        const targetHarvestFocusIds = collectNumberIds(
+          [target.plantingEventId],
+          target.plantingEventIds
+        );
         openAppDestination({
           tab: 'harvests',
           group: 'track',
           harvestFocusId: target.plantingEventId,
+          harvestFocusIds: targetHarvestFocusIds,
         });
         return;
+      }
       case 'harvestBed':
         openAppDestination({
           tab: 'designer',
@@ -642,9 +668,16 @@ function AppContent() {
 
   return (
     <>
-      <div className={`bg-gradient-to-br from-green-50 to-blue-50 ${
-        isFullViewport ? 'h-screen flex flex-col overflow-hidden' : 'min-h-screen'
-      }`}>
+      <div
+        className={`bg-gradient-to-br from-green-50 to-blue-50 transition-[padding] duration-200 ${
+          isFullViewport ? 'h-screen flex flex-col overflow-hidden' : 'min-h-screen'
+        }`}
+        // The Garden Assistant is a fixed-position panel on the right edge.
+        // Pad by its current width so no page content sits underneath it —
+        // content there would be both covered and unclickable. The variable is
+        // published by GardenAssistant and is 0px whenever it is not mounted.
+        style={{ paddingRight: 'var(--assistant-inset, 0px)' }}
+      >
         {/* Header */}
         <header className="bg-green-700 text-white shadow-lg flex-shrink-0">
           <div className="container mx-auto px-4 py-6 flex justify-between items-center">
@@ -848,7 +881,12 @@ function AppContent() {
               {activeTab === 'weather' && <WeatherAlerts />}
 
               {/* Track group */}
-              {activeTab === 'harvests' && <HarvestTracker focusSignal={harvestFocusId} />}
+              {activeTab === 'harvests' && (
+                <HarvestTracker
+                  focusSignal={harvestFocusId}
+                  focusPlantingEventIds={harvestFocusIds}
+                />
+              )}
               {activeTab === 'photos' && <PhotoGallery />}
               {activeTab === 'nutrition' && <NutritionalDashboard />}
 
@@ -856,6 +894,7 @@ function AppContent() {
               {activeTab === 'seeds' && <SeedsHub focusSeedId={seedFocusId} />}
               {activeTab === 'livestock' && <Livestock focusType={livestockFocusType} />}
               {activeTab === 'compost' && <CompostTracker focusPileId={compostFocusId} />}
+              {activeTab === 'settings' && <UserSettings />}
 
               {/* Admin */}
               {activeTab === 'admin' && user?.isAdmin && <AdminUserManagement />}
@@ -892,7 +931,8 @@ function AppContent() {
           setShowLogin(true);
         }}
       />
-      <SimulationToolbar />
+      {isAuthenticated && <GardenAssistant />}
+      {/* <SimulationToolbar /> — Time Machine deactivated */}
     </>
   );
 }

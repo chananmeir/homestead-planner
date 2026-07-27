@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { Plant } from '../../types';
-import { API_BASE_URL } from '../../config';
+import { apiGet } from '../../utils/api';
 import { extractCropName } from '../../utils/plantUtils';
 import PlantIcon from '../common/PlantIcon';
 
@@ -47,7 +47,7 @@ export const GuildSelector: React.FC<GuildSelectorProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${API_BASE_URL}/api/guilds`, { credentials: 'include' });
+      const response = await apiGet('/api/guilds');
       if (!response.ok) {
         throw new Error('Failed to load plant guilds');
       }

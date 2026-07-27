@@ -8,6 +8,7 @@ import { apiPatch, apiDelete, apiPost } from '../../../utils/api';
 import { useToast } from '../../common/Toast';
 import GroupedEventsModal from './GroupedEventsModal';
 import { GroupedDateMarker, EventMarkerType } from './utils';
+import { getEventDetail, parseEventDetails } from '../../../utils/eventDetails';
 
 interface DayDetailModalProps {
   isOpen: boolean;
@@ -31,11 +32,28 @@ interface PhaseInfo {
 // populated. Marker type is required so the grouping key is byte-identical to
 // CalendarGrid (utils.ts:139) and ListView (index.tsx:156).
 const getEventTypeInfo = (event: PlantingCalendar): PhaseInfo => {
+  if (event.eventType === 'mulch') return { icon: '\uD83D\uDEE1\uFE0F', label: 'Mulch', color: 'bg-amber-100 text-amber-700', markerType: 'mulch-application' };
+  if (event.eventType === 'fertilizing') return { icon: '\u2697\uFE0F', label: 'Fertilizing', color: 'bg-lime-100 text-lime-700', markerType: 'fertilizing' };
+  if (event.eventType === 'irrigation') return { icon: '\uD83D\uDCA7', label: 'Irrigation', color: 'bg-sky-100 text-sky-700', markerType: 'irrigation' };
+  if (event.eventType === 'maple-tapping') return { icon: '\uD83C\uDF41', label: 'Maple Tapping', color: 'bg-orange-100 text-orange-700', markerType: 'maple-tapping' };
+  if (event.eventType === 'custom') return { icon: '\u2022', label: 'Garden Event', color: 'bg-gray-100 text-gray-700', markerType: 'custom-event' };
   if (event.seedStartDate) return { icon: '\u{1F331}', label: 'Start Seeds (Indoor)', color: 'bg-green-100 text-green-700', markerType: 'seed-start' };
   if (event.directSeedDate) return { icon: '\u{1F955}', label: 'Direct Seed', color: 'bg-orange-100 text-orange-700', markerType: 'direct-seed' };
   if (event.transplantDate && !event.seedStartDate) return { icon: '\u{1F33F}', label: 'Transplant', color: 'bg-blue-100 text-blue-700', markerType: 'transplant' };
   if (event.expectedHarvestDate) return { icon: '\u{1F389}', label: 'Harvest', color: 'bg-yellow-100 text-yellow-700', markerType: 'harvest' };
   return { icon: '\u{1F331}', label: 'Planting', color: 'bg-gray-100 text-gray-700', markerType: 'seed-start' };
+};
+
+const getMaintenanceEventName = (event: PlantingCalendar): string => {
+  const details = parseEventDetails(event.eventDetails);
+  if (event.eventType === 'mulch') return 'Mulch Application';
+  if (event.eventType === 'fertilizing') return 'Fertilizing';
+  if (event.eventType === 'irrigation') return 'Irrigation';
+  if (event.eventType === 'maple-tapping') return 'Maple Tapping';
+  if (event.eventType === 'custom') {
+    return getEventDetail<string>(details, 'label', 'name', 'title') || 'Garden Event';
+  }
+  return event.plantId || 'Garden Event';
 };
 
 // Singleton groups (count === 1) keep the existing per-event row UX.
@@ -217,7 +235,8 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
 
   const handleDeleteEvent = async (event: PlantingCalendar) => {
     const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
-    const name = plant?.name || event.plantId || 'this event';
+    const isMaintenanceEvent = (event.eventType || 'planting') !== 'planting';
+    const name = isMaintenanceEvent ? getMaintenanceEventName(event) : plant?.name || event.plantId || 'this event';
     const ok = window.confirm(`Delete "${name}${event.variety ? ` (${event.variety})` : ''}"? This cannot be undone.`);
     if (!ok) return;
 
@@ -279,6 +298,10 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                       const event = item.events[0];
                       const plant = PLANT_DATABASE.find(p => p.id === event.plantId);
                       const bedName = gardenBeds?.find(b => b.id === event.gardenBedId)?.name;
+                      const isMaintenanceEvent = (event.eventType || 'planting') !== 'planting';
+                      const displayName = isMaintenanceEvent
+                        ? getMaintenanceEventName(event)
+                        : plant?.name || event.plantId;
                       // Phase-specific completion:
                       // - Seed starts: tracked via Indoor Seed Starts page
                       // - Harvest: tracked via separate harvestCompleted flag
@@ -337,8 +360,8 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                             )}
                             <div className="flex-1 min-w-0">
                               <div className={`font-medium text-gray-800 ${isCompleted ? 'line-through opacity-60' : ''}`}>
-                                {plant?.name || event.plantId}
-                                {event.variety && <span className="text-gray-500 font-normal ml-1">({event.variety})</span>}
+                                {displayName}
+                                {!isMaintenanceEvent && event.variety && <span className="text-gray-500 font-normal ml-1">({event.variety})</span>}
                                 {isGrouped && (
                                   <span className="text-sm font-semibold text-gray-700 ml-1">
                                     ({item.count})
@@ -346,7 +369,7 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
                                 )}
                               </div>
                               <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
-                                {totalQty > 0 && <span>{totalQty} plants</span>}
+                                {totalQty > 0 && !isMaintenanceEvent && <span>{totalQty} plants</span>}
                                 {bedName && <span className="text-green-600">{bedName}</span>}
                                 {isTracked && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-green-100 text-green-700">

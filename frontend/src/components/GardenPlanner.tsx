@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { API_BASE_URL } from '../config';
-import type { GardenPlan, SeedInventoryItem, PlanningStrategy, SuccessionPreference, CalculatePlanResponse, RotationWarning as RotationWarningType, GardenBed, SpaceBreakdown, BedSpaceUsage, TrellisStructure, TrellisSpaceUsage, BedAssignment, AllocationMode, SeasonProgressResponse, Conflict } from '../types';
+import type { GardenPlan, SeedInventoryItem, PlanningStrategy, SuccessionPreference, CalculatePlanResponse, RotationWarning as RotationWarningType, GardenBed, SpaceBreakdown, BedSpaceUsage, TrellisStructure, TrellisSpaceUsage, BedAssignment, AllocationMode, SeasonProgressResponse, Conflict, RotationSeverity } from '../types';
 import RotationWarning from './common/RotationWarning';
 import ConflictWarning from './common/ConflictWarning';
 import { Modal } from './common/Modal';
@@ -28,6 +28,72 @@ import { useNow } from '../contexts/SimulationContext';
 // To disable: localStorage.removeItem('DEBUG_SEASON_PLANNER')
 const DEBUG_SEASON_PLANNER = typeof window !== 'undefined' && localStorage.getItem('DEBUG_SEASON_PLANNER') === 'true';
 
+const rotationSeverityRank: Record<RotationSeverity, number> = {
+  ok: 0,
+  info: 1,
+  caution: 2,
+  warning: 3,
+  high: 4,
+};
+
+const rotationBadgeClass: Record<RotationSeverity, string> = {
+  ok: 'text-green-700 bg-green-50 border-green-200',
+  info: 'text-blue-700 bg-blue-50 border-blue-200',
+  caution: 'text-amber-700 bg-amber-50 border-amber-200',
+  warning: 'text-orange-700 bg-orange-50 border-orange-200',
+  high: 'text-red-700 bg-red-50 border-red-200',
+};
+
+const rotationLabel: Record<RotationSeverity, string> = {
+  ok: 'Good',
+  info: 'Info',
+  caution: 'Caution',
+  warning: 'Warning',
+  high: 'High risk',
+};
+
+const getHighestRotationSeverity = (warnings: RotationWarningType[] = []): RotationSeverity => (
+  warnings.reduce<RotationSeverity>((highest, warning) => {
+    const severity = warning.severity || 'warning';
+    return rotationSeverityRank[severity] > rotationSeverityRank[highest] ? severity : highest;
+  }, 'ok')
+);
+
+const PLANNING_STRATEGY_OPTIONS: Array<{
+  value: PlanningStrategy;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'balanced',
+    label: 'Balanced',
+    description: 'Keeps variety high while using a practical amount of bed space.',
+  },
+  {
+    value: 'maximize_harvest',
+    label: 'Maximize Harvest',
+    description: 'Fills available growing space more aggressively for larger harvests.',
+  },
+  {
+    value: 'use_all_seeds',
+    label: 'Use Up Seeds',
+    description: 'Prioritizes turning seed inventory into plantings within available space.',
+  },
+];
+
+const getPlanningStrategyLabel = (strategy?: string): string => {
+  const option = PLANNING_STRATEGY_OPTIONS.find(opt => opt.value === strategy);
+  if (option) return option.label;
+  if (strategy === 'manual') return 'Manual';
+  return strategy || 'Balanced';
+};
+
+const normalizeSelectablePlanningStrategy = (strategy?: string): PlanningStrategy => {
+  return PLANNING_STRATEGY_OPTIONS.some(option => option.value === strategy)
+    ? strategy as PlanningStrategy
+    : 'balanced';
+};
+
 const GardenPlanner: React.FC = () => {
   const now = useNow();
   const { activePlanId, setActivePlan: setContextActivePlan, clearActivePlan } = useActivePlan();
@@ -40,9 +106,9 @@ const GardenPlanner: React.FC = () => {
   const [seedInventory, setSeedInventory] = useState<SeedInventoryItem[]>([]);
   const [selectedSeeds, setSelectedSeeds] = useState<Set<number>>(new Set());
 
-  // Hardcoded defaults (Step 2 "Configure Strategy" removed from UI)
   const DEFAULT_STRATEGY: PlanningStrategy = 'balanced';
   const DEFAULT_SUCCESSION: SuccessionPreference = '4';
+  const [selectedStrategy, setSelectedStrategy] = useState<PlanningStrategy>(DEFAULT_STRATEGY);
   const [perSeedSuccession, setPerSeedSuccession] = useState<Map<number, SuccessionPreference>>(new Map());
   const [calculatedPlan, setCalculatedPlan] = useState<CalculatePlanResponse | null>(null);
   const [planName, setPlanName] = useState('');
@@ -685,18 +751,34 @@ const GardenPlanner: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
 
-          if (data.has_conflict) {
-            const key = `${seedId}-${bedId}`;
+          const key = `${seedId}-${bedId}`;
+          const severity = (data.severity || (data.has_conflict ? 'warning' : 'ok')) as RotationSeverity;
+
+          if (data.has_rotation_concern || severity !== 'ok') {
+            const bedName = data.bed_name || gardenBeds.find(bed => bed.id === bedId)?.name || '';
             setRotationWarnings(prev => {
               const newMap = new Map(prev);
               newMap.set(key, [{
                 bed_id: bedId,
-                bed_name: data.bed_name || '',
+                bed_name: bedName,
                 message: data.recommendation || '',
                 family: data.family || '',
-                conflict_years: data.last_planted_year ? [data.last_planted_year] : [],
-                safe_year: data.safe_year || (currentYear + 3)
+                conflict_years: data.conflict_years || [],
+                safe_year: data.safe_year || null,
+                severity,
+                risk_score: data.risk_score || 0,
+                rotation_window: data.rotation_window,
+                reason_codes: data.reason_codes || [],
+                history: data.history || [],
+                conflicts: data.conflicts || [],
+                ignored_history: data.ignored_history || [],
               }]);
+              return newMap;
+            });
+          } else {
+            setRotationWarnings(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(key);
               return newMap;
             });
           }
@@ -1168,7 +1250,7 @@ const GardenPlanner: React.FC = () => {
         credentials: 'include',
         body: JSON.stringify({
           seedSelections: seedInventory.filter(s => selectedSeeds.has(s.id)),
-          strategy: DEFAULT_STRATEGY,
+          strategy: selectedStrategy,
           successionPreference: DEFAULT_SUCCESSION,
           manualQuantities: Object.keys(manualQuantitiesObj).length > 0 ? manualQuantitiesObj : undefined,
           perSeedSuccession: Object.keys(perSeedSuccessionObj).length > 0 ? perSeedSuccessionObj : undefined
@@ -1269,7 +1351,7 @@ const GardenPlanner: React.FC = () => {
         body: JSON.stringify({
           name: planName,
           year: now.getFullYear(),
-          strategy: DEFAULT_STRATEGY,
+          strategy: selectedStrategy,
           successionPreference: DEFAULT_SUCCESSION,
           targetTotalPlants: calculatedPlan.summary.totalPlants,
           targetDiversity: calculatedPlan.summary.cropDiversity,
@@ -1403,6 +1485,7 @@ const GardenPlanner: React.FC = () => {
   const resetWizard = () => {
     setStep(1);
     setSelectedSeeds(new Set());
+    setSelectedStrategy(DEFAULT_STRATEGY);
     setCalculatedPlan(null);
     setPlanName('');
     setSearchQuery('');
@@ -1498,6 +1581,7 @@ const GardenPlanner: React.FC = () => {
       setPerSeedSuccession(reconstructed.perSeedSuccession);
       setBedAssignments(reconstructed.bedAssignments);
       setTrellisAssignments(reconstructed.trellisAssignments);
+      setSelectedStrategy(normalizeSelectablePlanningStrategy(fullPlan.strategy));
       setPlanName(fullPlan.name);
 
       // Set edit mode
@@ -1569,6 +1653,7 @@ const GardenPlanner: React.FC = () => {
       setPerSeedSuccession(reconstructed.perSeedSuccession);
       setBedAssignments(reconstructed.bedAssignments);
       setTrellisAssignments(reconstructed.trellisAssignments);
+      setSelectedStrategy(normalizeSelectablePlanningStrategy(fullPlan.strategy));
 
       // Use user-provided name - DON'T set editingPlanId (creates new plan on save)
       setPlanName(name);
@@ -1596,7 +1681,7 @@ const GardenPlanner: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({})
+        body: JSON.stringify({ strategy: normalizeSelectablePlanningStrategy(plan.strategy) })
       });
 
       if (!response.ok) {
@@ -2079,6 +2164,42 @@ const GardenPlanner: React.FC = () => {
                       <li>✓ <strong>Space shown is per planting</strong> - succession reuses the same space at different times</li>
                       <li>✓ Example: 40 lettuce with "Moderate (4x)" = 10 plants per planting = ~3 sq ft per planting</li>
                     </ul>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-semibold text-gray-900">Planning Goal</h3>
+                      <span className="text-xs text-gray-500">Manual quantities stay fixed</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2" role="radiogroup" aria-label="Planning goal">
+                      {PLANNING_STRATEGY_OPTIONS.map(option => {
+                        const isSelected = selectedStrategy === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSelected}
+                            onClick={() => {
+                              setSelectedStrategy(option.value);
+                              setCalculatedPlan(null);
+                            }}
+                            className={`text-left border rounded-md p-3 transition-colors ${
+                              isSelected
+                                ? 'border-green-600 bg-green-50 ring-1 ring-green-600'
+                                : 'border-gray-300 bg-white hover:border-green-300'
+                            }`}
+                          >
+                            <span className="block text-sm font-semibold text-gray-900">
+                              {option.label}
+                            </span>
+                            <span className="block text-xs text-gray-600 mt-1">
+                              {option.description}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* Bed Sun Exposure Status Panel */}
@@ -3164,19 +3285,21 @@ const GardenPlanner: React.FC = () => {
                                   )}
                                 </td>
                                 <td className="px-4 py-2 text-center">
-                                  {item.rotation_warnings && item.rotation_warnings.length > 0 ? (
-                                    <button
-                                      onClick={() => {
-                                        setSelectedRotationWarnings(item.rotation_warnings || []);
-                                        setShowRotationModal(true);
-                                      }}
-                                      className="text-yellow-600 hover:text-yellow-700 font-medium flex items-center justify-center gap-1 mx-auto"
-                                      title="View rotation warnings"
-                                    >
-                                      <span>⚠️</span>
-                                      <span className="text-sm">Warning</span>
-                                    </button>
-                                  ) : (
+                                  {item.rotation_warnings && item.rotation_warnings.length > 0 ? (() => {
+                                    const severity = getHighestRotationSeverity(item.rotation_warnings);
+                                    return (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedRotationWarnings(item.rotation_warnings || []);
+                                          setShowRotationModal(true);
+                                        }}
+                                        className={`text-sm font-medium px-2 py-1 rounded-full border ${rotationBadgeClass[severity]}`}
+                                        title="View rotation guidance"
+                                      >
+                                        {rotationLabel[severity]}
+                                      </button>
+                                    );
+                                  })() : (
                                     <span className="text-gray-400 text-sm" title="Bed allocation needed for rotation checking">
                                       Pending
                                     </span>
@@ -3223,12 +3346,12 @@ const GardenPlanner: React.FC = () => {
                         setShowRotationModal(false);
                         setSelectedRotationWarnings([]);
                       }}
-                      title="Crop Rotation Warnings"
+                      title="Crop Rotation Guidance"
                     >
                       <div className="space-y-4">
                         <p className="text-sm text-gray-600 mb-4">
-                          The following rotation conflicts were detected. You can still proceed with this plan,
-                          but following crop rotation guidelines helps prevent soil-borne diseases and pest buildup.
+                          Review rotation guidance for the assigned beds. High-risk families receive stronger warnings,
+                          while cover crops, mixed beds, and low-exposure history are treated more gently.
                         </p>
                         <RotationWarning warnings={selectedRotationWarnings} />
                         <div className="mt-6 flex justify-end">
@@ -3263,7 +3386,7 @@ const GardenPlanner: React.FC = () => {
                       <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-normal">Active</span>
                     )}
                   </h2>
-                  <div className="text-gray-600 text-sm">Year: {selectedPlan.year} | Strategy: {selectedPlan.strategy}</div>
+                  <div className="text-gray-600 text-sm">Year: {selectedPlan.year} | Planning Goal: {getPlanningStrategyLabel(selectedPlan.strategy)}</div>
                 </div>
                 <div className="flex gap-2">
                   <button

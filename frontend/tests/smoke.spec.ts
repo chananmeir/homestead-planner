@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, login, logout, TEST_USER } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
+import { openDesignerDetailView } from './helpers/data-setup';
 
 test.describe.serial('Smoke Test - Critical Happy Path', () => {
   let bedName: string;
@@ -62,6 +63,7 @@ test.describe.serial('Smoke Test - Critical Happy Path', () => {
     await expect(page.getByText('Add Garden Bed')).not.toBeVisible({ timeout: 5000 });
 
     // Verify bed appears as the active bed (visible in the status/selector area)
+    await openDesignerDetailView(page);
     await expect(page.locator(`text=Active:`).first()).toBeVisible({ timeout: 5000 });
     // Confirm the bed name is somewhere on the page
     await expect(page.locator(`div:has-text("${bedName}")`).first()).toBeVisible({ timeout: 5000 });
@@ -74,7 +76,7 @@ test.describe.serial('Smoke Test - Critical Happy Path', () => {
 
     // Verify planner loaded - look for year selector or plan content
     await expect(
-      page.getByText('Garden Planner').first()
+      page.getByRole('heading', { name: 'Garden Season Planner' })
     ).toBeVisible({ timeout: 5000 });
   });
 
@@ -83,8 +85,11 @@ test.describe.serial('Smoke Test - Critical Happy Path', () => {
     await login(page);
     await navigateTo(page, TABS.MY_SEEDS);
 
-    // Verify seeds page loaded
-    await expect(page.locator('text=My Seeds').first()).toBeVisible({ timeout: 5000 });
+    // Verify seeds page loaded. The heading is "My Seed Inventory" — the nav
+    // sub-tab is "My Inventory", and nothing on the page reads "My Seeds".
+    await expect(
+      page.getByRole('heading', { name: 'My Seed Inventory' }),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test('should navigate to Planting Calendar', async ({ page }) => {

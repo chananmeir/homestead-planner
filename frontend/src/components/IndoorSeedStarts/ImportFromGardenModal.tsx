@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiGet, apiPost } from '../../utils/api';
 import { Modal } from '../common/Modal';
 import { useActivePlan } from '../../contexts/ActivePlanContext';
+import { formatDisplayDate, parseLocalDate } from '../../utils/dateUtils';
 
 interface PlantingEventNeedingStart {
   plantingEventId: number;
@@ -118,7 +119,7 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
 
   // Filter events based on date range (show only events within next 6 months by default)
   const events = showAllYears ? allEvents : allEvents.filter(event => {
-    const transplantDate = new Date(event.transplantDate);
+    const transplantDate = parseLocalDate(event.transplantDate);
     const sixMonthsFromNow = new Date();
     sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
     return transplantDate <= sixMonthsFromNow;
@@ -209,7 +210,7 @@ export const ImportFromGardenModal: React.FC<ImportFromGardenModalProps> = ({
             transplantDate: event.transplantDate,
             desiredQuantity: desiredQuantity,
             location: 'windowsill',
-            notes: `For ${event.gardenBedName || 'garden bed ' + (event.gardenBedId || 'TBD')}. Transplant on ${new Date(event.transplantDate).toLocaleDateString()}.`,
+            notes: `For ${event.gardenBedName || 'garden bed ' + (event.gardenBedId || 'TBD')}. Transplant on ${formatDisplayDate(event.transplantDate)}.`,
             // Phase B smoke #6: pass the user's chosen overdue handling so
             // the backend knows whether to skip / import_anyway / reschedule.
             overdueMode,

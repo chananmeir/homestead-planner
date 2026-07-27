@@ -4,10 +4,9 @@ Shared pytest fixtures for backend integration tests.
 Provides a Flask app with in-memory SQLite, database session management,
 and sample model instances for User, GardenBed, TrellisStructure, and GardenPlan.
 
-NOTE: We intentionally do NOT import app.py because it runs db.create_all()
-and Settings.set_setting() at module level, which crashes against an empty
-in-memory database. Instead we create a minimal Flask app that initializes
-the same `db` instance from models.py.
+NOTE: The broad fixtures intentionally do NOT import app.py so they remain
+isolated from production config. Instead we create a minimal Flask app that
+initializes the same `db` instance from models.py.
 """
 
 import sys
@@ -26,10 +25,10 @@ from werkzeug.security import generate_password_hash
 def app():
     """Create a minimal Flask app configured for testing with in-memory SQLite.
 
-    Avoids importing app.py (which runs module-level db.create_all() and
-    Settings.set_setting() against the real file database). The service
-    functions under test only need `db` from models.py, which is the same
-    SQLAlchemy instance regardless of which Flask app initializes it.
+    Avoids importing app.py so these tests stay isolated from the real file
+    database. The service functions under test only need `db` from models.py,
+    which is the same SQLAlchemy instance regardless of which Flask app
+    initializes it.
     """
     test_app = Flask(__name__)
     test_app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
@@ -151,6 +150,36 @@ def sample_plan(db_session, sample_user):
 # =====================================================================
 
 from flask_login import LoginManager
+from flask import g, has_app_context
+from flask.testing import FlaskClient
+
+
+class _IsolatedAuthClient(FlaskClient):
+    """Test client that clears Flask-Login's cached user before each request.
+
+    WHY THIS IS NEEDED — without it, every client in a test resolves to
+    whichever user logged in most recently, silently destroying multi-user
+    isolation coverage.
+
+    The ``full_db`` fixture holds one app context open for the duration of a
+    test (``with full_app.app_context():``). Flask's ``RequestContext.push()``
+    only creates a *fresh* app context if none is already pushed for that same
+    app — otherwise it reuses the existing one. So ``g`` outlives individual
+    requests, and Flask-Login caches the resolved user on ``g._login_user`` and
+    never re-reads the session cookie. The cookie jars are correctly isolated
+    per client; the leak is entirely server-side state.
+
+    Production is unaffected: each real request gets its own app context.
+
+    Popping ``_login_user`` forces Flask-Login to reload the user from the
+    request's own session cookie, which is what makes ``auth_client_a`` /
+    ``_b`` / ``_c`` genuinely distinct identities.
+    """
+
+    def open(self, *args, **kwargs):
+        if has_app_context():
+            g.pop('_login_user', None)
+        return super().open(*args, **kwargs)
 
 
 @pytest.fixture(scope='session')
@@ -167,6 +196,10 @@ def full_app():
     test_app.config['TESTING'] = True
     test_app.config['SECRET_KEY'] = 'test-secret-key-for-auth'
 
+    # Keeps concurrently-logged-in test clients from collapsing into one
+    # identity — see _IsolatedAuthClient.
+    test_app.test_client_class = _IsolatedAuthClient
+
     _db.init_app(test_app)
 
     # Flask-Login setup (mirrors app.py lines 122-135)
@@ -181,6 +214,9 @@ def full_app():
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
+
+    from utils.api_errors import register_api_error_handlers
+    register_api_error_handlers(test_app)
 
     # Register all blueprints (no wrapper prefix)
     from blueprints import register_blueprints
@@ -208,44 +244,53 @@ def client(full_db, full_app):
     return full_app.test_client()
 
 
-@pytest.fixture
-def user_a(full_db):
-    """Test user A."""
+def _make_user(full_db, username, email, password='password123', is_admin=False):
+    """Create and commit a User.
+
+    The default password matches the convention ``login_as()`` relies on:
+    'password123' for regular users, 'adminpass123' for admins.
+    """
     user = User(
-        username='alice',
-        email='alice@example.com',
-        password_hash=generate_password_hash('password123'),
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password),
+        is_admin=is_admin,
     )
     full_db.session.add(user)
     full_db.session.commit()
     return user
+
+
+@pytest.fixture
+def user_a(full_db):
+    """Test user A."""
+    return _make_user(full_db, 'alice', 'alice@example.com')
 
 
 @pytest.fixture
 def user_b(full_db):
     """Test user B."""
-    user = User(
-        username='bob',
-        email='bob@example.com',
-        password_hash=generate_password_hash('password123'),
-    )
-    full_db.session.add(user)
-    full_db.session.commit()
-    return user
+    return _make_user(full_db, 'bob', 'bob@example.com')
+
+
+@pytest.fixture
+def user_c(full_db):
+    """Test user C — third party for isolation tests.
+
+    A third user is what makes isolation assertions meaningful: with only two
+    users, "leaks to everyone", "leaks to exactly one other user", and "returns
+    the first matching row regardless of owner" can all pass.
+    """
+    return _make_user(full_db, 'carol', 'carol@example.com')
 
 
 @pytest.fixture
 def admin_user(full_db):
     """Admin user."""
-    user = User(
-        username='admin',
-        email='admin@example.com',
-        password_hash=generate_password_hash('adminpass123'),
-        is_admin=True,
+    return _make_user(
+        full_db, 'admin', 'admin@example.com',
+        password='adminpass123', is_admin=True,
     )
-    full_db.session.add(user)
-    full_db.session.commit()
-    return user
 
 
 def login_as(test_client, user):
@@ -282,8 +327,75 @@ def auth_client_b(full_app, user_b):
 
 
 @pytest.fixture
+def auth_client_c(full_app, user_c):
+    """Test client logged in as user C."""
+    c = full_app.test_client()
+    login_as(c, user_c)
+    return c
+
+
+@pytest.fixture
 def admin_client(full_app, admin_user):
     """Test client logged in as admin."""
     c = full_app.test_client()
     login_as(c, admin_user)
     return c
+
+
+@pytest.fixture
+def trio(user_a, user_b, user_c, auth_client_a, auth_client_b, auth_client_c):
+    """All three isolated users keyed by letter, for 3-way isolation tests.
+
+    Aggregating them into one fixture lets tests parametrize over user *letters*
+    ('A', 'B', 'C') instead of fixture names, which would otherwise require
+    ``request.getfixturevalue()`` in every test body.
+
+    Usage::
+
+        def test_x(trio):
+            owner, observer = trio['A'], trio['B']
+            owner['client'].post('/api/garden-beds', json={...})
+            assert observer['client'].get('/api/garden-beds').get_json() == []
+
+    IMPORTANT: fixture resolution order determines the actual user IDs, so no
+    test may assume ``user_a.id == 1``. Always compare against
+    ``trio['A']['user'].id``.
+    """
+    return {
+        'A': {'user': user_a, 'client': auth_client_a},
+        'B': {'user': user_b, 'client': auth_client_b},
+        'C': {'user': user_c, 'client': auth_client_c},
+    }
+
+
+@pytest.fixture
+def trio_admin(trio, admin_user, admin_client):
+    """``trio`` plus an admin, for admin-boundary tests."""
+    return {**trio, 'ADMIN': {'user': admin_user, 'client': admin_client}}
+
+
+@pytest.fixture
+def global_seed(full_db):
+    """A shared-catalog seed: ``user_id`` NULL + ``is_global`` True.
+
+    Global seeds are intentionally visible to every user (see
+    ``seeds_bp._visible_seed_filter``). This fixture is the negative control for
+    the cross-user seed-ownership fixes: it must stay usable by all three users
+    both before and after those fixes, proving they did not over-restrict.
+
+    Created directly rather than via the API because ``POST /api/seeds`` only
+    lets admins set ``isGlobal``.
+    """
+    from models import SeedInventory
+    seed = SeedInventory(
+        user_id=None,
+        is_global=True,
+        plant_id='tomato-1',
+        variety='Global Catalog Roma',
+        quantity=5,
+        seeds_per_packet=25,
+        price=2.50,
+    )
+    full_db.session.add(seed)
+    full_db.session.commit()
+    return seed

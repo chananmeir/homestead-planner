@@ -132,16 +132,22 @@ test.describe('Dashboard stale Missed bucket — E2E', () => {
     // Row should now be visible.
     await expect(page.getByText(staleLabel)).toBeVisible({ timeout: 3000 });
 
-    // Click the row — should deep-link to Indoor Starts tab.
-    await page.getByText(staleLabel).click();
-    await page.waitForLoadState('networkidle');
+    // Click the row — deep-links to Indoor Starts in a NEW BROWSER TAB.
+    // App.openAppDestination uses window.open(url, '_blank') deliberately, so
+    // the Dashboard stays available for reference. Asserting on `page` would
+    // therefore always fail: this tab correctly stays on the Dashboard.
+    const [indoorStartsPage] = await Promise.all([
+      page.context().waitForEvent('page'),
+      page.getByText(staleLabel).click(),
+    ]);
+    await indoorStartsPage.waitForLoadState('networkidle');
 
-    // Indoor Starts tab should now be active. We detect this by checking
-    // for a known Indoor Starts heading / breadcrumb that's only present
-    // on that tab. The button "Start Seeds" is a stable Indoor Starts
-    // signal (Indoor Starts screen header, see IndoorSeedStarts.tsx).
+    // The new tab should land on Indoor Starts. "Start Seeds" / "From Garden
+    // Plan" are stable signals for that screen (see IndoorSeedStarts.tsx).
     await expect(
-      page.getByRole('button', { name: /Start Seeds|From Garden Plan/i }).first()
-    ).toBeVisible({ timeout: 5000 });
+      indoorStartsPage.getByRole('button', { name: /Start Seeds|From Garden Plan/i }).first()
+    ).toBeVisible({ timeout: 10000 });
+
+    await indoorStartsPage.close();
   });
 });

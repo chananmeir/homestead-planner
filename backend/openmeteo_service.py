@@ -15,24 +15,62 @@ Free Tier Limits:
 """
 
 import openmeteo_requests
-import requests_cache
-from retry_requests import retry
+import copy
 from datetime import datetime, timedelta
 from simulation_clock import get_now
 import logging
-import os
-import tempfile
 import numpy as np
+import threading
+import time
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
 
-# Setup the Open-Meteo API client with caching and retries
-cache_dir = os.path.join(tempfile.gettempdir(), 'openmeteo_cache')
-cache_session = requests_cache.CachedSession(cache_dir, expire_after=900)  # 15 minutes
-retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
-openmeteo = openmeteo_requests.Client(session=retry_session)
+OPENMETEO_TIMEOUT_SECONDS = 6
+OPENMETEO_CACHE_TTL_SECONDS = 15 * 60
+
+_openmeteo_cache = {}
+_openmeteo_cache_lock = threading.Lock()
+
+
+def _rounded_coord(value):
+    return round(float(value), 4)
+
+
+def _get_cached_result(cache_key):
+    now = time.monotonic()
+    with _openmeteo_cache_lock:
+        cached = _openmeteo_cache.get(cache_key)
+        if cached is None:
+            return None
+        if cached['expires_at'] <= now:
+            _openmeteo_cache.pop(cache_key, None)
+            return None
+        return copy.deepcopy(cached['value'])
+
+
+def _set_cached_result(cache_key, value):
+    with _openmeteo_cache_lock:
+        _openmeteo_cache[cache_key] = {
+            'value': copy.deepcopy(value),
+            'expires_at': time.monotonic() + OPENMETEO_CACHE_TTL_SECONDS,
+        }
+
+
+def _weather_api(url, params):
+    client = openmeteo_requests.Client()
+    try:
+        return client.weather_api(
+            url,
+            params=dict(params),
+            timeout=OPENMETEO_TIMEOUT_SECONDS,
+        )
+    finally:
+        try:
+            client.session.close()
+        except Exception:
+            pass
 
 
 def get_soil_temperature_openmeteo(latitude, longitude, depth_cm=6):
@@ -79,10 +117,14 @@ def get_soil_temperature_openmeteo(latitude, longitude, depth_cm=6):
         "forecast_days": 1,  # Only need current conditions
         "timezone": "auto"  # Use location's timezone
     }
+    cache_key = ('current', _rounded_coord(latitude), _rounded_coord(longitude), depth_cm)
+    cached = _get_cached_result(cache_key)
+    if cached is not None:
+        return cached
 
     try:
         # Make API request
-        responses = openmeteo.weather_api(url, params=params)
+        responses = _weather_api(url, params=params)
 
         # Get first (and only) location response
         response = responses[0]
@@ -97,7 +139,9 @@ def get_soil_temperature_openmeteo(latitude, longitude, depth_cm=6):
 
         logger.info(f"Open-Meteo: Got soil temp {current_soil_temp}°F at {depth_cm}cm depth for ({latitude}, {longitude})")
 
-        return current_soil_temp, False  # False = not using mock data
+        result = (current_soil_temp, False)  # False = not using mock data
+        _set_cached_result(cache_key, result)
+        return result
 
     except Exception as e:
         # Log error and return mock data as fallback
@@ -138,9 +182,13 @@ def get_soil_temperature_forecast(latitude, longitude, forecast_days=16, depth_c
         "forecast_days": forecast_days,
         "timezone": "auto"
     }
+    cache_key = ('forecast', _rounded_coord(latitude), _rounded_coord(longitude), forecast_days, depth_cm)
+    cached = _get_cached_result(cache_key)
+    if cached is not None:
+        return cached
 
     try:
-        responses = openmeteo.weather_api(url, params=params)
+        responses = _weather_api(url, params=params)
         response = responses[0]
 
         hourly = response.Hourly()
@@ -173,7 +221,9 @@ def get_soil_temperature_forecast(latitude, longitude, forecast_days=16, depth_c
             })
 
         logger.info(f"Open-Meteo: Got {len(daily_temps)}-day soil temp forecast for ({latitude}, {longitude})")
-        return daily_temps, False
+        result = (daily_temps, False)
+        _set_cached_result(cache_key, result)
+        return result
 
     except Exception as e:
         logger.error(f"Open-Meteo forecast API error: {e}")
@@ -274,9 +324,13 @@ def get_soil_temperatures_multi_depth(latitude, longitude):
         "forecast_days": 1,
         "timezone": "auto"
     }
+    cache_key = ('current_multi', _rounded_coord(latitude), _rounded_coord(longitude), tuple(MULTI_DEPTH_CMS))
+    cached = _get_cached_result(cache_key)
+    if cached is not None:
+        return cached
 
     try:
-        responses = openmeteo.weather_api(url, params=params)
+        responses = _weather_api(url, params=params)
         response = responses[0]
         hourly = response.Hourly()
 
@@ -286,7 +340,9 @@ def get_soil_temperatures_multi_depth(latitude, longitude):
             temps_by_depth[depth] = float(temps[0])
 
         logger.info(f"Open-Meteo: Multi-depth temps for ({latitude}, {longitude}): {temps_by_depth}")
-        return temps_by_depth, False
+        result = (temps_by_depth, False)
+        _set_cached_result(cache_key, result)
+        return result
 
     except Exception as e:
         logger.error(f"Open-Meteo multi-depth API error: {e}")
@@ -316,9 +372,13 @@ def get_soil_temperature_forecast_multi_depth(latitude, longitude, forecast_days
         "forecast_days": forecast_days,
         "timezone": "auto"
     }
+    cache_key = ('forecast_multi', _rounded_coord(latitude), _rounded_coord(longitude), forecast_days, tuple(MULTI_DEPTH_CMS))
+    cached = _get_cached_result(cache_key)
+    if cached is not None:
+        return cached
 
     try:
-        responses = openmeteo.weather_api(url, params=params)
+        responses = _weather_api(url, params=params)
         response = responses[0]
         hourly = response.Hourly()
         start_time = datetime.utcfromtimestamp(hourly.Time())
@@ -346,7 +406,9 @@ def get_soil_temperature_forecast_multi_depth(latitude, longitude, forecast_days
             forecast_by_depth[depth] = daily_temps
 
         logger.info(f"Open-Meteo: Multi-depth {forecast_days}-day forecast for ({latitude}, {longitude})")
-        return forecast_by_depth, False
+        result = (forecast_by_depth, False)
+        _set_cached_result(cache_key, result)
+        return result
 
     except Exception as e:
         logger.error(f"Open-Meteo multi-depth forecast error: {e}")

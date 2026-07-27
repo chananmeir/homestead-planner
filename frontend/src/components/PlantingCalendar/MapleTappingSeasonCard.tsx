@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiGet } from '../../utils/api';
 import { useProperty } from '../../hooks/useProperty';
+import { formatDisplayDate } from '../../utils/dateUtils';
 
 interface SeasonData {
   in_season: boolean;
@@ -114,7 +115,7 @@ const MapleTappingSeasonCard: React.FC = () => {
                 {seasonData.forecast_days.slice(0, 6).map((day, idx) => (
                   <div key={idx} className="bg-white rounded p-2 text-sm border border-gray-200">
                     <div className="font-medium text-gray-900">
-                      {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {formatDisplayDate(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}
                     </div>
                     <div className="text-xs text-gray-600">
                       ❄️ {day.min_temp}°F → ☀️ {day.max_temp}°F

@@ -94,7 +94,11 @@ class GardenBed(db.Model):
             'soilType': self.soil_type,
             'mulchType': self.mulch_type,
             'zone': self.zone,
-            'plantedItems': [item.to_dict() for item in self.planted_items if item.cancelled_at is None]
+            'plantedItems': [
+                item.to_dict()
+                for item in self.planted_items
+                if item.cancelled_at is None and item.cleared_at is None and item.outcome is None
+            ]
         }
 
 class PlantedItem(db.Model):
@@ -109,8 +113,13 @@ class PlantedItem(db.Model):
     position_x = db.Column(db.Integer, default=0)
     position_y = db.Column(db.Integer, default=0)
     quantity = db.Column(db.Integer, default=1)
-    status = db.Column(db.String(20), default='planned')  # planned, seeded, transplanted, growing, harvested, saving-seed
+    status = db.Column(db.String(20), default='planned')  # planned, seeded, transplanted, growing, harvested, saving-seed, failed, didnt_establish, not_planted
     cancelled_at = db.Column(db.DateTime, nullable=True, index=True)
+    cleared_at = db.Column(db.DateTime, nullable=True, index=True)
+    outcome = db.Column(db.String(30), nullable=True, index=True)
+    outcome_reason = db.Column(db.String(50), nullable=True)
+    outcome_date = db.Column(db.DateTime, nullable=True)
+    outcome_notes = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text)
 
     # Seed saving fields
@@ -144,6 +153,11 @@ class PlantedItem(db.Model):
             'quantity': self.quantity,
             'status': self.status,
             'cancelledAt': self.cancelled_at.isoformat() if self.cancelled_at else None,
+            'clearedAt': self.cleared_at.isoformat() if self.cleared_at else None,
+            'outcome': self.outcome,
+            'outcomeReason': self.outcome_reason,
+            'outcomeDate': self.outcome_date.isoformat() if self.outcome_date else None,
+            'outcomeNotes': self.outcome_notes,
             'notes': self.notes,
             'sourcePlanItemId': self.source_plan_item_id,
             'saveForSeed': self.save_for_seed,
@@ -166,6 +180,7 @@ class PlantingEvent(db.Model):
     garden_bed_id = db.Column(db.Integer, db.ForeignKey('garden_bed.id'), index=True)
     seed_start_date = db.Column(db.DateTime)
     transplant_date = db.Column(db.DateTime)
+    transplant_source = db.Column(db.String(20), nullable=True)
     direct_seed_date = db.Column(db.DateTime)
     expected_harvest_date = db.Column(db.DateTime)
     actual_harvest_date = db.Column(db.DateTime)
@@ -229,6 +244,11 @@ class PlantingEvent(db.Model):
     harvest_completed = db.Column(db.Boolean, default=False)  # Separate completion tracking for harvest phase
     quantity_completed = db.Column(db.Integer, nullable=True, default=None)  # How many actually planted (None=not started, 0-quantity=partial, >=quantity=complete)
     cancelled_at = db.Column(db.DateTime, nullable=True, index=True)
+    cleared_at = db.Column(db.DateTime, nullable=True, index=True)
+    outcome = db.Column(db.String(30), nullable=True, index=True)
+    outcome_reason = db.Column(db.String(50), nullable=True)
+    outcome_date = db.Column(db.DateTime, nullable=True)
+    outcome_notes = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text)
 
     @property
@@ -277,6 +297,7 @@ class PlantingEvent(db.Model):
             'gardenBedId': self.garden_bed_id,
             'seedStartDate': self.seed_start_date.isoformat() if self.seed_start_date else None,
             'transplantDate': self.transplant_date.isoformat() if self.transplant_date else None,
+            'transplantSource': self.transplant_source,
             'directSeedDate': self.direct_seed_date.isoformat() if self.direct_seed_date else None,
             'expectedHarvestDate': self.expected_harvest_date.isoformat() if self.expected_harvest_date else None,
             'actualHarvestDate': self.actual_harvest_date.isoformat() if self.actual_harvest_date else None,
@@ -291,6 +312,11 @@ class PlantingEvent(db.Model):
             'harvestCompleted': self.harvest_completed,
             'quantityCompleted': self.quantity_completed,
             'cancelledAt': self.cancelled_at.isoformat() if self.cancelled_at else None,
+            'clearedAt': self.cleared_at.isoformat() if self.cleared_at else None,
+            'outcome': self.outcome,
+            'outcomeReason': self.outcome_reason,
+            'outcomeDate': self.outcome_date.isoformat() if self.outcome_date else None,
+            'outcomeNotes': self.outcome_notes,
             'notes': self.notes,
             # NEW: Seed density fields
             'plantingMethod': self.planting_method,
@@ -442,12 +468,20 @@ class HarvestRecord(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     plant_id = db.Column(db.String(50), nullable=False)
     planted_item_id = db.Column(db.Integer, db.ForeignKey('planted_item.id'))
+    source_key = db.Column(db.String(120), nullable=True, index=True)
     harvest_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     quantity = db.Column(db.Float, nullable=False)  # Weight in lbs or count
     unit = db.Column(db.String(20), default='lbs')  # lbs, oz, count
     notes = db.Column(db.Text)
     quality = db.Column(db.String(20))  # excellent, good, fair, poor
+    outcome = db.Column(db.String(30), nullable=True, index=True)
+    outcome_reason = db.Column(db.String(50), nullable=True)
+    yield_excluded = db.Column(db.Boolean, default=False, nullable=False)
     harvest_group_id = db.Column(db.String(50), nullable=True, index=True)  # UUID linking records from a single bulk harvest
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'source_key', name='uq_harvest_record_user_source_key'),
+    )
 
     # Relationships
     user = db.relationship('User', backref=db.backref('harvest_records', cascade='all, delete-orphan'))
@@ -457,12 +491,57 @@ class HarvestRecord(db.Model):
             'id': self.id,
             'plantId': self.plant_id,
             'plantedItemId': self.planted_item_id,
+            'sourceKey': self.source_key,
             'harvestDate': self.harvest_date.isoformat() if self.harvest_date else None,
             'quantity': self.quantity,
             'unit': self.unit,
             'notes': self.notes,
             'quality': self.quality,
+            'outcome': self.outcome,
+            'outcomeReason': self.outcome_reason,
+            'yieldExcluded': self.yield_excluded,
             'harvestGroupId': self.harvest_group_id,
+        }
+
+class PlantingOutcomeHistory(db.Model):
+    """Per-season crop outcome signal used to learn future planting dates."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    plant_id = db.Column(db.String(50), nullable=False, index=True)
+    variety = db.Column(db.String(100), nullable=True, index=True)
+    year = db.Column(db.Integer, nullable=False, index=True)
+    sow_date = db.Column(db.Date, nullable=False)
+    target_month_day = db.Column(db.String(5), nullable=False)
+    target_day_of_year = db.Column(db.Integer, nullable=False)
+    harvest_date = db.Column(db.DateTime, nullable=True)
+    yield_rating = db.Column(db.String(30), nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    source_harvest_id = db.Column(db.Integer, db.ForeignKey('harvest_record.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'source_harvest_id', name='uq_outcome_history_user_harvest'),
+    )
+
+    user = db.relationship('User', backref=db.backref('planting_outcome_history', cascade='all, delete-orphan'))
+    source_harvest = db.relationship('HarvestRecord', backref=db.backref('planting_outcome_history', lazy=True))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'plantId': self.plant_id,
+            'variety': self.variety,
+            'year': self.year,
+            'sowDate': self.sow_date.isoformat() if self.sow_date else None,
+            'targetMonthDay': self.target_month_day,
+            'targetDayOfYear': self.target_day_of_year,
+            'harvestDate': self.harvest_date.isoformat() if self.harvest_date else None,
+            'yieldRating': self.yield_rating,
+            'weight': self.weight,
+            'sourceHarvestId': self.source_harvest_id,
+            'createdAt': self.created_at.isoformat() if self.created_at else None,
+            'updatedAt': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 class SeedInventory(db.Model):
@@ -480,6 +559,7 @@ class SeedInventory(db.Model):
     seeds_per_packet = db.Column(db.Integer, default=50)  # Seeds per packet (default 50)
     notes = db.Column(db.Text)
     is_global = db.Column(db.Boolean, default=False, index=True)  # Shared catalog for all users
+    is_archived = db.Column(db.Boolean, default=False, nullable=False, index=True)  # Hidden from everyday seed lists without deleting history
     catalog_seed_id = db.Column(db.Integer, db.ForeignKey('seed_inventory.id'), nullable=True, index=True)  # Reference to catalog seed if cloned from catalog
     last_synced_at = db.Column(db.DateTime, nullable=True)  # Last time agronomic data was synced from catalog
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -503,6 +583,12 @@ class SeedInventory(db.Model):
     germination_temp_min = db.Column(db.Integer)  # Min germination temp (F)
     germination_temp_max = db.Column(db.Integer)  # Max germination temp (F)
     soil_temp_min = db.Column(db.Integer)  # Min soil temp for planting (F)
+    earliest_sow_month_day = db.Column(db.String(5))  # MM-DD learned earliest outdoor sow date
+    sow_adjustment_notes = db.Column(db.Text)  # Audit note for learned sow-date adjustments
+    sow_adjustment_updated_at = db.Column(db.DateTime)
+    proven_sow_month_day = db.Column(db.String(5))  # MM-DD computed from positive/negative outcome history
+    proven_sow_notes = db.Column(db.Text)
+    proven_sow_updated_at = db.Column(db.DateTime)
 
     # Qualitative overrides
     heat_tolerance = db.Column(db.String(20))  # low/medium/high/excellent
@@ -539,6 +625,7 @@ class SeedInventory(db.Model):
             'seedsPerPacket': self.seeds_per_packet,
             'notes': self.notes,
             'isGlobal': self.is_global,
+            'isArchived': self.is_archived,
             'catalogSeedId': self.catalog_seed_id,
             'lastSyncedAt': self.last_synced_at.isoformat() if self.last_synced_at else None,
             'seedsUsed': seeds_used,
@@ -565,6 +652,18 @@ class SeedInventory(db.Model):
             result['germinationTempMax'] = self.germination_temp_max
         if self.soil_temp_min is not None:
             result['soilTempMin'] = self.soil_temp_min
+        if self.earliest_sow_month_day is not None:
+            result['earliestSowMonthDay'] = self.earliest_sow_month_day
+        if self.sow_adjustment_notes is not None:
+            result['sowAdjustmentNotes'] = self.sow_adjustment_notes
+        if self.sow_adjustment_updated_at is not None:
+            result['sowAdjustmentUpdatedAt'] = self.sow_adjustment_updated_at.isoformat()
+        if self.proven_sow_month_day is not None:
+            result['provenSowMonthDay'] = self.proven_sow_month_day
+        if self.proven_sow_notes is not None:
+            result['provenSowNotes'] = self.proven_sow_notes
+        if self.proven_sow_updated_at is not None:
+            result['provenSowUpdatedAt'] = self.proven_sow_updated_at.isoformat()
         if self.heat_tolerance is not None:
             result['heatTolerance'] = self.heat_tolerance
         if self.cold_tolerance is not None:
@@ -588,6 +687,7 @@ class Property(db.Model):
     width = db.Column(db.Float, nullable=False)  # Width in feet
     length = db.Column(db.Float, nullable=False)  # Length in feet
     address = db.Column(db.String(200))
+    zipcode = db.Column(db.String(10))
     latitude = db.Column(db.Float)  # Geographic latitude
     longitude = db.Column(db.Float)  # Geographic longitude
     zone = db.Column(db.String(10))  # USDA hardiness zone
@@ -609,6 +709,7 @@ class Property(db.Model):
             'width': self.width,
             'length': self.length,
             'address': self.address,
+            'zipCode': self.zipcode,
             'latitude': self.latitude,
             'longitude': self.longitude,
             'zone': self.zone,

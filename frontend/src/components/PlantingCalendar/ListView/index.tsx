@@ -5,6 +5,8 @@ import { format, addWeeks } from 'date-fns';
 import { calculatePlantingDates } from '../utils/dateCalculations';
 import GroupedEventsModal from '../CalendarGrid/GroupedEventsModal';
 import { GroupedDateMarker, EventMarkerType } from '../CalendarGrid/utils';
+import { formatDateInputValue, parseDateInputValue, parseLocalDate } from '../../../utils/dateUtils';
+import { getEventDetail, parseEventDetails } from '../../../utils/eventDetails';
 
 interface ListViewProps {
   plantingEvents: PlantingCalendarType[];
@@ -44,9 +46,95 @@ const getPrimaryDateAndType = (
   return null;
 };
 
+const getMaintenanceType = (event: PlantingCalendarType): EventMarkerType => {
+  if (event.eventType === 'mulch') return 'mulch-application';
+  if (event.eventType === 'fertilizing') return 'fertilizing';
+  if (event.eventType === 'irrigation') return 'irrigation';
+  if (event.eventType === 'maple-tapping') return 'maple-tapping';
+  return 'custom-event';
+};
+
+const getMaintenanceListInfo = (
+  event: PlantingCalendarType
+): { title: string; subtitle?: string; icon: string; borderClass: string; dateLabel: string } => {
+  const details = parseEventDetails(event.eventDetails);
+
+  if (event.eventType === 'mulch') {
+    const mulchType = getEventDetail<string>(details, 'mulch_type', 'mulchType');
+    const labels: Record<string, string> = {
+      'none': 'Remove Mulch',
+      'straw': 'Straw Mulch',
+      'wood-chips': 'Wood Chips',
+      'leaves': 'Leaf Mulch',
+      'grass': 'Grass Clippings',
+      'compost': 'Compost',
+      'black-plastic': 'Black Plastic',
+      'clear-plastic': 'Clear Plastic',
+    };
+    return {
+      title: labels[mulchType || ''] || 'Mulch Application',
+      icon: '\uD83D\uDEE1\uFE0F',
+      borderClass: 'border-amber-200',
+      dateLabel: 'Applied',
+    };
+  }
+
+  if (event.eventType === 'fertilizing') {
+    const amount = getEventDetail<number | string>(details, 'amount');
+    const unit = getEventDetail<string>(details, 'amount_unit', 'amountUnit');
+    return {
+      title: 'Fertilizing',
+      subtitle: amount != null && unit ? `${amount} ${unit}` : undefined,
+      icon: '\u2697\uFE0F',
+      borderClass: 'border-lime-200',
+      dateLabel: 'Applied',
+    };
+  }
+
+  if (event.eventType === 'irrigation') {
+    const duration = getEventDetail<number | string>(details, 'duration_minutes', 'durationMinutes');
+    return {
+      title: 'Irrigation',
+      subtitle: duration != null ? `${duration} min` : undefined,
+      icon: '\uD83D\uDCA7',
+      borderClass: 'border-sky-200',
+      dateLabel: 'Watered',
+    };
+  }
+
+  if (event.eventType === 'maple-tapping') {
+    const treeType = getEventDetail<string>(details, 'tree_type', 'treeType') || 'sugar';
+    const tapCount = getEventDetail<number>(details, 'tap_count', 'tapCount') || 1;
+    const types: Record<string, string> = {
+      sugar: 'Sugar Maple',
+      red: 'Red Maple',
+      black: 'Black Maple',
+      boxelder: 'Box Elder Maple',
+    };
+    return {
+      title: types[treeType] || 'Maple Tree',
+      subtitle: `${tapCount} tap${tapCount > 1 ? 's' : ''}`,
+      icon: '\uD83C\uDF41',
+      borderClass: 'border-orange-200',
+      dateLabel: 'Tapped',
+    };
+  }
+
+  return {
+    title: getEventDetail<string>(details, 'label', 'name', 'title') || 'Garden Event',
+    icon: '\u2022',
+    borderClass: 'border-gray-200',
+    dateLabel: 'Scheduled',
+  };
+};
+
 const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, lastFrostDate: lastFrostProp, firstFrostDate: firstFrostProp, registerEventRef, highlightedEventId, onEditEvent, onEventUpdated }) => {
-  const [lastFrostDate, setLastFrostDate] = useState<Date>(lastFrostProp || new Date(new Date().getFullYear() + '-04-15'));
-  const [firstFrostDate, setFirstFrostDate] = useState<Date>(firstFrostProp || new Date(new Date().getFullYear() + '-10-15'));
+  const [lastFrostDate, setLastFrostDate] = useState<Date>(
+    lastFrostProp || parseLocalDate(`${new Date().getFullYear()}-04-15`)
+  );
+  const [firstFrostDate, setFirstFrostDate] = useState<Date>(
+    firstFrostProp || parseLocalDate(`${new Date().getFullYear()}-10-15`)
+  );
 
   // Sync with parent frost dates when they arrive from the API
   useEffect(() => {
@@ -138,7 +226,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
         groupMap.set(`solo_${event.id}`, {
           key: `solo_${event.id}`,
           primaryDate: fallbackDate,
-          type: 'seed-start', // unused for non-planting render path, but type-required
+          type: getMaintenanceType(event),
           plantId: event.plantId,
           variety: event.variety,
           gardenBedId: event.gardenBedId,
@@ -224,8 +312,8 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
             </label>
             <input
               type="date"
-              value={format(lastFrostDate, 'yyyy-MM-dd')}
-              onChange={(e) => setLastFrostDate(new Date(e.target.value))}
+              value={formatDateInputValue(lastFrostDate)}
+              onChange={(e) => setLastFrostDate(parseDateInputValue(e.target.value))}
               className="w-full px-3 py-2 border rounded-lg"
             />
           </div>
@@ -235,8 +323,8 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
             </label>
             <input
               type="date"
-              value={format(firstFrostDate, 'yyyy-MM-dd')}
-              onChange={(e) => setFirstFrostDate(new Date(e.target.value))}
+              value={formatDateInputValue(firstFrostDate)}
+              onChange={(e) => setFirstFrostDate(parseDateInputValue(e.target.value))}
               className="w-full px-3 py-2 border rounded-lg"
             />
           </div>
@@ -333,7 +421,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                                 onChange={(e) =>
                                   setManualDates({
                                     ...manualDates,
-                                    seedStartDate: new Date(e.target.value),
+                                    seedStartDate: parseDateInputValue(e.target.value),
                                   })
                                 }
                                 className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -352,7 +440,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                                 onChange={(e) =>
                                   setManualDates({
                                     ...manualDates,
-                                    transplantDate: new Date(e.target.value),
+                                    transplantDate: parseDateInputValue(e.target.value),
                                   })
                                 }
                                 className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -374,7 +462,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                               onChange={(e) =>
                                 setManualDates({
                                   ...manualDates,
-                                  directSeedDate: new Date(e.target.value),
+                                  directSeedDate: parseDateInputValue(e.target.value),
                                 })
                               }
                               className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -394,7 +482,7 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                             onChange={(e) =>
                               setManualDates({
                                 ...manualDates,
-                                expectedHarvestDate: new Date(e.target.value),
+                                expectedHarvestDate: parseDateInputValue(e.target.value),
                               })
                             }
                             className="w-full px-3 py-2 border rounded-lg text-sm"
@@ -447,6 +535,47 @@ const ListView: React.FC<ListViewProps> = ({ plantingEvents, setPlantingEvents, 
                       // groups get the "(N)" badge + click-to-open-modal behavior.
                       const event = item.events[0];
                       const isGrouped = item.count > 1;
+                      const isPlantingEvent = !event.eventType || event.eventType === 'planting';
+
+                      if (!isPlantingEvent) {
+                        const info = getMaintenanceListInfo(event);
+
+                        return (
+                          <div
+                            key={event.id}
+                            ref={registerEventRef ? registerEventRef(event.id) : undefined}
+                            data-focus-id={event.id}
+                            className={`p-4 rounded-lg border bg-white ${info.borderClass} transition-all ${
+                              highlightedEventId === event.id ? 'ring-2 ring-amber-400 ring-offset-2' : ''
+                            }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-2xl flex-shrink-0">{info.icon}</span>
+                                <div className="min-w-0">
+                                  <h4 className="font-semibold text-gray-900 truncate">{info.title}</h4>
+                                  {info.subtitle && (
+                                    <p className="text-sm text-gray-600 truncate">
+                                      {info.subtitle}
+                                    </p>
+                                  )}
+                                  {event.expectedHarvestDate && (
+                                    <p className="text-sm text-gray-600 mt-1">
+                                      {info.dateLabel}: {format(event.expectedHarvestDate, 'MMM d, yyyy')}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => removeEvent(event.id)}
+                                className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
 
                       // Handle maple-tapping events (always singletons by design)
                       if (event.eventType === 'maple-tapping') {

@@ -25,6 +25,14 @@ _historical_cache = {}
 # Format: {(lat, lon, month): {1: float, 2: float, ..., 31: float, 'timestamp': datetime}}
 _daily_cache = {}
 
+# Cache for actual daily soil temperatures by date window.
+# Format: {(lat, lon, start_date, end_date): [{'date': date, 'temperature': float}, ...]}
+_actual_daily_cache = {}
+
+# Cache for actual daily minimum air temperatures by date window.
+# Format: {(lat, lon, start_date, end_date): [{'date': date, 'temperature': float}, ...]}
+_actual_daily_air_cache = {}
+
 # Cache expiration (30 days - historical data doesn't change often)
 CACHE_EXPIRY_DAYS = 30
 
@@ -65,6 +73,62 @@ def _fetch_with_retry(params, max_retries=3, timeout=15):
                 time.sleep(wait_time)
                 continue
             raise
+
+
+def _expected_date_count(start_date: date, end_date: date) -> int:
+    return (end_date - start_date).days + 1
+
+
+def _actual_daily_result_covers_window(result: list, start_date: date, end_date: date) -> bool:
+    if not result:
+        return False
+    expected_count = _expected_date_count(start_date, end_date)
+    dates = {
+        entry.get('date')
+        for entry in result
+        if isinstance(entry, dict) and entry.get('date') is not None
+    }
+    if len(dates) != expected_count:
+        return False
+    return min(dates) == start_date and max(dates) == end_date
+
+
+def _get_cached_actual_daily(cache, cache_key, start_date: date, end_date: date, label: str):
+    cached = cache.get(cache_key)
+    if cached is None:
+        return None
+    cache_age = (datetime.now() - cached['timestamp']).days
+    if cache_age >= CACHE_EXPIRY_DAYS:
+        cache.pop(cache_key, None)
+        return None
+    if _actual_daily_result_covers_window(cached['data'], start_date, end_date):
+        return cached['data']
+
+    logger.warning(
+        "Discarding incomplete cached actual %s temperatures for %s to %s",
+        label,
+        start_date.isoformat(),
+        end_date.isoformat(),
+    )
+    cache.pop(cache_key, None)
+    return None
+
+
+def _cache_actual_daily_result(cache, cache_key, result: list, start_date: date, end_date: date, label: str):
+    if not _actual_daily_result_covers_window(result, start_date, end_date):
+        logger.warning(
+            "Not caching incomplete actual %s temperature response for %s to %s: got %s/%s data points",
+            label,
+            start_date.isoformat(),
+            end_date.isoformat(),
+            len(result or []),
+            _expected_date_count(start_date, end_date),
+        )
+        return
+    cache[cache_key] = {
+        'data': result,
+        'timestamp': datetime.now()
+    }
 
 
 def get_historical_monthly_soil_temp(
@@ -264,6 +328,132 @@ def get_historical_daily_soil_temps(
         return None
     except (KeyError, ValueError) as e:
         logger.warning(f"Historical daily soil temp parsing error: {e}")
+        return None
+
+
+def get_actual_daily_soil_temps(
+    latitude: float,
+    longitude: float,
+    start_date: date,
+    end_date: date,
+) -> Optional[list]:
+    """
+    Get actual daily soil temperatures for a specific date window.
+
+    Returns a list of dictionaries sorted by date:
+        [{'date': date(2026, 4, 3), 'temperature': 43.2}, ...]
+    """
+    if end_date < start_date:
+        return []
+
+    cache_lat = round(latitude, 1)
+    cache_lon = round(longitude, 1)
+    cache_key = (cache_lat, cache_lon, start_date.isoformat(), end_date.isoformat())
+
+    cached = _get_cached_actual_daily(_actual_daily_cache, cache_key, start_date, end_date, 'soil')
+    if cached is not None:
+        return cached
+
+    try:
+        params = {
+            'latitude': latitude,
+            'longitude': longitude,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'daily': 'soil_temperature_0_to_7cm_mean',
+            'temperature_unit': 'fahrenheit',
+            'timezone': 'auto'
+        }
+
+        response = _fetch_with_retry(params)
+        data = response.json()
+
+        if 'daily' not in data or 'soil_temperature_0_to_7cm_mean' not in data['daily']:
+            logger.warning(f"No actual soil temperature data in response for {latitude}, {longitude}")
+            return None
+
+        dates = data['daily']['time']
+        temps = data['daily']['soil_temperature_0_to_7cm_mean']
+        result = []
+        for i, date_str in enumerate(dates):
+            if temps[i] is None:
+                continue
+            result.append({
+                'date': datetime.strptime(date_str, '%Y-%m-%d').date(),
+                'temperature': round(float(temps[i]), 1),
+            })
+
+        _cache_actual_daily_result(_actual_daily_cache, cache_key, result, start_date, end_date, 'soil')
+        return result
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Actual daily soil temp API error: {e}")
+        return None
+    except (KeyError, ValueError, IndexError) as e:
+        logger.warning(f"Actual daily soil temp parsing error: {e}")
+        return None
+
+
+def get_actual_daily_air_temps(
+    latitude: float,
+    longitude: float,
+    start_date: date,
+    end_date: date,
+) -> Optional[list]:
+    """
+    Get actual daily minimum air temperatures for a specific date window.
+
+    Returns a list of dictionaries sorted by date:
+        [{'date': date(2026, 4, 3), 'temperature': 31.2}, ...]
+    """
+    if end_date < start_date:
+        return []
+
+    cache_lat = round(latitude, 1)
+    cache_lon = round(longitude, 1)
+    cache_key = (cache_lat, cache_lon, start_date.isoformat(), end_date.isoformat())
+
+    cached = _get_cached_actual_daily(_actual_daily_air_cache, cache_key, start_date, end_date, 'air')
+    if cached is not None:
+        return cached
+
+    try:
+        params = {
+            'latitude': latitude,
+            'longitude': longitude,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'daily': 'temperature_2m_min',
+            'temperature_unit': 'fahrenheit',
+            'timezone': 'auto'
+        }
+
+        response = _fetch_with_retry(params)
+        data = response.json()
+
+        if 'daily' not in data or 'temperature_2m_min' not in data['daily']:
+            logger.warning(f"No actual air temperature data in response for {latitude}, {longitude}")
+            return None
+
+        dates = data['daily']['time']
+        temps = data['daily']['temperature_2m_min']
+        result = []
+        for i, date_str in enumerate(dates):
+            if temps[i] is None:
+                continue
+            result.append({
+                'date': datetime.strptime(date_str, '%Y-%m-%d').date(),
+                'temperature': round(float(temps[i]), 1),
+            })
+
+        _cache_actual_daily_result(_actual_daily_air_cache, cache_key, result, start_date, end_date, 'air')
+        return result
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Actual daily air temp API error: {e}")
+        return None
+    except (KeyError, ValueError, IndexError) as e:
+        logger.warning(f"Actual daily air temp parsing error: {e}")
         return None
 
 

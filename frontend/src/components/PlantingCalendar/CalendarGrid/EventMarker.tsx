@@ -1,6 +1,7 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { PLANT_DATABASE } from '../../../data/plantDatabase';
+import { getEventDetail, parseEventDetails } from '../../../utils/eventDetails';
 import {
   DateMarkerOrGroup,
   isGroupedMarker,
@@ -41,17 +42,8 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todaySt
       ? marker.events[0].eventDetails
       : marker.event.eventDetails;
 
-    let mulchType = 'straw';
-    try {
-      if (typeof eventDetails === 'string') {
-        const details = JSON.parse(eventDetails);
-        mulchType = details.mulch_type || 'straw';
-      } else if (eventDetails && typeof eventDetails === 'object') {
-        mulchType = eventDetails.mulchType || 'straw';
-      }
-    } catch {
-      // Use default
-    }
+    const details = parseEventDetails(eventDetails);
+    const mulchType = getEventDetail<string>(details, 'mulch_type', 'mulchType') || 'straw';
 
     const count = isGrouped ? marker.count : 1;
 
@@ -90,21 +82,9 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todaySt
       ? marker.events[0].eventDetails
       : marker.event.eventDetails;
 
-    let treeType = 'sugar';
-    let tapCount = 1;
-
-    try {
-      if (typeof eventDetails === 'string') {
-        const details = JSON.parse(eventDetails);
-        treeType = details.tree_type || 'sugar';
-        tapCount = details.tap_count || 1;
-      } else if (eventDetails && typeof eventDetails === 'object') {
-        treeType = eventDetails.treeType || 'sugar';
-        tapCount = eventDetails.tapCount || 1;
-      }
-    } catch {
-      // Use defaults
-    }
+    const details = parseEventDetails(eventDetails);
+    const treeType = getEventDetail<string>(details, 'tree_type', 'treeType') || 'sugar';
+    const tapCount = getEventDetail<number>(details, 'tap_count', 'tapCount') || 1;
 
     const count = isGrouped ? marker.count : 1;
 
@@ -124,6 +104,111 @@ const EventMarker: React.FC<EventMarkerProps> = ({ marker, coldWarnings, todaySt
         title={tooltipText}
       >
         <span className="flex-shrink-0">🍁</span>
+        <span className={`truncate flex-1 min-w-0 ${isSkipped ? 'line-through' : ''}`}>
+          {label}
+          {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}
+        </span>
+      </div>
+    );
+  }
+
+  if (eventType === 'fertilizing') {
+    const eventDetails = isGrouped
+      ? marker.events[0].eventDetails
+      : marker.event.eventDetails;
+    const details = parseEventDetails(eventDetails);
+    const fertilizerType = getEventDetail<string>(details, 'fertilizer_type', 'fertilizerType') || 'balanced-organic';
+    const amount = getEventDetail<number | string>(details, 'amount');
+    const unit = getEventDetail<string>(details, 'amount_unit', 'amountUnit');
+    const count = isGrouped ? marker.count : 1;
+
+    const fertilizerLabels: Record<string, string> = {
+      'compost': 'Compost',
+      'compost-tea': 'Compost Tea',
+      'fish-emulsion': 'Fish Emulsion',
+      'kelp': 'Kelp',
+      'blood-meal': 'Blood Meal',
+      'bone-meal': 'Bone Meal',
+      'balanced-organic': 'Balanced Organic',
+      'slow-release': 'Slow Release',
+      'synthetic': 'Synthetic',
+      'custom': 'Custom Fertilizer',
+    };
+
+    const label = [
+      fertilizerLabels[fertilizerType] || fertilizerType,
+      amount != null && unit ? `${amount} ${unit}` : null,
+    ].filter(Boolean).join(' - ');
+    const tooltipText = `${isSkipped ? '[Skipped] ' : ''}Fertilizing: ${label}${count > 1 ? ` (${count} events)` : ''}`;
+
+    return (
+      <div
+        className={`bg-lime-700 text-white text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity ${isSkipped ? 'opacity-40 grayscale' : ''}`}
+        title={tooltipText}
+      >
+        <span className="flex-shrink-0">{'\u2697\uFE0F'}</span>
+        <span className={`truncate flex-1 min-w-0 ${isSkipped ? 'line-through' : ''}`}>
+          {label}
+          {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}
+        </span>
+      </div>
+    );
+  }
+
+  if (eventType === 'irrigation') {
+    const eventDetails = isGrouped
+      ? marker.events[0].eventDetails
+      : marker.event.eventDetails;
+    const details = parseEventDetails(eventDetails);
+    const method = getEventDetail<string>(details, 'method') || 'drip';
+    const duration = getEventDetail<number | string>(details, 'duration_minutes', 'durationMinutes');
+    const count = isGrouped ? marker.count : 1;
+
+    const methodLabels: Record<string, string> = {
+      'drip': 'Drip',
+      'soaker-hose': 'Soaker Hose',
+      'sprinkler': 'Sprinkler',
+      'hand-water': 'Hand Water',
+      'overhead': 'Overhead',
+      'flood': 'Flood',
+      'other': 'Watering',
+    };
+
+    const label = [
+      methodLabels[method] || method,
+      duration != null ? `${duration} min` : null,
+    ].filter(Boolean).join(' - ');
+    const tooltipText = `${isSkipped ? '[Skipped] ' : ''}Irrigation: ${label}${count > 1 ? ` (${count} events)` : ''}`;
+
+    return (
+      <div
+        className={`bg-sky-600 text-white text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity ${isSkipped ? 'opacity-40 grayscale' : ''}`}
+        title={tooltipText}
+      >
+        <span className="flex-shrink-0">{'\uD83D\uDCA7'}</span>
+        <span className={`truncate flex-1 min-w-0 ${isSkipped ? 'line-through' : ''}`}>
+          {label}
+          {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}
+        </span>
+      </div>
+    );
+  }
+
+  if (eventType === 'custom') {
+    const eventDetails = isGrouped
+      ? marker.events[0].eventDetails
+      : marker.event.eventDetails;
+    const details = parseEventDetails(eventDetails);
+    const label = getEventDetail<string>(details, 'label', 'name', 'title') || 'Garden Event';
+    const count = isGrouped ? marker.count : 1;
+    const tooltipText = `${isSkipped ? '[Skipped] ' : ''}${label}${count > 1 ? ` (${count} events)` : ''}`;
+
+    return (
+      <div
+        className={`bg-slate-600 text-white text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity ${isSkipped ? 'opacity-40 grayscale' : ''}`}
+        title={tooltipText}
+      >
+        <span className="flex-shrink-0">{'\u2022'}</span>
         <span className={`truncate flex-1 min-w-0 ${isSkipped ? 'line-through' : ''}`}>
           {label}
           {count > 1 && <span className="text-[10px] ml-1 font-semibold">({count})</span>}

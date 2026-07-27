@@ -9,7 +9,7 @@ Routes:
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
-from models import db, TrellisStructure, PlantingEvent, Property
+from models import db, TrellisStructure, PlantingEvent, Property, GardenBed
 
 trellis_bp = Blueprint('trellis', __name__, url_prefix='/api')
 
@@ -28,11 +28,18 @@ def trellis_structures():
             if not prop or prop.user_id != current_user.id:
                 return jsonify({'error': 'Property not found or unauthorized'}), 403
 
+        # Validate bed ownership (optional - only when placed in a garden bed)
+        garden_bed_id = data.get('gardenBedId')
+        if garden_bed_id:
+            bed = GardenBed.query.get(garden_bed_id)
+            if not bed or bed.user_id != current_user.id:
+                return jsonify({'error': 'Garden bed not found or unauthorized'}), 403
+
         # Create trellis structure
         trellis = TrellisStructure(
             user_id=current_user.id,
             property_id=property_id,  # Optional: None if created from Garden Designer
-            garden_bed_id=data.get('gardenBedId'),
+            garden_bed_id=garden_bed_id,
             name=data['name'],
             trellis_type=data.get('trellisType', 'post_wire'),
             start_x=data['startX'],
@@ -104,7 +111,14 @@ def trellis_structure_detail(trellis_id):
         trellis.wire_spacing_inches = data.get('wireSpacingInches', trellis.wire_spacing_inches)
         trellis.num_wires = data.get('numWires', trellis.num_wires)
         trellis.notes = data.get('notes', trellis.notes)
-        trellis.garden_bed_id = data.get('gardenBedId', trellis.garden_bed_id)
+
+        if 'gardenBedId' in data:
+            new_bed_id = data['gardenBedId']
+            if new_bed_id:
+                bed = GardenBed.query.get(new_bed_id)
+                if not bed or bed.user_id != current_user.id:
+                    return jsonify({'error': 'Garden bed not found or unauthorized'}), 403
+            trellis.garden_bed_id = new_bed_id
 
         # Recalculate length if coordinates changed
         trellis.calculate_length()

@@ -3,6 +3,29 @@ Blueprint Registration Module
 
 This module provides a single function to register all blueprints with the Flask app.
 """
+import os
+
+SIMULATION_ENV_VAR = 'HOMESTEAD_ENABLE_SIMULATION'
+_TRUTHY = {'1', 'true', 'yes', 'on'}
+
+
+def simulation_enabled():
+    """Whether to expose the time-machine (simulation) HTTP endpoints.
+
+    These endpoints are unauthenticated by design AND mutate a process-global
+    clock that every user's date-dependent logic reads. Registered in a
+    deployed environment, a single anonymous request would change what "today"
+    means for the entire installation — corrupting planting dates, harvest
+    windows, frost warnings and the dashboard for every user at once.
+
+    So this fails closed: the endpoints exist only when explicitly switched on
+    via the HOMESTEAD_ENABLE_SIMULATION environment variable. `start-backend.bat`
+    sets it for local development; production deployments must not.
+
+    Note this gates only the HTTP control surface. `simulation_clock` itself
+    stays available to the rest of the app, which reads it for "now".
+    """
+    return os.environ.get(SIMULATION_ENV_VAR, '').strip().lower() in _TRUTHY
 
 
 def register_blueprints(app, wrapper_prefix=''):
@@ -53,13 +76,16 @@ def register_blueprints(app, wrapper_prefix=''):
     from .simulation_bp import simulation_bp
     from .dashboard_bp import dashboard_bp
     from .calendar_feed_bp import calendar_feed_bp
+    from .settings_bp import settings_bp
+    from .feedback_bp import feedback_bp
+    from .ai_assistant_bp import assistant_bp
 
     # Collect all blueprints in a list
     blueprints_list = [
         pages_bp, auth_bp, admin_bp, data_bp, seeds_bp, properties_bp,
         trellis_bp, gardens_bp, garden_planner_bp, livestock_bp, utilities_bp, weather_bp,
         photos_bp, compost_bp, harvests_bp, nutrition_bp, simulation_bp, dashboard_bp,
-        calendar_feed_bp
+        calendar_feed_bp, settings_bp, feedback_bp, assistant_bp
     ]
 
     # Apply wrapper prefix if specified
@@ -106,8 +132,22 @@ def register_blueprints(app, wrapper_prefix=''):
     # 9. Calendar subscription feed (.ics)
     app.register_blueprint(calendar_feed_bp)
 
-    # 10. Dev Tools
-    app.register_blueprint(simulation_bp)
+    # 10. User settings
+    app.register_blueprint(settings_bp)
+
+    # 11. Crop feedback loop
+    app.register_blueprint(feedback_bp)
+
+    # 12. Dev Tools — opt-in only, see simulation_enabled() for why.
+    if simulation_enabled():
+        app.register_blueprint(simulation_bp)
+        print(
+            '[WARN] Simulation (time-machine) endpoints ENABLED and UNAUTHENTICATED. '
+            f'Dev only — unset {SIMULATION_ENV_VAR} in any deployed environment.'
+        )
+
+    # 13. AI Garden Assistant (LLM chat, streaming)
+    app.register_blueprint(assistant_bp)
 
     # Log successful registration
     prefix_msg = f" at {wrapper_prefix}/*" if wrapper_prefix else " (no wrapper prefix)"
@@ -115,4 +155,4 @@ def register_blueprints(app, wrapper_prefix=''):
 
 
 # Export the registration function
-__all__ = ['register_blueprints']
+__all__ = ['register_blueprints', 'simulation_enabled', 'SIMULATION_ENV_VAR']

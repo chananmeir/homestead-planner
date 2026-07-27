@@ -1,6 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI, login } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
+import { openDesignerDetailView } from './helpers/data-setup';
 
 const BACKEND_URL = 'http://localhost:5000';
 const RUN_ID = Date.now().toString(36);
@@ -113,7 +114,9 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
     });
 
     // Verify active bed indicator shows the new bed
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toBeVisible({ timeout: 5000 });
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toContainText(bedName);
 
     // API verification
@@ -137,6 +140,7 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
       method: 'migardener',
     });
 
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toContainText(bedName);
 
     const bed = await getBedByName(bedName);
@@ -159,6 +163,7 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
       method: 'row',
     });
 
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toContainText(bedName);
 
     const bed = await getBedByName(bedName);
@@ -181,6 +186,7 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
       method: 'intensive',
     });
 
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toContainText(bedName);
 
     const bed = await getBedByName(bedName);
@@ -203,6 +209,7 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
       method: 'raised-bed',
     });
 
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toContainText(bedName);
 
     const bed = await getBedByName(bedName);
@@ -226,6 +233,7 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
       zone: 'zone1',
     });
 
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toContainText(bedName);
 
     const bed = await getBedByName(bedName);
@@ -250,6 +258,7 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
       customLength: 14,
     });
 
+    await openDesignerDetailView(page, bedName);
     await expect(page.locator('[data-testid="active-bed-indicator"]')).toContainText(bedName);
 
     const bed = await getBedByName(bedName);
@@ -267,6 +276,8 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
     const sfgBed = await getBedByName(`SFG-${RUN_ID}`);
     expect(sfgBed).toBeTruthy();
 
+    // Designer opens in overview mode; the bed selector only exists in detail view.
+    await openDesignerDetailView(page);
     await page.locator('[data-testid="bed-selector"]').selectOption(String(sfgBed.id));
     await page.waitForLoadState('networkidle');
 
@@ -318,6 +329,8 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
     await setupPage(page);
 
     // Select the bed
+    // Designer opens in overview mode; the bed selector only exists in detail view.
+    await openDesignerDetailView(page);
     await page.locator('[data-testid="bed-selector"]').selectOption(String(bed.id));
     await page.waitForLoadState('networkidle');
 
@@ -415,6 +428,8 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
 
     // UI verification: navigate and confirm bed shows empty
     await setupPage(page);
+    // Designer opens in overview mode; the bed selector only exists in detail view.
+    await openDesignerDetailView(page);
     await page.locator('[data-testid="bed-selector"]').selectOption(String(migBed.id));
     await page.waitForLoadState('networkidle');
 
@@ -429,8 +444,14 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
     expect(cusBed).toBeTruthy();
 
     // Delete via API (UI has no delete-bed button — API-only approach)
-    const delResp = await ctx.delete(`/api/garden-beds/${cusBed.id}`);
-    expect(delResp.status()).toBe(204);
+    // Permanent bed deletion is confirmation-gated and answers 200 with a
+    // summary of what was removed (not a bare 204) — it cascades planted
+    // items, events and photos, so the counts are worth reporting.
+    const delResp = await ctx.delete(`/api/garden-beds/${cusBed.id}`, {
+      data: { confirmation: 'delete' },
+    });
+    expect(delResp.status()).toBe(200);
+    expect((await delResp.json()).deletedBedId).toBe(cusBed.id);
 
     // Remove from our tracking so afterAll doesn't try to delete it again
     const idx = createdBedIds.indexOf(cusBed.id);
@@ -440,6 +461,7 @@ test.describe.serial('Garden Beds — CRUD & Planning Methods', () => {
     await setupPage(page);
 
     // The bed selector should not contain the deleted bed's name
+    await openDesignerDetailView(page);
     const selectorText = await page.locator('[data-testid="bed-selector"]').textContent();
     expect(selectorText).not.toContain(`CUS-${RUN_ID}`);
   });

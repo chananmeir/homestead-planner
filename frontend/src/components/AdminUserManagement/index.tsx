@@ -4,6 +4,7 @@ import { useToast, Button, ConfirmDialog, SearchBar } from '../common';
 import { API_BASE_URL } from '../../config';
 import { User, UserStatistics } from '../../types';
 import { AddUserModal } from './AddUserModal';
+import { BackupManagement } from './BackupManagement';
 import { EditUserModal } from './EditUserModal';
 import { ResetPasswordModal } from './ResetPasswordModal';
 
@@ -202,6 +203,8 @@ export const AdminUserManagement: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <BackupManagement />
 
       {/* User Table */}
       <div className="bg-white rounded-lg shadow-md overflow-hidden">

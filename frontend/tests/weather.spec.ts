@@ -50,6 +50,60 @@ test.describe.serial('Weather Module — E2E Tests', () => {
     await navigateTo(page, TABS.WEATHER);
   }
 
+  /**
+   * Deterministic weather for UI tests.
+   *
+   * The page renders nothing until it has BOTH a ZIP (read from localStorage)
+   * and successful responses from /api/weather/*, which the backend serves by
+   * calling Open-Meteo. That made the UI assertions depend on an external
+   * service and on whichever ZIP happened to be saved — the forecast grid
+   * simply never appeared in a clean environment.
+   *
+   * Stubbing the two endpoints keeps this a test of the page's rendering.
+   * The live integration is covered separately by WX-01..WX-05, which call
+   * the real API directly.
+   */
+  async function setupWeatherWithStubbedApi(page: import('@playwright/test').Page) {
+    await page.addInitScript((zip) => {
+      window.localStorage.setItem('weatherZipCode', zip);
+    }, VALID_ZIP);
+
+    await page.route('**/api/weather/current*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          weather: {
+            temperature: 72, humidity: 55, windSpeed: 8,
+            conditions: 'Partly Cloudy', precipitation: 0,
+          },
+          location: { zipcode: VALID_ZIP, city: 'Testville', state: 'NY' },
+        }),
+      }),
+    );
+
+    await page.route('**/api/weather/forecast*', (route) => {
+      const start = Date.UTC(2026, 6, 1);
+      const forecast = Array.from({ length: 7 }, (_, i) => ({
+        date: new Date(start + i * 86400000).toISOString(),
+        highTemp: 78 + i,
+        lowTemp: 55 + i, // above freezing — no frost alerts to perturb the layout
+        precipitation: 0.1 * i,
+        humidity: 50 + i,
+        windSpeed: 5 + i,
+        conditions: 'Sunny',
+        growingDegreeDays: 10 + i,
+      }));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ forecast, location: { zipcode: VALID_ZIP, city: 'Testville' } }),
+      });
+    });
+
+    await setupWeather(page);
+  }
+
   // ════════════════════════════════════════════════════════════════════
   // Suite 1: Weather API Endpoint Validation
   // ════════════════════════════════════════════════════════════════════
@@ -149,10 +203,14 @@ test.describe.serial('Weather Module — E2E Tests', () => {
   // ════════════════════════════════════════════════════════════════════
 
   test('WX-06: Weather page renders all main sections', async ({ page }) => {
-    await setupWeather(page);
+    await setupWeatherWithStubbedApi(page);
 
-    // Header with title
-    await expect(page.locator('text=Weather & Alerts')).toBeVisible({ timeout: 10000 });
+    // Header with title. Match the heading specifically — a bare text locator
+    // also matches the "Weather & Alerts" nav sub-tab button, which is two
+    // elements and therefore a strict-mode violation.
+    await expect(
+      page.getByRole('heading', { name: 'Weather & Alerts' }),
+    ).toBeVisible({ timeout: 10000 });
 
     // Settings button
     await expect(page.locator('[data-testid="weather-settings-btn"]')).toBeVisible();
@@ -172,7 +230,7 @@ test.describe.serial('Weather Module — E2E Tests', () => {
   });
 
   test('WX-07: Forecast grid shows 7 day cards with Today highlighted', async ({ page }) => {
-    await setupWeather(page);
+    await setupWeatherWithStubbedApi(page);
 
     // Wait for forecast to load
     await expect(page.locator('[data-testid="weather-forecast-grid"]')).toBeVisible({ timeout: 15000 });
@@ -194,7 +252,7 @@ test.describe.serial('Weather Module — E2E Tests', () => {
   });
 
   test('WX-08: Current conditions cards show temperature and wind', async ({ page }) => {
-    await setupWeather(page);
+    await setupWeatherWithStubbedApi(page);
 
     // Wait for data load
     await expect(page.locator('[data-testid="weather-forecast-grid"]')).toBeVisible({ timeout: 15000 });
@@ -216,7 +274,7 @@ test.describe.serial('Weather Module — E2E Tests', () => {
   // ════════════════════════════════════════════════════════════════════
 
   test('WX-09: Settings panel opens and closes', async ({ page }) => {
-    await setupWeather(page);
+    await setupWeatherWithStubbedApi(page);
 
     // Settings panel should be hidden initially
     await expect(page.locator('[data-testid="weather-settings-panel"]')).not.toBeVisible();
@@ -237,7 +295,7 @@ test.describe.serial('Weather Module — E2E Tests', () => {
   });
 
   test('WX-10: Save ZIP code updates forecast display', async ({ page }) => {
-    await setupWeather(page);
+    await setupWeatherWithStubbedApi(page);
 
     // Wait for initial load
     await expect(page.locator('[data-testid="weather-forecast-grid"]')).toBeVisible({ timeout: 15000 });
@@ -270,7 +328,7 @@ test.describe.serial('Weather Module — E2E Tests', () => {
   // ════════════════════════════════════════════════════════════════════
 
   test('WX-11: GDD chart renders with forecast data', async ({ page }) => {
-    await setupWeather(page);
+    await setupWeatherWithStubbedApi(page);
 
     // Wait for data load
     await expect(page.locator('[data-testid="weather-forecast-grid"]')).toBeVisible({ timeout: 15000 });

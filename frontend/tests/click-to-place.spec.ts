@@ -1,6 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
+import { openDesignerDetailView } from './helpers/data-setup';
 
 const BACKEND_URL = 'http://localhost:5000';
 const RUN_ID = Date.now().toString(36);
@@ -109,6 +110,7 @@ test.describe.serial('Click-to-Place — E2E Tests', () => {
     await navigateTo(page, TABS.GARDEN_DESIGNER);
     await dismissOverlay(page);
     // Wait for beds to load
+    await openDesignerDetailView(page);
     await expect(page.locator('[data-testid="bed-selector"]')).toBeVisible({ timeout: 10000 });
     // Wait a moment for data to stabilize
     await page.waitForTimeout(500);
@@ -141,23 +143,19 @@ test.describe.serial('Click-to-Place — E2E Tests', () => {
       await page.waitForTimeout(500);
     }
 
-    // Target the plant name span inside the palette item
-    const plantItem = page.locator(`.cursor-grab:has-text("${plantName}")`).first();
+    // Target the palette item by testid. A bare `.cursor-grab:has-text(...)`
+    // also matches the Planned Plants section, whose items use the same class
+    // but a different click handler — so .first() could pick an element that
+    // never opens the config modal.
+    const plantItem = page.locator('[data-testid^="palette-plant-"]').first();
     await expect(plantItem).toBeVisible({ timeout: 5000 });
     await plantItem.scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
 
-    // Use evaluate to trigger a real click event on the element
-    // This fires the React onClick handler directly without going through
-    // @dnd-kit's pointer event pipeline
-    await plantItem.evaluate((el: HTMLElement) => {
-      const clickEvent = new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      });
-      el.dispatchEvent(clickEvent);
-    });
+    // A real click. dnd-kit only treats a pointer interaction as a drag once
+    // it passes its activation constraint, so a plain click still reaches the
+    // item's onClick handler.
+    await plantItem.click();
 
     // Wait for the React state update to propagate
     await page.waitForTimeout(500);
@@ -192,6 +190,30 @@ test.describe.serial('Click-to-Place — E2E Tests', () => {
     const cancelButton = modal.locator('button:has-text("Cancel")');
     await cancelButton.click();
     await expect(modal).not.toBeVisible({ timeout: 3000 });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Test 1b: Keyboard activation
+  // ════════════════════════════════════════════════════════════════════
+
+  test('CTP-01b: Palette item can be activated from the keyboard', async ({ page }) => {
+    // dnd-kit gives palette items role="button" and a tab stop, so assistive
+    // tech announces them as buttons. They must therefore actually respond to
+    // Enter/Space — a control that announces as a button but ignores keyboard
+    // activation is worse than one with no role at all.
+    await setupDesigner(page);
+
+    const plantItem = page.locator('[data-testid^="palette-plant-"]').first();
+    await expect(plantItem).toBeVisible({ timeout: 10000 });
+
+    await plantItem.focus();
+    await page.keyboard.press('Enter');
+
+    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 5000 });
+
+    // Reset for the tests that follow.
+    await page.locator('[role="dialog"]').locator('button:has-text("Cancel")').click();
+    await expect(page.locator('[role="dialog"]')).not.toBeVisible({ timeout: 3000 });
   });
 
   // ════════════════════════════════════════════════════════════════════
@@ -338,7 +360,7 @@ test.describe.serial('Click-to-Place — E2E Tests', () => {
   // Test 6: Click plant without bed selected — verify error message
   // ════════════════════════════════════════════════════════════════════
 
-  test('CTP-06: Click plant with no bed selected — shows error toast', async ({ page }) => {
+  test('CTP-06: Click plant with no bed selected — shows error toast', async ({ page, playwright }) => {
     // For this test we need a state where no bed is active.
     // We'll create a new user without any beds.
     const noBedUser = {
@@ -347,7 +369,9 @@ test.describe.serial('Click-to-Place — E2E Tests', () => {
       password: 'CtpTest1!',
     };
 
-    const noBedCtx = await page.request.newContext({ baseURL: BACKEND_URL });
+    // `page.request` is itself an APIRequestContext, not a factory — creating a
+    // new one goes through the `playwright` fixture.
+    const noBedCtx = await playwright.request.newContext({ baseURL: BACKEND_URL });
     await registerViaAPI(noBedCtx, noBedUser.username, noBedUser.email, noBedUser.password);
 
     // Login as the no-bed user

@@ -1,6 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { registerViaAPI, loginViaAPI, login } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
+import { openDesignerDetailView } from './helpers/data-setup';
 
 const BACKEND_URL = 'http://localhost:5000';
 const RUN_ID = Date.now().toString(36);
@@ -322,6 +323,7 @@ test.describe.serial('Harvest from Bed View — E2E Tests', () => {
     await page.goto('/');
     await login(page, BV_USER.username, BV_USER.password);
     await navigateTo(page, TABS.GARDEN_DESIGNER);
+    await openDesignerDetailView(page);
     await expect(page.locator('[data-testid="bed-selector"]')).toBeVisible({ timeout: 10000 });
 
     // Click the planted item to open detail panel
@@ -331,9 +333,17 @@ test.describe.serial('Harvest from Bed View — E2E Tests', () => {
     // Click Log Harvest
     await page.locator('[data-testid="log-harvest-btn"]').click();
 
-    // Modal opens with plant info
-    await expect(page.getByText(/Harvesting/)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/Brandywine/)).toBeVisible();
+    // Modal opens naming the plant being harvested. Assert the combined
+    // string: a bare /Brandywine/ also matches the grid label and the detail
+    // panel, so it resolves to three elements and trips strict mode.
+    await expect(page.getByText(/Harvesting .*Brandywine/)).toBeVisible({ timeout: 5000 });
+
+    // Tick "Final harvest". A plain harvest is treated as a partial pick — the
+    // plant keeps its 'growing' status so it can be harvested again (correct
+    // for cut-and-come-again crops and indeterminate tomatoes). Only a final
+    // harvest flips the PlantedItem to 'harvested', which is what this test
+    // asserts below.
+    await page.locator('[data-testid="harvest-final-checkbox"]').check();
 
     // Submit
     await page.locator('[data-testid="harvest-plant-submit"]').click();
@@ -341,15 +351,19 @@ test.describe.serial('Harvest from Bed View — E2E Tests', () => {
     // Detail panel should close (panel close is the visible cue; toast is incidental)
     await expect(page.locator('[data-testid="plant-detail-panel"]')).not.toBeVisible({ timeout: 5000 });
 
-    // Verify backend state: PlantedItem auto-synced to harvested
+    // Verify backend state. A FINAL harvest marks the PlantedItem harvested
+    // AND clears it from the bed, and GardenBed.to_dict() omits cleared items —
+    // so the correct assertion is that it is gone from the bed, not that it is
+    // present with status 'harvested' (those two cannot both hold).
+    //
+    // A plain (non-final) harvest is a partial pick: the plant stays 'growing'
+    // so it can be harvested again, which is why the checkbox above matters.
     const bedResp = await bvCtx.get(`/api/garden-beds/${bedId}`);
     expect(bedResp.ok()).toBeTruthy();
     const bedDetail = await bedResp.json();
     const items = bedDetail.plantedItems || [];
-    const harvested = items.find((p: { id: number }) => p.id === plantedItemId);
-    expect(harvested).toBeTruthy();
-    expect(harvested.status).toBe('harvested');
-    expect(harvested.harvestDate).toBeTruthy();
+    const stillActive = items.find((p: { id: number }) => p.id === plantedItemId);
+    expect(stillActive).toBeUndefined();
 
     // Verify harvest record was created with plantedItemId
     const harvestsResp = await bvCtx.get('/api/harvests');
@@ -395,35 +409,37 @@ test.describe.serial('Harvest from Bed View — E2E Tests', () => {
     await page.goto('/');
     await login(page, BV_USER.username, BV_USER.password);
     await navigateTo(page, TABS.GARDEN_DESIGNER);
+    await openDesignerDetailView(page);
     await expect(page.locator('[data-testid="bed-selector"]')).toBeVisible({ timeout: 10000 });
 
     // Switch to the bulk-test bed
     await page.locator('[data-testid="bed-selector"]').selectOption(String(bulkBedId));
 
-    // The "Harvest! (3)" pill should appear in the right-side panel
+    // The "Harvest ready (3)" pill should appear in the right-side panel
     const pill = page.locator('[data-testid^="harvest-pill-carrot-1"]');
     await expect(pill).toBeVisible({ timeout: 10000 });
-    await expect(pill).toContainText('Harvest! (3)');
+    await expect(pill).toContainText('Harvest ready (3)');
 
     // Click the pill — bulk modal should open
     await pill.click();
     await expect(page.getByText('3 cells ready')).toBeVisible({ timeout: 5000 });
 
-    // Fill weight and submit
+    // Fill weight, mark it a final harvest, and submit. Without the final
+    // flag this is a partial pick: the plants stay 'growing' so they can be
+    // harvested again, and nothing is cleared from the bed.
     await page.getByLabel(/Total Quantity/).fill('6');
+    await page.locator('[data-testid="bulk-harvest-final-checkbox"]').check();
     await page.locator('[data-testid="bulk-harvest-submit"]').click();
 
     // Wait for the modal to close
     await expect(page.getByText('3 cells ready')).not.toBeVisible({ timeout: 5000 });
 
-    // All 3 items should now be harvested
+    // A final harvest clears the plantings from the bed, and
+    // GardenBed.to_dict() omits cleared items — so all three should be gone.
     const bedAfter = await bvCtx.get(`/api/garden-beds/${bulkBedId}`);
     const bedDetail = await bedAfter.json();
     const items = (bedDetail.plantedItems || []).filter((p: { id: number }) => ids.includes(p.id));
-    expect(items.length).toBe(3);
-    for (const it of items) {
-      expect(it.status).toBe('harvested');
-    }
+    expect(items.length).toBe(0);
 
     // 3 HarvestRecords should exist with the same harvestGroupId
     const harvests = await (await bvCtx.get('/api/harvests')).json();
@@ -467,11 +483,23 @@ test.describe.serial('Harvest from Bed View — E2E Tests', () => {
       },
     });
 
+    // Logging a harvest is a PARTIAL pick — it deliberately leaves the plant
+    // 'growing' so it can be picked again, which is why the Log Harvest button
+    // is still offered. Sending finalHarvest instead would mark it harvested
+    // but also clear it from the bed, so the button-hiding logic this test is
+    // about would never render. Set the status directly to get a plant that is
+    // harvested AND still in the bed.
+    const statusResp = await bvCtx.put(`/api/planted-items/${pepperId}`, {
+      data: { status: 'harvested' },
+    });
+    expect(statusResp.ok()).toBeTruthy();
+
     // Navigate, find pepper (which should still render — harvested same-day, but
     // we sidestep the date filter by checking that the detail panel button is gone)
     await page.goto('/');
     await login(page, BV_USER.username, BV_USER.password);
     await navigateTo(page, TABS.GARDEN_DESIGNER);
+    await openDesignerDetailView(page);
     await expect(page.locator('[data-testid="bed-selector"]')).toBeVisible({ timeout: 10000 });
 
     // The pepper may or may not still render (date filter behavior). If it does,

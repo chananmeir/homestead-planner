@@ -8,6 +8,7 @@
  */
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, ReactNode } from 'react';
 import { API_BASE_URL } from '../config';
+import { formatLocalDate } from '../utils/dateUtils';
 
 interface SimulationContextType {
   isSimulating: boolean;
@@ -46,7 +47,7 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
   const [simulatedDate, setSimDate] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
 
-  const realDate = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const realDate = useMemo(() => formatLocalDate(new Date()), []);
 
   // On mount, check if simulation is already active (server state survives page reload)
   useEffect(() => {
@@ -70,7 +71,7 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
     if (isSimulating && simulatedDate) {
       return simulatedDate;
     }
-    return new Date().toISOString().split('T')[0];
+    return formatLocalDate(new Date());
   }, [isSimulating, simulatedDate]);
 
   const setSimulatedDate = useCallback(async (dateStr: string) => {

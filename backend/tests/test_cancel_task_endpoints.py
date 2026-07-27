@@ -133,16 +133,42 @@ def test_cancel_indoor_seed_start_is_user_scoped(auth_client_a, user_b):
     assert seed_start.cancelled_at is None
 
 
+def test_mark_failed_rejects_transplanted_seed_start(auth_client_a, user_a):
+    seed_start = _make_seed_start(user_a, status='transplanted')
+
+    response = auth_client_a.post(
+        f'/api/indoor-seed-starts/{seed_start.id}/mark-failed',
+        json={'cascade': 'abandon'},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()['error'] == 'Seed start is already transplanted'
+    db.session.refresh(seed_start)
+    assert seed_start.status == 'transplanted'
+
+
 def test_cancel_and_uncancel_planted_item(auth_client_a, user_a):
     item = _make_planted_item(user_a)
     bed_id = item.garden_bed_id
+    event = _make_event(
+        user_a,
+        garden_bed_id=bed_id,
+        position_x=item.position_x,
+        position_y=item.position_y,
+        direct_seed_date=item.planted_date,
+        quantity=item.quantity,
+        quantity_completed=item.quantity,
+        completed=True,
+    )
 
     response = auth_client_a.post(f'/api/planted-items/{item.id}/cancel')
 
     assert response.status_code == 200, response.get_json()
     assert response.get_json()['cancelledAt'] is not None
     db.session.refresh(item)
+    db.session.refresh(event)
     assert item.cancelled_at is not None
+    assert event.cancelled_at == item.cancelled_at
 
     # Cancelled item must be filtered from bed.to_dict()
     bed_response = auth_client_a.get('/api/garden-beds')
@@ -157,7 +183,9 @@ def test_cancel_and_uncancel_planted_item(auth_client_a, user_a):
     assert response.status_code == 200, response.get_json()
     assert response.get_json()['cancelledAt'] is None
     db.session.refresh(item)
+    db.session.refresh(event)
     assert item.cancelled_at is None
+    assert event.cancelled_at is None
 
     # Uncancelled item reappears in bed.to_dict()
     bed_response = auth_client_a.get('/api/garden-beds')
@@ -176,6 +204,30 @@ def test_cancel_planted_item_is_idempotent(auth_client_a, user_a):
     second = auth_client_a.post(f'/api/planted-items/{item.id}/cancel')
     assert second.status_code == 200
     assert second.get_json()['cancelledAt'] == first_ts
+
+
+def test_cancel_planted_item_repairs_open_matching_event(auth_client_a, user_a):
+    item = _make_planted_item(user_a)
+    item.cancelled_at = datetime(2026, 5, 24, 11, 30, 45)
+    event = _make_event(
+        user_a,
+        garden_bed_id=item.garden_bed_id,
+        position_x=item.position_x,
+        position_y=item.position_y,
+        direct_seed_date=item.planted_date,
+        quantity=item.quantity,
+        quantity_completed=item.quantity,
+        completed=True,
+    )
+    db.session.commit()
+
+    response = auth_client_a.post(f'/api/planted-items/{item.id}/cancel')
+
+    assert response.status_code == 200
+    db.session.refresh(item)
+    db.session.refresh(event)
+    assert response.get_json()['cancelledAt'] == item.cancelled_at.isoformat()
+    assert event.cancelled_at == item.cancelled_at
 
 
 def test_cancel_planted_item_is_user_scoped(auth_client_a, user_b):

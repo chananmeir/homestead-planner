@@ -363,8 +363,13 @@ test.describe.serial('Livestock — E2E Tests', () => {
     // Modal should open with "Add Chicken" title
     await expect(page.locator('text=Add Chicken').first()).toBeVisible({ timeout: 5000 });
 
-    // Breed select should be visible (chicken-specific field)
-    await expect(page.locator('text=Breed').first()).toBeVisible();
+    // Breed select should be visible (chicken-specific field).
+    // Scope to the modal: an unscoped 'text=Breed' also matches the sort
+    // dropdown's <option value="breed">Breed</option>, and .first() picks that
+    // one — options in a closed <select> count as hidden, so the assertion
+    // failed against an element the test never meant to check.
+    const chickenModal = page.locator('[role="dialog"]');
+    await expect(chickenModal.getByText('Breed', { exact: true })).toBeVisible();
 
     // Close modal
     await page.keyboard.press('Escape');
@@ -378,8 +383,10 @@ test.describe.serial('Livestock — E2E Tests', () => {
     // Modal should show "Add Beehive"
     await expect(page.locator('text=Add Beehive').first()).toBeVisible({ timeout: 5000 });
 
-    // Hive-specific field: "Hive Type" should be visible
-    await expect(page.locator('text=Hive Type').first()).toBeVisible();
+    // Hive-specific field: "Hive Type" should be visible (scoped, as above)
+    await expect(
+      page.locator('[role="dialog"]').getByText('Hive Type', { exact: true }),
+    ).toBeVisible();
 
     await page.keyboard.press('Escape');
   });

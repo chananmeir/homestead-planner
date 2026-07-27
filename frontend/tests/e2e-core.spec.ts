@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, login, loginViaAPI, TEST_USER } from './helpers/auth';
 import { navigateTo, TABS } from './helpers/navigation';
+import { openDesignerDetailView } from './helpers/data-setup';
 
 const BACKEND_URL = 'http://localhost:5000';
 
@@ -39,7 +40,10 @@ test.describe.serial('E2E Core — Critical User Journeys', () => {
     await page.locator('[data-testid="create-bed-submit"]').click();
     await expect(page.getByText('Add Garden Bed')).not.toBeVisible({ timeout: 5000 });
 
-    // 7. Verify bed appears in the "Active:" indicator (not the hidden <option>)
+    // 7. Verify bed appears in the "Active:" indicator (not the hidden <option>).
+    // Creating a bed leaves the designer on the overview; the active-bed
+    // indicator only exists in detail view, so open the new bed first.
+    await openDesignerDetailView(page, bedName);
     await expect(
       page.locator('.bg-green-50', { hasText: bedName })
     ).toBeVisible({ timeout: 5000 });

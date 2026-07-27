@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNow } from '../../contexts/SimulationContext';
+import { formatDisplayDate, formatLocalDate } from '../../utils/dateUtils';
 
 export interface DateRange {
   startDate: string | null; // ISO date string
@@ -43,7 +44,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
   const handlePreset = (preset: string) => {
     const today = now;
-    const endDate = today.toISOString().split('T')[0];
+    const endDate = formatLocalDate(today);
     let startDate: string;
 
     switch (preset) {
@@ -53,25 +54,25 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       case 'week': {
         const weekAgo = new Date(now.getTime());
         weekAgo.setDate(weekAgo.getDate() - 7);
-        startDate = weekAgo.toISOString().split('T')[0];
+        startDate = formatLocalDate(weekAgo);
         break;
       }
       case 'month': {
         const monthAgo = new Date(now.getTime());
         monthAgo.setMonth(monthAgo.getMonth() - 1);
-        startDate = monthAgo.toISOString().split('T')[0];
+        startDate = formatLocalDate(monthAgo);
         break;
       }
       case '3months': {
         const threeMonthsAgo = new Date(now.getTime());
         threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-        startDate = threeMonthsAgo.toISOString().split('T')[0];
+        startDate = formatLocalDate(threeMonthsAgo);
         break;
       }
       case 'year': {
         const yearAgo = new Date(now.getTime());
         yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-        startDate = yearAgo.toISOString().split('T')[0];
+        startDate = formatLocalDate(yearAgo);
         break;
       }
       case 'all':
@@ -217,18 +218,18 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
             <>
               Showing from{' '}
               <span className="font-medium">
-                {new Date(value.startDate).toLocaleDateString()}
+                {formatDisplayDate(value.startDate)}
               </span>{' '}
               to{' '}
               <span className="font-medium">
-                {new Date(value.endDate).toLocaleDateString()}
+                {formatDisplayDate(value.endDate)}
               </span>
             </>
           ) : value.startDate ? (
             <>
               Showing from{' '}
               <span className="font-medium">
-                {new Date(value.startDate).toLocaleDateString()}
+                {formatDisplayDate(value.startDate)}
               </span>{' '}
               onwards
             </>
@@ -236,7 +237,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
             <>
               Showing up to{' '}
               <span className="font-medium">
-                {new Date(value.endDate!).toLocaleDateString()}
+                {formatDisplayDate(value.endDate!)}
               </span>
             </>
           )}

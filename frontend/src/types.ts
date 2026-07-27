@@ -26,8 +26,12 @@ export interface SeedInventoryItem {
   location?: string;
   price?: number;
   seedsPerPacket?: number;  // Seeds per packet (default 50)
+  seedsUsed?: number;
+  seedsAvailable?: number;
+  totalSeeds?: number;
   notes?: string;
   isGlobal?: boolean;
+  isArchived?: boolean;
   catalogSeedId?: number | null;  // Reference to catalog seed if cloned from catalog
   lastSyncedAt?: string | null;  // Last time agronomic data was synced from catalog
   // Seed provenance
@@ -42,6 +46,12 @@ export interface SeedInventoryItem {
   germinationTempMin?: number;
   germinationTempMax?: number;
   soilTempMin?: number;
+  earliestSowMonthDay?: string;
+  sowAdjustmentNotes?: string;
+  sowAdjustmentUpdatedAt?: string;
+  provenSowMonthDay?: string;
+  provenSowNotes?: string;
+  provenSowUpdatedAt?: string;
   heatTolerance?: string;
   coldTolerance?: string;
   boltResistance?: string;
@@ -156,6 +166,36 @@ export interface GardenBed {
   seasonExtension?: SeasonExtension;
 }
 
+export interface Property {
+  id: number;
+  name: string;
+  width: number;
+  length: number;
+  address?: string | null;
+  zipCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  zone?: string | null;
+  soilType?: string | null;
+  slope?: string | null;
+  lastFrostDate?: string | null;
+  firstFrostDate?: string | null;
+  notes?: string | null;
+}
+
+export type PlantOutcome = 'failed' | 'didnt_establish' | 'not_planted';
+export type PlantOutcomeReason =
+  | 'pest'
+  | 'disease'
+  | 'weather_frost'
+  | 'drought_neglect'
+  | 'animal_damage'
+  | 'poor_germination'
+  | 'damping_off'
+  | 'surplus_no_space'
+  | 'changed_plan'
+  | 'other';
+
 export interface PlantedItem {
   id: number;
   plantId: string;
@@ -165,8 +205,13 @@ export interface PlantedItem {
   harvestDate?: Date;
   position: { x: number; y: number }; // grid position
   quantity: number;
-  status: 'planned' | 'seeded' | 'transplanted' | 'growing' | 'harvested' | 'saving-seed';
+  status: 'planned' | 'seeded' | 'transplanted' | 'growing' | 'harvested' | 'saving-seed' | PlantOutcome;
   cancelledAt?: string | null;
+  clearedAt?: string | null;
+  outcome?: PlantOutcome | null;
+  outcomeReason?: PlantOutcomeReason | null;
+  outcomeDate?: string | null;
+  outcomeNotes?: string | null;
   notes?: string;
 
   // Seed saving fields
@@ -199,6 +244,50 @@ export interface PlantedItem {
   sourcePlanItemId?: number;
 }
 
+export interface FailureReasonVerification {
+  status: 'verdict' | 'needs_location' | 'not_applicable' | 'unavailable';
+  reason?: PlantOutcomeReason | null;
+  verdict?: 'confirmed' | 'unlikely' | 'inconclusive';
+  plantId?: string;
+  plantName?: string;
+  variety?: string | null;
+  message?: string;
+  errorCode?: string;
+  location?: {
+    latitude?: number;
+    longitude?: number;
+    label?: string;
+    zipCode?: string | null;
+    zone?: string | null;
+  };
+  window?: {
+    start?: string;
+    end?: string;
+  };
+  evidence?: {
+    thresholdF?: number;
+    frostTolerance?: string;
+    windowMinAirF?: number;
+    daysAtOrBelowThreshold?: number;
+    coldestDate?: string;
+    dataPoints?: number;
+  };
+  alternative?: {
+    suggestedOutcome?: PlantOutcome;
+    suggestedReason?: PlantOutcomeReason;
+    rationale?: string;
+    evidence?: {
+      floorF?: number;
+      sownDate?: string;
+      first7MeanF?: number | null;
+      first7BelowFloorDays?: number;
+      first7MinF?: number | null;
+      first10ConsecutiveBelowFloorDays?: number;
+      dataPoints?: number;
+    };
+  };
+}
+
 export interface SeasonExtension {
   type: 'none' | 'row-cover' | 'cold-frame' | 'low-tunnel' | 'high-tunnel' | 'greenhouse';
   innerType?: 'none' | 'row-cover' | 'cold-frame' | 'low-tunnel' | 'high-tunnel' | 'greenhouse';
@@ -218,7 +307,7 @@ export interface PlantingCalendar {
   id: number;
 
   // Event type discriminator - supports different types of garden events
-  eventType?: 'planting' | 'mulch' | 'fertilizing' | 'irrigation' | 'maple-tapping';
+  eventType?: 'planting' | 'mulch' | 'fertilizing' | 'irrigation' | 'maple-tapping' | 'custom';
 
   // Plant-specific fields (only for eventType='planting' or undefined)
   plantId?: string;
@@ -233,6 +322,11 @@ export interface PlantingCalendar {
   indoorSeedStartStatus?: string;  // IndoorSeedStart.status for seed-start phase completion
   quantityCompleted?: number;  // How many actually planted (null = not started)
   cancelledAt?: string | null;  // Soft-delete timestamp ("skipped"); null/undefined = active
+  clearedAt?: string | null;  // Final-harvest soft-clear timestamp; null/undefined = still occupying bed
+  outcome?: PlantOutcome | null;
+  outcomeReason?: PlantOutcomeReason | null;
+  outcomeDate?: string | null;
+  outcomeNotes?: string | null;
 
   // Date fields
   seedStartDate?: Date;
@@ -279,17 +373,36 @@ export interface PlantingCalendar {
   eventDetails?: string | {
     // For mulch events
     mulchType?: string;
+    mulch_type?: string;
     depthInches?: number;
+    depth_inches?: number;
     coverage?: string;
 
     // For fertilizing events
     fertilizerType?: string;
-    amount?: string;
+    fertilizer_type?: string;
+    amount?: number;
+    amountUnit?: string;
+    amount_unit?: string;
+    applicationMethod?: string;
+    application_method?: string;
+    npk?: string;
+
+    // For irrigation events
+    method?: string;
+    durationMinutes?: number;
+    duration_minutes?: number;
+    amountGallons?: number;
+    amount_gallons?: number;
+    zone?: string;
 
     // For maple-tapping events
     treeStructureId?: number;
+    tree_structure_id?: number;
     treeType?: 'sugar' | 'red' | 'black' | 'boxelder';
+    tree_type?: 'sugar' | 'red' | 'black' | 'boxelder';
     tapCount?: number;
+    tap_count?: number;
     collectionDates?: Array<{
       date: string;
       sapAmount: number;
@@ -316,7 +429,7 @@ export interface PlantingEvent {
   userId: number;
 
   // Event type discriminator
-  eventType?: 'planting' | 'mulch' | 'fertilizing' | 'irrigation' | 'maple-tapping';
+  eventType?: 'planting' | 'mulch' | 'fertilizing' | 'irrigation' | 'maple-tapping' | 'custom';
 
   // Event-specific details (JSON string from backend)
   eventDetails?: string;
@@ -329,6 +442,7 @@ export interface PlantingEvent {
   gardenBedId?: number;
   seedStartDate?: string;  // ISO date string
   transplantDate?: string; // ISO date string
+  transplantSource?: 'seed_start' | 'store_bought' | null;
   directSeedDate?: string; // ISO date string
   expectedHarvestDate?: string; // ISO date string
   actualHarvestDate?: string;   // ISO date string
@@ -342,6 +456,10 @@ export interface PlantingEvent {
   completed?: boolean;
   isComplete?: boolean;
   indoorSeedStartStatus?: string;
+  outcome?: PlantOutcome | null;
+  outcomeReason?: PlantOutcomeReason | null;
+  outcomeDate?: string | null;
+  outcomeNotes?: string | null;
   notes?: string;
 
   // NEW: Planting method for seed density vs individual plants
@@ -686,13 +804,36 @@ export interface CalculatePlanResponse {
 
 // ========== CROP ROTATION TYPES ==========
 
+export type RotationSeverity = 'ok' | 'info' | 'caution' | 'warning' | 'high';
+
+export interface RotationHistoryEntry {
+  plant_id: string;
+  plant_name: string;
+  family?: string;
+  category?: string;
+  year: number;
+  planted_date?: string;
+  variety?: string;
+  quantity?: number;
+  space_required?: number;
+  exposure?: string;
+  risk_score?: number;
+}
+
 export interface RotationWarning {
   bed_id: number;
   bed_name: string;
   message: string;
   family: string;
   conflict_years: number[];
-  safe_year: number;
+  safe_year?: number | null;
+  severity?: RotationSeverity;
+  risk_score?: number;
+  rotation_window?: number;
+  reason_codes?: string[];
+  history?: RotationHistoryEntry[];
+  conflicts?: RotationHistoryEntry[];
+  ignored_history?: RotationHistoryEntry[];
 }
 
 // ==================== NUTRITIONAL TRACKING TYPES ====================

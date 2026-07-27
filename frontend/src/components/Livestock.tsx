@@ -4,6 +4,7 @@ import type { SortOption, SortDirection, FilterGroup } from './common';
 import { AnimalFormModal } from './Livestock/AnimalFormModal';
 import { useFocusHighlight } from './Dashboard/hooks/useFocusHighlight';
 import { API_BASE_URL } from '../config';
+import { formatDisplayDate, parseLocalDate } from '../utils/dateUtils';
 
 interface Animal {
   id: number;
@@ -447,8 +448,8 @@ const Livestock: React.FC<LivestockProps> = ({ focusType, onFocusConsumed }) => 
           bValue = b.breed?.toLowerCase() || '';
           break;
         case 'hatchDate':
-          aValue = a.hatchDate ? new Date(a.hatchDate).getTime() : 0;
-          bValue = b.hatchDate ? new Date(b.hatchDate).getTime() : 0;
+          aValue = a.hatchDate ? parseLocalDate(a.hatchDate).getTime() : 0;
+          bValue = b.hatchDate ? parseLocalDate(b.hatchDate).getTime() : 0;
           break;
         case 'quantity':
           aValue = a.quantity || 0;
@@ -503,8 +504,8 @@ const Livestock: React.FC<LivestockProps> = ({ focusType, onFocusConsumed }) => 
           bValue = b.type?.toLowerCase() || '';
           break;
         case 'installDate':
-          aValue = a.installDate ? new Date(a.installDate).getTime() : 0;
-          bValue = b.installDate ? new Date(b.installDate).getTime() : 0;
+          aValue = a.installDate ? parseLocalDate(a.installDate).getTime() : 0;
+          bValue = b.installDate ? parseLocalDate(b.installDate).getTime() : 0;
           break;
         case 'status':
           aValue = a.status?.toLowerCase() || '';
@@ -703,7 +704,7 @@ const Livestock: React.FC<LivestockProps> = ({ focusType, onFocusConsumed }) => 
               {hive.installDate && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Installed:</span>
-                  <span className="font-medium">{new Date(hive.installDate).toLocaleDateString()}</span>
+                  <span className="font-medium">{formatDisplayDate(hive.installDate)}</span>
                 </div>
               )}
               {hive.status && (

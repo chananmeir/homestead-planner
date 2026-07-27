@@ -7,9 +7,10 @@ import { apiGet, apiPost, apiPut, apiDelete, apiPatch } from '../utils/api';
 import { API_BASE_URL } from '../config';
 import PlantPalette from './common/PlantPalette';
 import PlantIcon, { PlantIconSVG } from './common/PlantIcon';
-import { Plant, PlantedItem, GardenBed } from '../types';
+import { FailureReasonVerification, Plant, PlantedItem, GardenBed, PlantOutcome, PlantOutcomeReason } from '../types';
 import { ConfirmDialog } from './common/ConfirmDialog';
 import { useToast } from './common/Toast';
+import { PlantOutcomeDialog, PlantOutcomeSelection, plantOutcomeLabels } from './common/PlantOutcomeDialog';
 import BedFormModal from './GardenDesigner/BedFormModal';
 import PlantConfigModal, { PlantConfig } from './GardenDesigner/PlantConfigModal';
 import PlacementPreview from './GardenDesigner/PlacementPreview';
@@ -21,14 +22,15 @@ import { coordinateToGridLabel, gridLabelToCoordinate, isValidGridLabel } from '
 import PlannedPlantsSection from './GardenDesigner/PlannedPlantsSection';
 import { useActivePlan } from '../contexts/ActivePlanContext';
 import { getMIGardenerSpacing } from '../utils/migardenerSpacing';
+import { getSFGPlantsPerCell } from '../utils/sfgSpacing';
 import { calculateSpacingBuffer } from './GardenDesigner/utils/footprintCalculator';
 import CollectSeedsModal from './GardenDesigner/CollectSeedsModal';
-import HarvestPlantModal from './GardenDesigner/HarvestPlantModal';
-import BulkHarvestModal from './GardenDesigner/BulkHarvestModal';
+import HarvestPlantModal, { HarvestPlantRecordResult, HarvestPlantResult } from './GardenDesigner/HarvestPlantModal';
+import BulkHarvestModal, { BulkHarvestRecordResult, BulkHarvestResult } from './GardenDesigner/BulkHarvestModal';
 import SetSeedDateModal from './GardenDesigner/SetSeedDateModal';
 import WeatherAlertBanner from './GardenDesigner/WeatherAlertBanner';
 import BedOverviewGrid from './GardenDesigner/BedOverviewGrid';
-import { parseLocalDate } from '../utils/dateUtils';
+import { formatDisplayDate, formatLocalDate, parseLocalDate } from '../utils/dateUtils';
 import { useNow, useToday, useSimulation } from '../contexts/SimulationContext';
 import { usePlantingEvents } from './GardenDesigner/hooks/usePlantingEvents';
 import { GuildSelector } from './GardenDesigner/GuildSelector';
@@ -43,7 +45,13 @@ import {
   calculateHarvestDate, calculateTooltipPosition, isPlantedItemActiveOnDate,
   getFuturePlantingsAtPosition as getFuturePlantingsAtPositionHelper,
   getPlantedItemDisplayStatus,
+  canClearHarvestedPlantedItem,
+  canMarkPlantedItemFailed,
+  getBulkFailureGroupsForPlantedItem,
+  getBulkHarvestedClearGroupsForPlantedItem,
+  getTotalPlantedQuantity,
   distributePlantsAcrossCells,
+  distributePlantsEvenlyAcrossCells,
 } from './GardenDesigner/utils/designerHelpers';
 
 
@@ -59,6 +67,110 @@ interface ActiveBedPlantGroup {
   status: string;
   items: PlantedItem[];
 }
+
+interface PlantedItemOutcomeDialogState {
+  item: PlantedItem;
+  title: string;
+  allowedOutcomes: PlantOutcome[];
+  initialOutcome: PlantOutcome;
+  initialReason: PlantOutcomeReason;
+}
+
+interface SowDateFeedbackState {
+  itemId: number;
+  status: string;
+  message?: string;
+  plantName?: string;
+  variety?: string | null;
+  location?: {
+    label?: string;
+    zipCode?: string | null;
+  };
+  evidence?: {
+    floorF?: number;
+    sownDate?: string;
+    first7MeanF?: number | null;
+    first7BelowFloorDays?: number;
+    first7MinF?: number | null;
+    first10ConsecutiveBelowFloorDays?: number;
+  };
+  recommendation?: {
+    monthDay: string;
+    label: string;
+    basis?: string;
+  };
+}
+
+interface DtmFeedbackPrompt {
+  harvestId: number;
+  plantId: string;
+  plantName: string;
+  additionalDays: number;
+}
+
+interface GoodSowDateFeedbackState {
+  harvestId: number;
+  plantId: string;
+  plantName?: string;
+  variety?: string | null;
+  quality?: string;
+  message?: string;
+  evidence?: {
+    plantingDate?: string;
+    plantingLabel?: string;
+    harvestDate?: string | null;
+    quantity?: number;
+    unit?: string;
+  };
+  recommendation?: {
+    monthDay: string;
+    label: string;
+    basis?: string;
+  };
+}
+
+type FeedbackHarvestRecord = HarvestPlantRecordResult | BulkHarvestRecordResult;
+
+const isPoorHarvestFeedbackCandidate = (record?: FeedbackHarvestRecord | null): record is FeedbackHarvestRecord => (
+  !!record &&
+  record.id != null &&
+  (record.quality || '').toLowerCase() === 'poor' &&
+  !record.outcome &&
+  record.yieldExcluded !== true
+);
+
+const isGoodSowDateFeedbackCandidate = (record?: FeedbackHarvestRecord | null): record is FeedbackHarvestRecord => (
+  !!record &&
+  record.id != null &&
+  ['excellent', 'good'].includes((record.quality || '').toLowerCase()) &&
+  !record.outcome &&
+  record.yieldExcluded !== true
+);
+
+const normalizeGardenDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  const date = typeof value === 'string'
+    ? parseLocalDate(value)
+    : value instanceof Date
+      ? new Date(value)
+      : new Date(value as string | number);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const formatGardenDate = (
+  value: unknown,
+  options?: Intl.DateTimeFormatOptions
+): string => {
+  const date = normalizeGardenDate(value);
+  return date ? formatDisplayDate(date, options) : '';
+};
+
+const getGardenDateKey = (value: unknown): string => {
+  const date = normalizeGardenDate(value);
+  return date ? formatLocalDate(date) : '';
+};
 
 const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDate, transplantSeedStartId, onTransplantComplete, plantingEventId, onPlantingComplete }) => {
   const { activePlanId, planRefreshKey, bumpPlanRefresh, ensureActivePlan } = useActivePlan();
@@ -106,6 +218,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   const [touchedSquares, setTouchedSquares] = useState<Set<string>>(new Set());
   const [groupQuantityEdits, setGroupQuantityEdits] = useState<Record<string, string>>({});
   const [updatingGroupQuantityKey, setUpdatingGroupQuantityKey] = useState<string | null>(null);
+  const [clearingHarvestedKey, setClearingHarvestedKey] = useState<string | null>(null);
   const lastMousePositionRef = useRef<{x: number, y: number} | null>(null);
   const mouseMoveListenerRef = useRef<((e: MouseEvent) => void) | null>(null);
   const bedCardRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -139,12 +252,26 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   const [collectSeedsItem, setCollectSeedsItem] = useState<PlantedItem | null>(null);
   const [harvestPlantItem, setHarvestPlantItem] = useState<PlantedItem | null>(null);
   const [bulkHarvestGroup, setBulkHarvestGroup] = useState<{
+    mode?: 'harvest' | 'failure';
     plantId: string;
     plantName: string;
     variety?: string;
     items: PlantedItem[];
+    failureScopeLabel?: string;
   } | null>(null);
   const [seedDateItem, setSeedDateItem] = useState<PlantedItem | null>(null);
+  const [plantedItemOutcomeDialog, setPlantedItemOutcomeDialog] = useState<PlantedItemOutcomeDialogState | null>(null);
+  const [plantedItemOutcomeSaving, setPlantedItemOutcomeSaving] = useState(false);
+  const [plantedItemOutcomeError, setPlantedItemOutcomeError] = useState<string | null>(null);
+  const [sowDateFeedback, setSowDateFeedback] = useState<SowDateFeedbackState | null>(null);
+  const [sowDateFeedbackApplying, setSowDateFeedbackApplying] = useState(false);
+  const [reasonVerification, setReasonVerification] = useState<(FailureReasonVerification & { itemId: number }) | null>(null);
+  const [reasonCorrectionConfirmOpen, setReasonCorrectionConfirmOpen] = useState(false);
+  const [reasonCorrectionApplying, setReasonCorrectionApplying] = useState(false);
+  const [dtmFeedback, setDtmFeedback] = useState<DtmFeedbackPrompt | null>(null);
+  const [dtmFeedbackSaving, setDtmFeedbackSaving] = useState(false);
+  const [goodSowDateFeedback, setGoodSowDateFeedback] = useState<GoodSowDateFeedbackState | null>(null);
+  const [goodSowDateFeedbackSaving, setGoodSowDateFeedbackSaving] = useState(false);
 
   // Guild modal state
   const [showGuildSelector, setShowGuildSelector] = useState(false);
@@ -685,9 +812,10 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
   // dates make plants harvest-ready, but only a logged harvest/removal hides
   // them from the real bed state.
   const getActivePlantedItems = (bed: GardenBed): PlantedItem[] => {
-    if (!dateFilter.date) return bed.plantedItems || [];
+    const activeItems = (bed.plantedItems || []).filter(item => !item.outcome && !item.clearedAt);
+    if (!dateFilter.date) return activeItems;
     const viewDate = parseLocalDate(dateFilter.date);
-    return (bed.plantedItems || []).filter(item => isPlantedItemActiveOnDate(item, viewDate));
+    return activeItems.filter(item => isPlantedItemActiveOnDate(item, viewDate));
   };
 
   // Get future-dated PlantedItems as FuturePlantingPosition[] for the overlay.
@@ -704,16 +832,13 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
     for (const item of (bed.plantedItems || [])) {
       if (!item.plantedDate) continue;
-      const planted = new Date(item.plantedDate);
-      if (isNaN(planted.getTime())) continue;
-      planted.setHours(0, 0, 0, 0);
+      const planted = normalizeGardenDate(item.plantedDate);
+      if (!planted) continue;
       if (planted <= viewDate) continue; // Only future items
 
       const originX = item.position.x;
       const originY = item.position.y;
-      const dateStr = typeof item.plantedDate === 'string'
-        ? item.plantedDate
-        : new Date(item.plantedDate).toISOString().split('T')[0];
+      const dateStr = getGardenDateKey(item.plantedDate);
 
       let spacingInches = 12;
       const plant = plants.find(p => p.id === item.plantId);
@@ -759,12 +884,12 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
       const dateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
       if (!dateStr) continue;
-      const eventDate = new Date(dateStr as unknown as string);
+      const eventDate = parseLocalDate(dateStr as unknown as string);
       if (isNaN(eventDate.getTime()) || eventDate <= viewDate) continue;
 
       const originX = event.positionX!;
       const originY = event.positionY!;
-      const formattedDate = eventDate.toISOString().split('T')[0];
+      const formattedDate = formatLocalDate(eventDate);
 
       let spacingInches = 12;
       const plant = plants.find(p => p.id === event.plantId);
@@ -818,18 +943,14 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     viewDate.setHours(0, 0, 0, 0);
     return (bed.plantedItems || []).filter(item => {
       if (!item.plantedDate) return false;
-      const planted = new Date(item.plantedDate);
-      if (isNaN(planted.getTime())) return false;
-      planted.setHours(0, 0, 0, 0);
+      const planted = normalizeGardenDate(item.plantedDate);
+      if (!planted) return false;
       return planted > viewDate;
     });
   };
 
   const getPlantedDateKey = (value: unknown): string => {
-    if (!value) return '';
-    if (typeof value === 'string') return value.split('T')[0];
-    if (value instanceof Date) return value.toISOString().split('T')[0];
-    return '';
+    return getGardenDateKey(value);
   };
 
   const getMatchingFutureRowItems = (bed: GardenBed, sourceItem: PlantedItem): PlantedItem[] => {
@@ -896,7 +1017,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           const dateStr = event.directSeedDate || event.transplantDate || event.seedStartDate;
           if (!dateStr) return false;
           const current = parseLocalDate(dateFilter.date);
-          if (new Date(dateStr) <= current) return false;
+          if (parseLocalDate(dateStr) <= current) return false;
 
           const ox = event.positionX!;
           const oy = event.positionY!;
@@ -1255,32 +1376,280 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     }
   };
 
-  const handleSkipPlantedItem = async (item: PlantedItem) => {
+  const refreshAfterPlantedItemOutcome = async () => {
+    setSelectedPlantedCell(null);
+    const freshBeds = await loadData();
+    await fetchPlantingEvents();
+    await fetchFuturePlantingEvents();
+    if (activeBed) {
+      const updatedBed = freshBeds.find(b => b.id === activeBed.id);
+      if (updatedBed) {
+        setActiveBed(updatedBed);
+        setVisibleBeds(prev =>
+          prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
+        );
+      }
+    }
+    bumpPlanRefresh();
+  };
+
+  const handleClearHarvestedItems = async (
+    items: PlantedItem[],
+    scopeLabel: string,
+    actionKey: string,
+  ) => {
+    if (items.length === 0) return;
+    setClearingHarvestedKey(actionKey);
     try {
-      const response = await apiPost(`/api/planted-items/${item.id}/cancel`, {});
-      if (response.ok) {
-        showSuccess(`Skipped ${getPlantName(item.plantId)} — will not appear in bed views`);
-        setSelectedPlantedCell(null);
-        const freshBeds = await loadData();
-        await fetchPlantingEvents();
-        await fetchFuturePlantingEvents();
-        if (activeBed) {
-          const updatedBed = freshBeds.find(b => b.id === activeBed.id);
-          if (updatedBed) {
-            setActiveBed(updatedBed);
-            setVisibleBeds(prev =>
-              prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed)
-            );
-          }
-        }
-        bumpPlanRefresh();
-      } else {
-        showError('Failed to skip planting');
+      const response = await apiPost('/api/planted-items/bulk-clear', {
+        plantedItemIds: items.map(item => item.id),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to clear harvested plants');
+      }
+
+      const count = items.length;
+      showSuccess(count > 1 ? `Cleared ${scopeLabel}` : 'Cleared harvested planting');
+      await refreshAfterPlantedItemOutcome();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to clear harvested plants');
+    } finally {
+      setClearingHarvestedKey(null);
+    }
+  };
+
+  const openPlantedItemOutcomeDialog = (
+    item: PlantedItem,
+    config: Omit<PlantedItemOutcomeDialogState, 'item'>,
+  ) => {
+    setPlantedItemOutcomeDialog({ item, ...config });
+    setPlantedItemOutcomeError(null);
+    setPlantedItemOutcomeSaving(false);
+  };
+
+  const closePlantedItemOutcomeDialog = () => {
+    if (plantedItemOutcomeSaving) return;
+    setPlantedItemOutcomeDialog(null);
+    setPlantedItemOutcomeError(null);
+  };
+
+  const requestSowDateDiagnosis = async (itemId: number) => {
+    try {
+      const response = await apiPost(`/api/feedback/planted-items/${itemId}/sow-date-diagnosis`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showWarning(data.error || 'Could not run sow-date diagnosis');
+        return;
+      }
+      if (data.status === 'suggestion' || data.status === 'needs_location') {
+        setSowDateFeedback({ ...(data as SowDateFeedbackState), itemId });
+      } else if (data.status === 'unavailable') {
+        showWarning(data.message || 'Sow-date diagnosis is not available for this planting');
       }
     } catch (error) {
-      console.error('Error skipping plant:', error);
-      showError('Network error occurred');
+      console.error('Error running sow-date diagnosis:', error);
+      showWarning('Could not run sow-date diagnosis');
     }
+  };
+
+  const requestFailureReasonVerification = async (itemId: number) => {
+    setReasonVerification(null);
+    try {
+      const response = await apiPost(`/api/feedback/planted-items/${itemId}/reason-verification`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showWarning(data.error || 'Could not verify failure reason');
+        return;
+      }
+      if (data.status === 'verdict' || data.status === 'needs_location' || data.status === 'unavailable') {
+        setReasonVerification({ ...(data as FailureReasonVerification), itemId });
+      } else if (data.status === 'not_applicable' && data.message) {
+        showWarning(data.message);
+      }
+    } catch (error) {
+      console.error('Error verifying failure reason:', error);
+      showWarning('Could not verify failure reason');
+    }
+  };
+
+  const applySowDateFeedback = async () => {
+    if (!sowDateFeedback?.recommendation?.monthDay) return;
+    setSowDateFeedbackApplying(true);
+    try {
+      const response = await apiPost(
+        `/api/feedback/planted-items/${sowDateFeedback.itemId}/sow-date-adjustment`,
+        { recommendationMonthDay: sowDateFeedback.recommendation.monthDay }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save sow-date adjustment');
+      }
+      showSuccess(data.message || 'Sow-date adjustment saved');
+      setSowDateFeedback(null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to save sow-date adjustment');
+    } finally {
+      setSowDateFeedbackApplying(false);
+    }
+  };
+
+  const applyFailureReasonCorrection = async () => {
+    if (!reasonVerification?.itemId) return;
+    const itemId = reasonVerification.itemId;
+    setReasonCorrectionApplying(true);
+    try {
+      const response = await apiPost(`/api/feedback/planted-items/${itemId}/apply-reason-correction`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reclassify failure reason');
+      }
+
+      showSuccess(data.message || "Reclassified as didn't establish");
+      setReasonVerification(null);
+      const diagnosis = data.sowDateDiagnosis as Omit<SowDateFeedbackState, 'itemId'> | undefined;
+      if (diagnosis?.status === 'suggestion' || diagnosis?.status === 'needs_location') {
+        setSowDateFeedback({ ...diagnosis, itemId });
+      } else if (diagnosis?.status === 'unavailable' && diagnosis.message) {
+        showWarning(diagnosis.message);
+      }
+      await refreshAfterPlantedItemOutcome();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to reclassify failure reason');
+    } finally {
+      setReasonCorrectionApplying(false);
+    }
+  };
+
+  const promptDtmFeedbackFromRecord = (record?: FeedbackHarvestRecord | null, fallbackPlantId?: string) => {
+    if (!isPoorHarvestFeedbackCandidate(record)) return;
+    const plantId = record.plantId || fallbackPlantId;
+    if (!plantId || record.id == null) return;
+    setDtmFeedback({
+      harvestId: record.id,
+      plantId,
+      plantName: getPlantName(plantId),
+      additionalDays: 7,
+    });
+  };
+
+  const requestGoodSowDateFeedbackFromRecord = async (record?: FeedbackHarvestRecord | null) => {
+    if (!isGoodSowDateFeedbackCandidate(record) || record.id == null) return;
+    try {
+      const response = await apiPost(`/api/feedback/harvests/${record.id}/sow-date-confirmation`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showWarning(data.error || 'Could not prepare planting-date feedback');
+        return;
+      }
+      if (data.status === 'suggestion' && data.recommendation?.monthDay) {
+        setGoodSowDateFeedback(data as GoodSowDateFeedbackState);
+      }
+    } catch (error) {
+      console.error('Error preparing good-yield sow-date feedback:', error);
+      showWarning('Could not prepare planting-date feedback');
+    }
+  };
+
+  const applyDtmFeedback = async () => {
+    if (!dtmFeedback) return;
+    const additionalDays = Math.max(1, Math.min(60, Math.round(dtmFeedback.additionalDays)));
+    setDtmFeedbackSaving(true);
+    try {
+      const response = await apiPost(
+        `/api/feedback/harvests/${dtmFeedback.harvestId}/dtm-adjustment`,
+        { additionalDays }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save days-to-maturity adjustment');
+      }
+      showSuccess(data.message || 'Days-to-maturity adjustment saved');
+      setDtmFeedback(null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to save days-to-maturity adjustment');
+    } finally {
+      setDtmFeedbackSaving(false);
+    }
+  };
+
+  const applyGoodSowDateFeedback = async () => {
+    if (!goodSowDateFeedback?.recommendation?.monthDay) return;
+    setGoodSowDateFeedbackSaving(true);
+    try {
+      const response = await apiPost(
+        `/api/feedback/harvests/${goodSowDateFeedback.harvestId}/apply-sow-date-confirmation`,
+        { recommendationMonthDay: goodSowDateFeedback.recommendation.monthDay }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save proven planting date');
+      }
+      showSuccess(data.message || 'Proven planting date saved');
+      setGoodSowDateFeedback(null);
+      bumpPlanRefresh();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to save proven planting date');
+    } finally {
+      setGoodSowDateFeedbackSaving(false);
+    }
+  };
+
+  const handleRecordPlantedItemOutcome = async (selection: PlantOutcomeSelection) => {
+    if (!plantedItemOutcomeDialog) return;
+    const { item } = plantedItemOutcomeDialog;
+    setPlantedItemOutcomeSaving(true);
+    setPlantedItemOutcomeError(null);
+    try {
+      const response = await apiPost(`/api/planted-items/${item.id}/outcome`, {
+        outcome: selection.outcome,
+        outcomeReason: selection.outcomeReason,
+        outcomeDate: selection.outcomeDate,
+        ...(selection.outcomeNotes ? { outcomeNotes: selection.outcomeNotes } : {}),
+      });
+      if (response.ok) {
+        const result = await response.json().catch(() => ({}));
+        const label = plantOutcomeLabels[selection.outcome].toLowerCase();
+        showSuccess(`Marked ${getPlantName(item.plantId)} as ${label}`);
+        setPlantedItemOutcomeDialog(null);
+        if (selection.outcome === 'failed' && selection.outcomeReason === 'weather_frost') {
+          await requestFailureReasonVerification(result?.plantedItem?.id || item.id);
+        } else if (selection.outcome === 'didnt_establish') {
+          await requestSowDateDiagnosis(result?.plantedItem?.id || item.id);
+        }
+        await refreshAfterPlantedItemOutcome();
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        const message = errorData.error || 'Failed to record plant outcome';
+        setPlantedItemOutcomeError(message);
+        showError(message);
+      }
+    } catch (error) {
+      console.error('Error recording plant outcome:', error);
+      setPlantedItemOutcomeError('Network error occurred');
+      showError('Network error occurred');
+    } finally {
+      setPlantedItemOutcomeSaving(false);
+    }
+  };
+
+  const handleSkipPlantedItem = (item: PlantedItem) => {
+    openPlantedItemOutcomeDialog(item, {
+      title: 'Record Not Planted',
+      allowedOutcomes: ['not_planted'],
+      initialOutcome: 'not_planted',
+      initialReason: 'changed_plan',
+    });
+  };
+
+  const handlePlantedItemFailed = (item: PlantedItem) => {
+    const isPlannedEstablishmentFailure = item.status === 'planned';
+    openPlantedItemOutcomeDialog(item, {
+      title: isPlannedEstablishmentFailure ? 'Record Establishment Failure' : 'Record Plant Outcome',
+      allowedOutcomes: ['failed', 'didnt_establish'],
+      initialOutcome: isPlannedEstablishmentFailure ? 'didnt_establish' : 'failed',
+      initialReason: isPlannedEstablishmentFailure ? 'poor_germination' : 'other',
+    });
   };
 
   const handleRemoveAllByPlant = async () => {
@@ -1450,8 +1819,24 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     }
   };
 
-  const handleHarvestPlantSuccess = async () => {
-    showSuccess('Harvest logged');
+  const handleHarvestPlantSuccess = async (result?: HarvestPlantResult) => {
+    showSuccess(result?.plantedItem?.clearedAt ? 'Final harvest logged; planting cleared' : 'Harvest logged');
+    if (result?.plantedItem?.outcome === 'failed' && result.plantedItem.outcomeReason === 'weather_frost') {
+      await requestFailureReasonVerification(result.plantedItem.id);
+    } else if (result?.harvestRecord?.outcome === 'failed' && result.harvestRecord.outcomeReason === 'weather_frost' && result.harvestRecord.plantedItemId != null) {
+      await requestFailureReasonVerification(result.harvestRecord.plantedItemId);
+    } else if (result?.plantedItem?.outcome === 'didnt_establish') {
+      await requestSowDateDiagnosis(result.plantedItem.id);
+    } else if (result?.harvestRecord?.outcome === 'didnt_establish' && result.harvestRecord.plantedItemId != null) {
+      await requestSowDateDiagnosis(result.harvestRecord.plantedItemId);
+    } else {
+      const harvestRecord = result?.harvestRecord || result;
+      if (isPoorHarvestFeedbackCandidate(harvestRecord)) {
+        promptDtmFeedbackFromRecord(harvestRecord, harvestPlantItem?.plantId);
+      } else if (result?.plantedItem?.clearedAt && isGoodSowDateFeedbackCandidate(harvestRecord)) {
+        await requestGoodSowDateFeedbackFromRecord(harvestRecord);
+      }
+    }
     setSelectedPlantedCell(null);
     const freshBeds = await loadData();
     await fetchPlantingEvents();
@@ -1466,9 +1851,32 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     bumpPlanRefresh();
   };
 
-  const handleBulkHarvestSuccess = async () => {
+  const handleBulkHarvestSuccess = async (result?: BulkHarvestResult) => {
     const count = bulkHarvestGroup?.items.length ?? 0;
-    showSuccess(count > 1 ? `Harvest logged for ${count} cells` : 'Harvest logged');
+    const isFailureMode = bulkHarvestGroup?.mode === 'failure';
+    const isFinalHarvest = result?.plantedItems?.some(item => item.clearedAt);
+    showSuccess(
+      isFailureMode
+        ? (count > 1 ? `Marked ${count} cells as failed` : 'Marked cell as failed')
+        : isFinalHarvest
+          ? (count > 1 ? `Final harvest logged for ${count} cells` : 'Final harvest logged; planting cleared')
+        : (count > 1 ? `Harvest logged for ${count} cells` : 'Harvest logged')
+    );
+    const weatherFailedItem = result?.plantedItems?.find(item => item.outcome === 'failed' && item.outcomeReason === 'weather_frost');
+    const failedItem = result?.plantedItems?.find(item => item.outcome === 'didnt_establish');
+    if (weatherFailedItem) {
+      await requestFailureReasonVerification(weatherFailedItem.id);
+    } else if (failedItem) {
+      await requestSowDateDiagnosis(failedItem.id);
+    } else {
+      const poorRecord = result?.records?.find(record => isPoorHarvestFeedbackCandidate(record));
+      if (poorRecord) {
+        promptDtmFeedbackFromRecord(poorRecord, bulkHarvestGroup?.plantId);
+      } else if (isFinalHarvest) {
+        const goodRecord = result?.records?.find(record => isGoodSowDateFeedbackCandidate(record));
+        await requestGoodSowDateFeedbackFromRecord(goodRecord);
+      }
+    }
     setSelectedPlantedCell(null);
     const freshBeds = await loadData();
     await fetchPlantingEvents();
@@ -1722,6 +2130,10 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         return 'bg-amber-100 text-amber-800';
       case 'saving-seed':
         return 'bg-purple-100 text-purple-800';
+      case 'failed':
+        return 'bg-red-100 text-red-800';
+      case 'not-planted':
+        return 'bg-gray-100 text-gray-700';
       default:
         return 'bg-gray-100 text-gray-700';
     }
@@ -1855,7 +2267,9 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
       const gridSize = targetBed.gridSize || 12;
       let plantsPerSquare: number;
 
-      if (targetBed.planningMethod === 'migardener') {
+      if (targetBed.planningMethod === 'square-foot') {
+        plantsPerSquare = getSFGPlantsPerCell(plant.id);
+      } else if (targetBed.planningMethod === 'migardener') {
         // MIGardener: use seed density from migardener data or spacing overrides
         if (plant.migardener?.seedDensityPerInch && plant.migardener?.plantingStyle === 'row_based') {
           plantsPerSquare = Math.round(gridSize * plant.migardener.seedDensityPerInch);
@@ -1873,10 +2287,14 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         const spacing = plant.spacing || 12;
         plantsPerSquare = spacing <= gridSize ? Math.floor(Math.pow(gridSize / spacing, 2)) : 1;
       }
+      const placementCellCapacity = Math.max(1, Math.floor(plantsPerSquare));
 
       // Calculate how many squares are needed
       const totalQuantity = config.quantity;
-      const squaresNeeded = Math.ceil(totalQuantity / plantsPerSquare);
+      const squaresNeeded = Math.ceil(totalQuantity / Math.max(plantsPerSquare, 0.0001));
+      const distributePreviewCells = config.placementDistribution === 'even'
+        ? distributePlantsEvenlyAcrossCells
+        : distributePlantsAcrossCells;
 
       // Resolve sourcePlanItemId: use from drag or sync with planner
       let sourcePlanItemId = pendingPlant.sourcePlanItemId;
@@ -1920,8 +2338,9 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           }
         }
 
-        // Fill each preview cell up to the plant's per-square capacity (plantsPerSquare),
-        // walking the preview cells in order. Preview positions already reflect the plant's
+        // Row configs split the quantity evenly across preview cells; other layouts
+        // fill each preview cell up to the plant's per-cell capacity. Preview
+        // positions already reflect the plant's
         // real spacing, so this lays plants out at proper spacing (1 per cell for wide-spacing
         // crops like peppers; multiple per cell only for dense crops where plantsPerSquare > 1).
         // distributePlantsAcrossCells NEVER stacks more than a cell can hold — that was the bug
@@ -1929,7 +2348,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         // beyond what fits at proper spacing is returned as notFitted so we can warn the user
         // below rather than over-stacking (decision: "respect real spacing, stop at bed edge").
         const { positions: distributed, notFitted: plantsNotFitted } =
-          distributePlantsAcrossCells(config.previewPositions, totalQuantity, plantsPerSquare);
+          distributePreviewCells(config.previewPositions, totalQuantity, placementCellCapacity);
         const positions: { x: number; y: number; quantity: number; plantedDate?: string }[] =
           distributed.map(pos => {
             const entry: { x: number; y: number; quantity: number; plantedDate?: string } = {
@@ -2070,7 +2489,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           // quantity (stacked, invisible plants) — preview positions are
           // per-cell now, so each holds at most plantsPerSquare.
           const { positions: distributed, notFitted: previewNotFitted } =
-            distributePlantsAcrossCells(config.previewPositions, totalQuantity, plantsPerSquare);
+            distributePreviewCells(config.previewPositions, totalQuantity, placementCellCapacity);
           if (previewNotFitted > 0) {
             showWarning(`${previewNotFitted} ${cropName}${config.variety ? ` (${config.variety})` : ''} didn't fit in the previewed cell(s) at proper spacing -- place the rest separately.`);
           }
@@ -2101,7 +2520,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                 continue;
               }
 
-              const quantityForSquare = Math.min(plantsPerSquare, remainingPlants);
+              const quantityForSquare = Math.min(placementCellCapacity, remainingPlants);
               positions.push({ x, y, quantity: quantityForSquare });
 
               remainingPlants -= quantityForSquare;
@@ -2406,14 +2825,18 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           // Add date information if available
           let dateInfo = '';
           if (c.item.plantedDate) {
-            const plantedDate = new Date(c.item.plantedDate).toLocaleDateString();
+            const plantedDate = formatGardenDate(c.item.plantedDate);
             if (c.item.harvestDate) {
-              const harvestDate = new Date(c.item.harvestDate).toLocaleDateString();
+              const harvestDate = formatGardenDate(c.item.harvestDate);
               dateInfo = ` - ${plantedDate} to ${harvestDate}`;
             } else if (c.plant?.daysToMaturity) {
-              const estimatedHarvest = new Date(c.item.plantedDate);
-              estimatedHarvest.setDate(estimatedHarvest.getDate() + c.plant.daysToMaturity);
-              dateInfo = ` - ${plantedDate} to ${estimatedHarvest.toLocaleDateString()} (est.)`;
+              const estimatedHarvest = normalizeGardenDate(c.item.plantedDate);
+              if (estimatedHarvest) {
+                estimatedHarvest.setDate(estimatedHarvest.getDate() + c.plant.daysToMaturity);
+                dateInfo = ` - ${plantedDate} to ${formatDisplayDate(estimatedHarvest)} (est.)`;
+              } else {
+                dateInfo = ` - Planted ${plantedDate}`;
+              }
             } else {
               dateInfo = ` - Planted ${plantedDate}`;
             }
@@ -2767,6 +3190,12 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
     );
   };
 
+  const canApplyReasonCorrection =
+    reasonVerification?.status === 'verdict' &&
+    reasonVerification.verdict === 'unlikely' &&
+    reasonVerification.alternative?.suggestedOutcome === 'didnt_establish' &&
+    reasonVerification.alternative?.suggestedReason === 'poor_germination';
+
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="w-full h-full flex flex-col px-4">
@@ -2957,7 +3386,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                   onClick={() => setClearConfirm(true)}
                   className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
                 >
-                  Clear ({getActivePlantedItems(activeBed).length})
+                  Clear ({getActivePlantedItems(activeBed).length} cells)
                 </button>
               )}
               {viewMode === 'detail' && selectedPlant && (
@@ -3030,7 +3459,9 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
               <div className="hidden md:flex items-center gap-1.5 text-xs text-gray-500 ml-auto">
                 <span className="font-medium text-green-700">{beds.length}</span> beds
                 <span className="text-gray-300">|</span>
-                <span className="font-medium text-blue-700">{beds.reduce((sum, bed) => sum + getActivePlantedItems(bed).length, 0)}</span> plants
+                <span className="font-medium text-blue-700">{beds.reduce((sum, bed) => sum + getTotalPlantedQuantity(getActivePlantedItems(bed)), 0)}</span> plants
+                <span className="text-gray-300">|</span>
+                <span className="font-medium text-slate-700">{beds.reduce((sum, bed) => sum + getActivePlantedItems(bed).length, 0)}</span> cells
                 <span className="text-gray-300">|</span>
                 <span className="font-medium text-purple-700">{beds.reduce((sum, bed) => sum + (bed.width * bed.length), 0)}</span> sq ft
               </div>
@@ -3038,6 +3469,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
               {/* Settings Panel Toggle - detail mode only */}
               {viewMode === 'detail' && (
               <button
+                data-testid="designer-settings-toggle"
                 onClick={() => {
                   const next = !showSettingsPanel;
                   setShowSettingsPanel(next);
@@ -3149,6 +3581,254 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
             beds={beds}
             zipCode={localStorage.getItem('weatherZipCode') || ''}
           />
+          {sowDateFeedback && (
+            <div
+              data-testid="sow-date-feedback-card"
+              className="mb-2 flex-shrink-0 rounded-lg border border-amber-300 bg-amber-50 p-3"
+            >
+              {sowDateFeedback.status === 'needs_location' ? (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-amber-950">Garden location needed</div>
+                    <div className="mt-1 text-sm text-amber-900">
+                      {sowDateFeedback.message || 'Set a ZIP in Settings before soil-temperature diagnosis can run.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSowDateFeedback(null)}
+                    className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold uppercase tracking-wide text-amber-700">
+                      Sow-Date Feedback
+                    </div>
+                    <div className="mt-1 text-base font-bold text-amber-950">
+                      Move {sowDateFeedback.plantName || 'this crop'}
+                      {sowDateFeedback.variety ? ` (${sowDateFeedback.variety})` : ''} to {sowDateFeedback.recommendation?.label}
+                    </div>
+                    <div className="mt-1 text-sm text-amber-900">
+                      {sowDateFeedback.location?.label ? `Based on ${sowDateFeedback.location.label}. ` : ''}
+                      Sown {formatGardenDate(sowDateFeedback.evidence?.sownDate)}; first-week soil averaged {sowDateFeedback.evidence?.first7MeanF ?? '-'}F
+                      against a {sowDateFeedback.evidence?.floorF ?? '-'}F floor.
+                    </div>
+                    <div className="mt-1 text-xs text-amber-800">
+                      {sowDateFeedback.evidence?.first7BelowFloorDays ?? 0}/7 days below floor; longest early cold stretch {sowDateFeedback.evidence?.first10ConsecutiveBelowFloorDays ?? 0} days.
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={applySowDateFeedback}
+                      disabled={sowDateFeedbackApplying || !sowDateFeedback.recommendation?.monthDay}
+                      className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+                    >
+                      {sowDateFeedbackApplying ? 'Saving...' : 'Apply'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSowDateFeedback(null)}
+                      disabled={sowDateFeedbackApplying}
+                      className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {goodSowDateFeedback && (
+            <div
+              data-testid="good-sow-date-feedback-card"
+              className="mb-2 flex-shrink-0 rounded-lg border border-emerald-300 bg-emerald-50 p-3"
+            >
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-wide text-emerald-700">
+                    Proven Planting Date
+                  </div>
+                  <div className="mt-1 text-base font-bold text-emerald-950">
+                    Use {goodSowDateFeedback.recommendation?.label} for {goodSowDateFeedback.plantName || 'this crop'}
+                    {goodSowDateFeedback.variety ? ` (${goodSowDateFeedback.variety})` : ''}
+                  </div>
+                  <div className="mt-1 text-sm text-emerald-900">
+                    {goodSowDateFeedback.evidence?.plantingLabel || 'Planted'} {formatGardenDate(goodSowDateFeedback.evidence?.plantingDate)}
+                    {goodSowDateFeedback.evidence?.harvestDate ? `; harvested ${formatGardenDate(goodSowDateFeedback.evidence.harvestDate)}` : ''}
+                    {goodSowDateFeedback.quality ? ` with ${goodSowDateFeedback.quality} quality` : ''}.
+                  </div>
+                  {goodSowDateFeedback.evidence?.quantity != null && (
+                    <div className="mt-1 text-xs text-emerald-800">
+                      Yield: {goodSowDateFeedback.evidence.quantity} {goodSowDateFeedback.evidence.unit || ''}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={applyGoodSowDateFeedback}
+                    disabled={goodSowDateFeedbackSaving || !goodSowDateFeedback.recommendation?.monthDay}
+                    className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+                  >
+                    {goodSowDateFeedbackSaving ? 'Saving...' : 'Apply'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGoodSowDateFeedback(null)}
+                    disabled={goodSowDateFeedbackSaving}
+                    className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {reasonVerification && (
+            <div
+              data-testid="failure-reason-verification-card"
+              className="mb-2 flex-shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 p-3"
+            >
+              {reasonVerification.status === 'needs_location' ? (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-cyan-950">Garden location needed</div>
+                    <div className="mt-1 text-sm text-cyan-900">
+                      {reasonVerification.message || 'Set a ZIP in Settings before weather/frost verification can run.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReasonVerification(null)}
+                    className="rounded-lg border border-cyan-300 bg-white px-3 py-1.5 text-sm font-semibold text-cyan-800 hover:bg-cyan-100"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ) : reasonVerification.status === 'unavailable' ? (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-cyan-950">Weather check unavailable</div>
+                    <div className="mt-1 text-sm text-cyan-900">
+                      {reasonVerification.message || 'There was not enough archived weather data to check this failure reason.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReasonVerification(null)}
+                    className="rounded-lg border border-cyan-300 bg-white px-3 py-1.5 text-sm font-semibold text-cyan-800 hover:bg-cyan-100"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold uppercase tracking-wide text-cyan-700">
+                      Weather Reason Check
+                    </div>
+                    <div className="mt-1 text-base font-bold text-cyan-950">
+                      {reasonVerification.verdict === 'confirmed'
+                        ? 'Weather/frost is plausible'
+                        : 'Weather/frost is unlikely'}
+                    </div>
+                    <div className="mt-1 text-sm text-cyan-900">
+                      {reasonVerification.message}
+                    </div>
+                    <div className="mt-1 text-xs text-cyan-800">
+                      {reasonVerification.location?.label ? `Based on ${reasonVerification.location.label}. ` : ''}
+                      Window {formatGardenDate(reasonVerification.window?.start)} to {formatGardenDate(reasonVerification.window?.end)}.
+                      {' '}Coldest air {reasonVerification.evidence?.windowMinAirF ?? '-'}F on {formatGardenDate(reasonVerification.evidence?.coldestDate)};
+                      {' '}threshold {reasonVerification.evidence?.thresholdF ?? '-'}F ({reasonVerification.evidence?.frostTolerance || 'unknown'}).
+                      {' '}Days at/below threshold: {reasonVerification.evidence?.daysAtOrBelowThreshold ?? 0}.
+                    </div>
+                    {reasonVerification.alternative && (
+                      <div className="mt-2 rounded-md border border-cyan-200 bg-white px-3 py-2 text-sm text-cyan-900">
+                        {reasonVerification.alternative.rationale}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row lg:self-center">
+                    {canApplyReasonCorrection && (
+                      <button
+                        type="button"
+                        onClick={() => setReasonCorrectionConfirmOpen(true)}
+                        disabled={reasonCorrectionApplying}
+                        className="rounded-lg bg-cyan-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-cyan-800 disabled:opacity-50"
+                      >
+                        Reclassify
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setReasonVerification(null)}
+                      disabled={reasonCorrectionApplying}
+                      className="rounded-lg border border-cyan-300 bg-white px-3 py-1.5 text-sm font-semibold text-cyan-800 hover:bg-cyan-100 disabled:opacity-50"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {dtmFeedback && (
+            <div
+              data-testid="dtm-feedback-card"
+              className="mb-2 flex-shrink-0 rounded-lg border border-blue-200 bg-blue-50 p-3"
+            >
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+                    Harvest Feedback
+                  </div>
+                  <div className="mt-1 text-base font-bold text-blue-950">
+                    Did {dtmFeedback.plantName} need more time in the ground?
+                  </div>
+                  <div className="mt-1 text-sm text-blue-900">
+                    Save a per-variety days-to-maturity adjustment for future harvest dates.
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <label className="block text-sm font-medium text-blue-950">
+                    Extra days
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={dtmFeedback.additionalDays}
+                      onChange={(e) => setDtmFeedback(prev => prev ? {
+                        ...prev,
+                        additionalDays: Math.max(1, Math.min(60, Number(e.target.value) || 1)),
+                      } : prev)}
+                      className="mt-1 w-24 rounded-lg border border-blue-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={applyDtmFeedback}
+                    disabled={dtmFeedbackSaving}
+                    className="rounded-lg bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+                  >
+                    {dtmFeedbackSaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDtmFeedback(null)}
+                    disabled={dtmFeedbackSaving}
+                    className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           </>)}
 
           {/* Collapsible Settings Panel - detail mode only */}
@@ -3381,45 +4061,48 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                     </div>
 
                     {/* Grid */}
-                    <div className="flex-1 min-h-0 overflow-auto flex justify-center items-start">
-                      <div
-                        ref={(el) => { bedCardRefs.current[activeBed.id] = el; }}
-                        className="relative"
-                      >
-                        {renderGrid(activeBed)}
+                    <div className="flex-1 min-h-0 overflow-auto">
+                      <div className="flex min-w-full w-max justify-center items-start">
+                        <div
+                          ref={(el) => { bedCardRefs.current[activeBed.id] = el; }}
+                          className="relative"
+                        >
+                          {renderGrid(activeBed)}
 
-                        {/* Hover tooltip */}
-                        {hoverInfo && hoverInfo.bedId === activeBed.id && (
-                          <div
-                            className="absolute z-50 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg pointer-events-none whitespace-nowrap"
-                            style={{
-                              left: hoverInfo.svgX,
-                              top: hoverInfo.svgY - (20 + (hoverInfo.currentPlants.length + hoverInfo.futurePlants.length) * 18 + (hoverInfo.currentPlants.length > 0 && hoverInfo.futurePlants.length > 0 ? 8 : 0)),
-                              transform: 'translateX(-50%)',
-                            }}
-                          >
-                            {hoverInfo.currentPlants.map((cp, i) => (
-                              <div key={`c-${i}`}>
-                                <span className="font-bold">{getPlantName(cp.plantId)}</span>
-                                {cp.variety && <span className="text-gray-300"> - {cp.variety}</span>}
-                              </div>
-                            ))}
-                            {hoverInfo.currentPlants.length > 0 && hoverInfo.futurePlants.length > 0 && (
-                              <div className="border-t border-gray-600 my-1" />
-                            )}
-                            {hoverInfo.futurePlants.map((fp, i) => {
-                              const d = fp.plantingDate ? parseLocalDate(fp.plantingDate) : null;
-                              const dateLabel = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-                              return (
-                                <div key={`f-${i}`} className="text-green-400">
-                                  <span className="font-bold">{getPlantName(fp.plantId)}</span>
-                                  {fp.variety && <span className="text-green-300"> - {fp.variety}</span>}
-                                  {dateLabel && <span className="text-green-500"> ({dateLabel})</span>}
+                          {/* Hover tooltip */}
+                          {hoverInfo && hoverInfo.bedId === activeBed.id && (
+                            <div
+                              className="absolute z-50 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg pointer-events-none whitespace-nowrap"
+                              style={{
+                                left: hoverInfo.svgX,
+                                top: hoverInfo.svgY - (20 + (hoverInfo.currentPlants.length + hoverInfo.futurePlants.length) * 18 + (hoverInfo.currentPlants.length > 0 && hoverInfo.futurePlants.length > 0 ? 8 : 0)),
+                                transform: 'translateX(-50%)',
+                              }}
+                            >
+                              {hoverInfo.currentPlants.map((cp, i) => (
+                                <div key={`c-${i}`}>
+                                  <span className="font-bold">{getPlantName(cp.plantId)}</span>
+                                  {cp.variety && <span className="text-gray-300"> - {cp.variety}</span>}
                                 </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                              ))}
+                              {hoverInfo.currentPlants.length > 0 && hoverInfo.futurePlants.length > 0 && (
+                                <div className="border-t border-gray-600 my-1" />
+                              )}
+                              {hoverInfo.futurePlants.map((fp, i) => {
+                                const dateLabel = fp.plantingDate
+                                  ? formatDisplayDate(fp.plantingDate, { month: 'short', day: 'numeric' })
+                                  : '';
+                                return (
+                                  <div key={`f-${i}`} className="text-green-400">
+                                    <span className="font-bold">{getPlantName(fp.plantId)}</span>
+                                    {fp.variety && <span className="text-green-300"> - {fp.variety}</span>}
+                                    {dateLabel && <span className="text-green-500"> ({dateLabel})</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3428,7 +4111,9 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                   <div className="rounded-2xl bg-slate-50 p-4 flex flex-col min-h-0 overflow-hidden">
                     <div className="mb-3 flex items-center justify-between gap-3 flex-shrink-0">
                       <h3 className="font-semibold text-gray-900 truncate">Plants in {activeBed.name}</h3>
-                      <span className="text-sm text-gray-500">{getActivePlantedItems(activeBed).length} on {dateFilter.date}</span>
+                      <span className="text-sm text-gray-500">
+                        {getTotalPlantedQuantity(getActivePlantedItems(activeBed))} plants | {getActivePlantedItems(activeBed).length} cells on {dateFilter.date}
+                      </span>
                     </div>
 
                     {getActivePlantedItems(activeBed).length > 0 ? (
@@ -3467,10 +4152,12 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                               const hd = calculateHarvestDate(it, groupPlant);
                               return !!hd && hd <= now;
                             });
+                            const clearableHarvestedItems = group.items.filter(canClearHarvestedPlantedItem);
                             const isReady = readyItems.length > 0;
                             const statusDate = dateFilter.date ? parseLocalDate(dateFilter.date) : now;
                             const displayStatus = getPlantedItemDisplayStatus(group.items[0], statusDate);
                             const groupKey = getPlantGroupKey(activeBed.id, group.plantId, group.variety);
+                            const clearHarvestedKey = `group-clear:${groupKey}`;
                             const groupInputId = `plant-group-qty-${groupKey.replace(/[^A-Za-z0-9_-]/g, '-')}`;
                             const quantityValue = groupQuantityEdits[groupKey] ?? String(group.totalQty);
                             const parsedQuantity = Number(quantityValue);
@@ -3499,7 +4186,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                                   </div>
                                 </div>
                                 <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                                  {isReady ? (
+                                  {isReady && (
                                     <button
                                       data-testid={`harvest-pill-${group.plantId}${group.variety ? `-${group.variety}` : ''}`}
                                       onClick={(e) => {
@@ -3516,7 +4203,26 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                                     >
                                       Harvest ready ({readyItems.length})
                                     </button>
-                                  ) : (
+                                  )}
+                                  {clearableHarvestedItems.length > 0 && (
+                                    <button
+                                      data-testid={`clear-harvested-pill-${group.plantId}${group.variety ? `-${group.variety}` : ''}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleClearHarvestedItems(
+                                          clearableHarvestedItems,
+                                          `${clearableHarvestedItems.length} harvested ${clearableHarvestedItems.length === 1 ? 'cell' : 'cells'}`,
+                                          clearHarvestedKey,
+                                        );
+                                      }}
+                                      disabled={clearingHarvestedKey === clearHarvestedKey}
+                                      title={`${clearableHarvestedItems.length} already-harvested ${clearableHarvestedItems.length === 1 ? 'cell' : 'cells'} will be cleared without adding yield records`}
+                                      className="rounded-full px-2.5 py-1 text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300 transition-colors"
+                                    >
+                                      {clearingHarvestedKey === clearHarvestedKey ? 'Clearing...' : `Clear harvested (${clearableHarvestedItems.length})`}
+                                    </button>
+                                  )}
+                                  {!isReady && clearableHarvestedItems.length === 0 && (
                                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getPlacedStatusBadgeClass(displayStatus.tone)}`}>
                                       {displayStatus.label}
                                     </span>
@@ -3660,10 +4366,19 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         const daysUntilHarvest = harvestDate
           ? Math.ceil((harvestDate.getTime() - asOf.getTime()) / (1000 * 60 * 60 * 24))
           : null;
+        // Once a planting is harvested it should no longer offer "Log Harvest",
+        // even while it is still shown in the bed (a final harvest clears it,
+        // but the status can also be set directly). A partial pick deliberately
+        // leaves the status as 'growing', so repeat harvesting of
+        // cut-and-come-again crops is unaffected.
         const canLogHarvest =
-          item.status !== 'harvested' &&
+          !item.clearedAt &&
+          !item.outcome &&
           !item.seedsCollected &&
-          !item.saveForSeed;
+          !item.saveForSeed &&
+          item.status !== 'harvested';
+        const canMarkFailed = canMarkPlantedItemFailed(item, asOf);
+        const failedActionLabel = item.status === 'planned' ? "Didn't establish" : "Didn't make it";
 
         return (
           <div
@@ -3731,7 +4446,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                     <div className="flex justify-between">
                       <span className="text-gray-600">{isEstimatedHarvest ? 'Est. Harvest:' : 'Harvest:'}</span>
                       <span className="font-medium text-amber-700">
-                        {harvestDate.toLocaleDateString()}{isEstimatedHarvest && ' (est.)'}
+                        {formatDisplayDate(harvestDate)}{isEstimatedHarvest && ' (est.)'}
                       </span>
                     </div>
                   )}
@@ -3753,7 +4468,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
               {/* Save for Seed Section */}
               {(() => {
                 const isSaving = item.saveForSeed && !item.seedsCollected;
-                const seedMatDate = item.seedMaturityDate ? new Date(item.seedMaturityDate) : null;
+                const seedMatDate = item.seedMaturityDate ? normalizeGardenDate(item.seedMaturityDate) : null;
                 const daysUntilSeedReady = seedMatDate ? Math.ceil((seedMatDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
                 const seedsReady = seedMatDate && daysUntilSeedReady !== null && daysUntilSeedReady <= 0;
 
@@ -3780,7 +4495,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                           <div className="flex justify-between text-xs">
                             <span className="text-amber-700">Seeds ready:</span>
                             <span className="font-medium text-amber-800">
-                              {seedMatDate.toLocaleDateString()} ({daysUntilSeedReady} days)
+                              {formatDisplayDate(seedMatDate)} ({daysUntilSeedReady} days)
                             </span>
                           </div>
                         )}
@@ -3809,7 +4524,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
 
                     {item.seedsCollected && (
                       <p className="text-xs text-green-700 mt-1">
-                        Seeds collected{item.seedsCollectedDate ? ` on ${new Date(item.seedsCollectedDate).toLocaleDateString()}` : ''}
+                        Seeds collected{item.seedsCollectedDate ? ` on ${formatDisplayDate(item.seedsCollectedDate)}` : ''}
                       </p>
                     )}
                   </div>
@@ -3917,12 +4632,22 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                       Log Harvest
                     </button>
                   )}
-                  {item.status === 'planned' && !item.cancelledAt && (
+                  {canMarkFailed && (
+                    <button
+                      data-testid="plant-failed-btn"
+                      onClick={() => handlePlantedItemFailed(item)}
+                      className="w-full mb-2 px-3 py-2 text-sm font-medium text-red-800 bg-red-50 border border-red-300 rounded hover:bg-red-100"
+                      title="Record that this plant did not produce a harvest. It remains in harvest history as an excluded zero-yield outcome."
+                    >
+                      {failedActionLabel}
+                    </button>
+                  )}
+                  {item.status === 'planned' && !item.cancelledAt && !item.outcome && (
                     <button
                       data-testid="skip-plant-btn"
                       onClick={() => handleSkipPlantedItem(item)}
                       className="w-full mb-2 px-3 py-2 text-sm font-medium text-yellow-800 bg-yellow-50 border border-yellow-300 rounded hover:bg-yellow-100"
-                      title="Mark this placement as not happening. It will disappear from bed views (past, today, and future) but stay in the database for history."
+                      title="Record that this placement was not planted. It will disappear from bed views but stay in the database for history."
                     >
                       Didn't plant it
                     </button>
@@ -3960,9 +4685,78 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                   : 0;
                 const hasMultipleVarieties = hasVariety && sameVarietyCount < sameTypeCount;
                 const plantName = getPlantName(item.plantId);
+                const failurePlantLabel = hasVariety ? `${item.variety} ${plantName}` : plantName;
+                const { rowItems, allMatchingItems } = getBulkFailureGroupsForPlantedItem(bedItems, item, asOf);
+                const {
+                  rowItems: harvestedRowItems,
+                  allMatchingItems: harvestedAllMatchingItems,
+                } = getBulkHarvestedClearGroupsForPlantedItem(bedItems, item);
+                const openBulkFailure = (
+                  items: PlantedItem[],
+                  failureScopeLabel: string,
+                ) => setBulkHarvestGroup({
+                  mode: 'failure',
+                  plantId: item.plantId,
+                  plantName,
+                  variety: item.variety,
+                  items,
+                  failureScopeLabel,
+                });
+                const clearHarvestedRowKey = `detail-clear-row:${item.id}`;
+                const clearHarvestedAllKey = `detail-clear-all:${item.id}`;
 
                 return (
                   <div className="flex flex-col gap-1.5 mt-2">
+                    {harvestedRowItems.length > 1 && (
+                      <button
+                        data-testid="bulk-clear-harvested-row-btn"
+                        onClick={() => handleClearHarvestedItems(
+                          harvestedRowItems,
+                          `row (${harvestedRowItems.length} harvested cells)`,
+                          clearHarvestedRowKey,
+                        )}
+                        disabled={clearingHarvestedKey === clearHarvestedRowKey}
+                        className="w-full px-3 py-1.5 text-xs font-medium text-amber-900 bg-amber-50 border border-amber-300 rounded hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        title="Clear this already-harvested row without adding yield records."
+                      >
+                        {clearingHarvestedKey === clearHarvestedRowKey ? 'Clearing...' : `Clear harvested row (${harvestedRowItems.length})`}
+                      </button>
+                    )}
+                    {harvestedAllMatchingItems.length > harvestedRowItems.length && (
+                      <button
+                        data-testid="bulk-clear-harvested-all-matching-btn"
+                        onClick={() => handleClearHarvestedItems(
+                          harvestedAllMatchingItems,
+                          `${failurePlantLabel} (${harvestedAllMatchingItems.length} harvested cells)`,
+                          clearHarvestedAllKey,
+                        )}
+                        disabled={clearingHarvestedKey === clearHarvestedAllKey}
+                        className="w-full px-3 py-1.5 text-xs font-medium text-amber-900 bg-amber-50 border border-amber-300 rounded hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        title="Clear all matching already-harvested cells in this bed without adding yield records."
+                      >
+                        {clearingHarvestedKey === clearHarvestedAllKey ? 'Clearing...' : `Clear all harvested ${failurePlantLabel} (${harvestedAllMatchingItems.length})`}
+                      </button>
+                    )}
+                    {rowItems.length > 1 && (
+                      <button
+                        data-testid="bulk-fail-row-btn"
+                        onClick={() => openBulkFailure(rowItems, `row (${rowItems.length} cells)`)}
+                        className="w-full px-3 py-1.5 text-xs font-medium text-red-800 bg-red-50 border border-red-300 rounded hover:bg-red-100"
+                        title="Record this same-row sowing as failed or not established without deleting history."
+                      >
+                        Mark this row failed ({rowItems.length})
+                      </button>
+                    )}
+                    {allMatchingItems.length > rowItems.length && (
+                      <button
+                        data-testid="bulk-fail-all-matching-btn"
+                        onClick={() => openBulkFailure(allMatchingItems, `${failurePlantLabel} in this bed (${allMatchingItems.length} cells)`)}
+                        className="w-full px-3 py-1.5 text-xs font-medium text-red-800 bg-red-50 border border-red-300 rounded hover:bg-red-100"
+                        title="Record all matching cells in this bed as failed or not established without deleting history."
+                      >
+                        Mark all {failurePlantLabel} failed ({allMatchingItems.length})
+                      </button>
+                    )}
                     {hasMultipleVarieties && sameVarietyCount > 0 && (
                       <button
                         onClick={() => setRemoveAllByPlantConfirm({
@@ -4059,13 +4853,11 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
                 ) : (
                   futurePlantedItems.map((item, index) => {
                     const futurePlant = plants.find(p => p.id === item.plantId);
-                    const plantingDate = item.plantedDate ? new Date(item.plantedDate) : null;
+                    const plantingDate = item.plantedDate ? normalizeGardenDate(item.plantedDate) : null;
                     const daysUntil = plantingDate
                       ? Math.ceil((plantingDate.getTime() - parseLocalDate(dateFilter.date).getTime()) / (1000 * 60 * 60 * 24))
                       : null;
-                    const plantedDateStr = item.plantedDate
-                      ? (typeof item.plantedDate === 'string' ? (item.plantedDate as string).split('T')[0] : new Date(item.plantedDate).toISOString().split('T')[0])
-                      : '';
+                    const plantedDateStr = getGardenDateKey(item.plantedDate);
                     const matchingRowItems = getMatchingFutureRowItems(bed, item);
                     const currentRowNumber = item.position.y + 1;
                     const gridRowCount = Math.floor((bed.length * 12) / bed.gridSize);
@@ -4385,6 +5177,18 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         );
       })()}
 
+      {/* Failure Reason Correction Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={reasonCorrectionConfirmOpen}
+        onClose={() => setReasonCorrectionConfirmOpen(false)}
+        onConfirm={applyFailureReasonCorrection}
+        title="Reclassify Failure"
+        message={`Reclassify ${reasonVerification?.plantName || 'this crop'}${reasonVerification?.variety ? ` (${reasonVerification.variety})` : ''} from weather/frost to didn't establish / poor germination? The existing sow-date feedback will run after the correction.`}
+        confirmText="Reclassify"
+        variant="primary"
+        loading={reasonCorrectionApplying}
+      />
+
       {/* Delete Bed Confirmation Dialog */}
       <ConfirmDialog
         isOpen={deleteBedConfirm}
@@ -4405,7 +5209,7 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
         onClose={() => setClearConfirm(false)}
         onConfirm={handleClearBed}
         title="Clear Garden Bed"
-        message={`Are you sure you want to remove all ${activeBed ? getActivePlantedItems(activeBed).length : 0} plants from "${activeBed?.name}"? This action cannot be undone.`}
+        message={`Are you sure you want to remove all ${activeBed ? getTotalPlantedQuantity(getActivePlantedItems(activeBed)) : 0} plants in ${activeBed ? getActivePlantedItems(activeBed).length : 0} cells from "${activeBed?.name}"? This action cannot be undone.`}
         confirmText="Clear Bed"
         variant="danger"
       />
@@ -4507,6 +5311,8 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           plantName={bulkHarvestGroup.plantName}
           variety={bulkHarvestGroup.variety}
           eligibleItems={bulkHarvestGroup.items}
+          initialMode={bulkHarvestGroup.mode || 'harvest'}
+          failureScopeLabel={bulkHarvestGroup.failureScopeLabel}
           onSuccess={handleBulkHarvestSuccess}
         />
       )}
@@ -4517,6 +5323,27 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           plantedItem={seedDateItem}
           plant={plants.find(p => p.id === seedDateItem.plantId)}
           onSuccess={handleSeedDateSuccess}
+        />
+      )}
+      {plantedItemOutcomeDialog && (
+        <PlantOutcomeDialog
+          isOpen={true}
+          title={plantedItemOutcomeDialog.title}
+          plantLabel={`${getPlantName(plantedItemOutcomeDialog.item.plantId)}${
+            plantedItemOutcomeDialog.item.variety ? ` (${plantedItemOutcomeDialog.item.variety})` : ''
+          }`}
+          contextLabel={`Position ${coordinateToGridLabel(
+            plantedItemOutcomeDialog.item.position.x,
+            plantedItemOutcomeDialog.item.position.y
+          )}${activeBed ? ` in ${activeBed.name}` : ''}`}
+          allowedOutcomes={plantedItemOutcomeDialog.allowedOutcomes}
+          initialOutcome={plantedItemOutcomeDialog.initialOutcome}
+          initialReason={plantedItemOutcomeDialog.initialReason}
+          defaultDate={today}
+          isSubmitting={plantedItemOutcomeSaving}
+          error={plantedItemOutcomeError}
+          onClose={closePlantedItemOutcomeDialog}
+          onSubmit={handleRecordPlantedItemOutcome}
         />
       )}
 
@@ -4542,31 +5369,47 @@ const GardenDesigner: React.FC<GardenDesignerProps> = ({ initialBedId, initialDa
           guild={selectedGuild.guild}
           bed={activeBed}
           allPlants={plants}
+          plantedDate={dateFilter.date}
           onInsert={async (guildId, guild, startPosition) => {
             try {
-              for (const guildPlant of guild.plants) {
-                for (let i = 0; i < guildPlant.quantity; i++) {
-                  await apiPost(`/api/planted-items`, {
-                    plantId: guildPlant.id,
-                    gardenBedId: activeBed.id,
-                    plantedDate: dateFilter.date,
-                    quantity: 1,
-                    position: {
-                      x: startPosition.x + (i % Math.ceil(Math.sqrt(guildPlant.quantity))),
-                      y: startPosition.y + Math.floor(i / Math.ceil(Math.sqrt(guildPlant.quantity))),
-                    },
-                  });
+              const response = await apiPost(
+                `/api/garden-beds/${activeBed.id}/guilds/${guildId}`,
+                {
+                  origin: startPosition,
+                  plantedDate: dateFilter.date,
                 }
+              );
+
+              if (!response.ok) {
+                const errorData = await response.json();
+                if (errorData.validation?.errors?.length) {
+                  showError(errorData.validation.errors[0].message);
+                } else {
+                  showError(formatConflictError(errorData));
+                }
+                return false;
               }
-              showSuccess('Guild plants inserted!');
-              await loadData();
+
+              const data = await response.json();
+              const freshBeds = await loadData();
               await fetchPlantingEvents();
+              await fetchFuturePlantingEvents();
+              const updatedBed = freshBeds.find(b => b.id === activeBed.id);
+              if (updatedBed) {
+                setActiveBed(updatedBed);
+                setVisibleBeds(prev => prev.map(bed => bed.id === updatedBed.id ? updatedBed : bed));
+              }
               bumpPlanRefresh();
+              let message = `Inserted ${data.totalQuantity} plants from ${guild.name} across ${data.created} positions`;
+              if (data.indoorSeedStartsCreated) {
+                message += ` -- ${data.indoorSeedStartsCreated} indoor seed start event${data.indoorSeedStartsCreated > 1 ? 's' : ''} created`;
+              }
+              showSuccess(message);
+              return true;
             } catch (err) {
               showError('Failed to insert guild plants');
+              return false;
             }
-            setShowGuildPreview(false);
-            setSelectedGuild(null);
           }}
         />
       )}

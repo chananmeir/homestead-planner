@@ -6,18 +6,31 @@ Routes:
 - POST /api/admin/users - Create new user
 - GET/PUT/DELETE /api/admin/users/<id> - Manage specific user
 - POST /api/admin/users/<id>/reset-password - Reset user password
+- GET/POST /api/admin/backups - List or create backup archives
+- GET /api/admin/backups/<id>/download - Download backup archive
+- DELETE /api/admin/backups/<id> - Delete backup archive
 """
-from flask import Blueprint, request, jsonify
+import logging
+
+from flask import Blueprint, request, jsonify, send_file
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from datetime import datetime, timedelta
 
 from models import db, User
+from services.backup_service import (
+    BackupError,
+    create_backup,
+    delete_backup,
+    list_backups,
+    resolve_backup_path,
+)
 from utils.decorators import admin_required
 from utils.validators import validate_email, validate_username
 from utils.constants import MIN_PASSWORD_LENGTH
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+logger = logging.getLogger(__name__)
 
 
 @admin_bp.route('/users', methods=['GET'])
@@ -254,3 +267,60 @@ def reset_user_password(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to reset password: {str(e)}'}), 500
+
+
+@admin_bp.route('/backups', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def manage_backups():
+    """List existing backups or create a new backup archive (admin only)."""
+    if request.method == 'GET':
+        return jsonify({'backups': list_backups()}), 200
+
+    try:
+        backup = create_backup()
+        return jsonify({
+            'message': 'Backup created successfully',
+            'backup': backup,
+        }), 201
+    except BackupError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.exception('Failed to create backup')
+        return jsonify({'error': f'Failed to create backup: {str(e)}'}), 500
+
+
+@admin_bp.route('/backups/<path:backup_id>/download', methods=['GET'])
+@login_required
+@admin_required
+def download_backup(backup_id):
+    """Download a backup archive (admin only)."""
+    try:
+        backup_path = resolve_backup_path(backup_id)
+    except BackupError as e:
+        status = 404 if str(e) == 'Backup not found' else 400
+        return jsonify({'error': str(e)}), status
+
+    return send_file(
+        backup_path,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=backup_path.name,
+        max_age=0,
+    )
+
+
+@admin_bp.route('/backups/<path:backup_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def remove_backup(backup_id):
+    """Delete a backup archive (admin only)."""
+    try:
+        delete_backup(backup_id)
+        return '', 204
+    except BackupError as e:
+        status = 404 if str(e) == 'Backup not found' else 400
+        return jsonify({'error': str(e)}), status
+    except Exception as e:
+        logger.exception('Failed to delete backup')
+        return jsonify({'error': f'Failed to delete backup: {str(e)}'}), 500

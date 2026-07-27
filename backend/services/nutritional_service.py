@@ -17,7 +17,101 @@ from simulation_clock import get_now, get_utc_now
 from utils.helpers import parse_iso_date
 
 # Path to database
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'instance', 'homestead.db')
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'instance', 'homestead.db')
+
+
+def resolve_db_path():
+    """Path of the SQLite file this service should talk to.
+
+    ``nutritional_data`` is a raw-SQL table rather than a SQLAlchemy model, so
+    this service opens its own connection instead of going through ``db``. It
+    must therefore resolve the SAME database the rest of the app is using —
+    otherwise nutrition data silently reads from and writes to the developer
+    file even when the app is pointed elsewhere (tests, CI, a second install).
+    """
+    url = os.environ.get('DATABASE_URL', '')
+    if url.startswith('sqlite:///'):
+        return url[len('sqlite:///'):]
+    return DEFAULT_DB_PATH
+
+
+# Backwards-compatible module attribute; prefer resolve_db_path().
+DB_PATH = DEFAULT_DB_PATH
+
+
+# Schema kept here (not only in migrations/custom/schema/) because a table the
+# app requires at runtime must be created automatically for every database.
+# Relying on someone remembering to run a one-off script meant a fresh install
+# had a nutrition feature that returned 500s.
+_NUTRITIONAL_DATA_SCHEMA = '''
+    CREATE TABLE IF NOT EXISTS nutritional_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_type VARCHAR(50) NOT NULL,
+        source_id VARCHAR(100) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        usda_fdc_id INTEGER,
+
+        calories FLOAT,
+        protein_g FLOAT,
+        carbs_g FLOAT,
+        fat_g FLOAT,
+        fiber_g FLOAT,
+
+        vitamin_a_iu FLOAT,
+        vitamin_c_mg FLOAT,
+        vitamin_k_mcg FLOAT,
+        vitamin_e_mg FLOAT,
+        folate_mcg FLOAT,
+
+        calcium_mg FLOAT,
+        iron_mg FLOAT,
+        magnesium_mg FLOAT,
+        potassium_mg FLOAT,
+        zinc_mg FLOAT,
+
+        average_yield_lbs_per_plant FLOAT,
+        average_yield_lbs_per_sqft FLOAT,
+        average_yield_lbs_per_tree_year FLOAT,
+
+        data_source VARCHAR(100),
+        notes TEXT,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        user_id INTEGER,
+
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        UNIQUE(source_type, source_id, user_id)
+    )
+'''
+
+_NUTRITIONAL_DATA_INDEXES = (
+    'CREATE INDEX IF NOT EXISTS idx_nutritional_data_source '
+    'ON nutritional_data(source_type, source_id)',
+    'CREATE INDEX IF NOT EXISTS idx_nutritional_data_user '
+    'ON nutritional_data(user_id)',
+)
+
+
+def ensure_nutritional_data_table(db_path=None):
+    """Create the nutritional_data table and indexes if they are missing.
+
+    Idempotent (everything is IF NOT EXISTS), so it is safe to call on every
+    startup. Called from ``app.initialize_database()`` alongside
+    ``db.create_all()``, which cannot create this table because it is not a
+    SQLAlchemy model.
+    """
+    path = db_path or resolve_db_path()
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(_NUTRITIONAL_DATA_SCHEMA)
+        for statement in _NUTRITIONAL_DATA_INDEXES:
+            conn.execute(statement)
+        conn.commit()
+    finally:
+        conn.close()
 
 # Constants
 LBS_TO_GRAMS = 453.592
@@ -28,7 +122,7 @@ class NutritionalService:
 
     def __init__(self, db_path: str = None):
         """Initialize service with optional custom database path"""
-        self.db_path = db_path or DB_PATH
+        self.db_path = db_path or resolve_db_path()
 
     def get_connection(self):
         """Get database connection"""

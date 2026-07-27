@@ -180,6 +180,40 @@ class TestHarvestReady:
         resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
         assert resp.get_json()['signals']['harvestReady'] == []
 
+    def test_excludes_cancelled_matching_planted_items(self, auth_client_a, user_a):
+        bed = _make_bed(user_a.id, 'Bed Cancelled Spinach')
+        _make_event(
+            user_a.id,
+            plant_id='spinach-1',
+            variety='Bloomsdale Long Standing',
+            garden_bed_id=bed.id,
+            direct_seed_date=datetime(2026, 3, 25),
+            expected_harvest_date=datetime(2026, 4, 10),
+            position_x=0,
+            position_y=0,
+            quantity=2,
+            quantity_completed=2,
+            completed=True,
+        )
+        planted_item = PlantedItem(
+            user_id=user_a.id,
+            plant_id='spinach-1',
+            variety='Bloomsdale Long Standing',
+            garden_bed_id=bed.id,
+            planted_date=datetime(2026, 3, 25),
+            harvest_date=datetime(2026, 5, 8),
+            position_x=0,
+            position_y=0,
+            quantity=2,
+            status='planned',
+            cancelled_at=datetime(2026, 4, 1),
+        )
+        db.session.add(planted_item)
+        db.session.commit()
+
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        assert resp.get_json()['signals']['harvestReady'] == []
+
     def test_excludes_future_harvests_by_default(self, auth_client_a, user_a):
         _make_event(
             user_a.id,
@@ -376,6 +410,61 @@ class TestTransplantsDue:
         assert row['bedName'] == 'Bed Beta'
         assert row['bedId'] == bed.id
         assert row['transplantDate'] == '2026-04-14'
+        assert row['indoorSeedStartId'] is None
+        assert row['indoorSeedStartIds'] == []
+        assert row['transplantSource'] is None
+
+    def test_includes_linked_seed_start_ids_for_grouped_transplants(
+        self, auth_client_a, user_a,
+    ):
+        bed = _make_bed(user_a.id, 'Bed Seedlings')
+        event_one = _make_event(
+            user_a.id,
+            plant_id='kale-1',
+            variety='Bare Necessities',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 14),
+            quantity=2,
+        )
+        event_two = _make_event(
+            user_a.id,
+            plant_id='kale-1',
+            variety='Bare Necessities',
+            garden_bed_id=bed.id,
+            seed_start_date=datetime(2026, 3, 15),
+            transplant_date=datetime(2026, 4, 14),
+            quantity=3,
+        )
+        seed_start_one = _make_seed_start(
+            user_a.id,
+            plant_id='kale-1',
+            variety='Bare Necessities',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=2,
+            status='growing',
+            planting_event_id=event_one.id,
+        )
+        seed_start_two = _make_seed_start(
+            user_a.id,
+            plant_id='kale-1',
+            variety='Bare Necessities',
+            start_date=datetime(2026, 3, 15),
+            seeds_started=3,
+            status='ready',
+            planting_event_id=event_two.id,
+        )
+
+        resp = _get_today(auth_client_a, f'date={TODAY.isoformat()}')
+        rows = resp.get_json()['signals']['transplantsDue']
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row['plantingEventIds'] == [event_one.id, event_two.id]
+        assert row['indoorSeedStartId'] == seed_start_one.id
+        assert row['indoorSeedStartIds'] == [seed_start_one.id, seed_start_two.id]
+        assert row['transplantSource'] == 'seed_start'
+        assert row['quantity'] == 5
 
 
 class TestTransplantsDueMissedSeedStartGuard:

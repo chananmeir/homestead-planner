@@ -1,6 +1,7 @@
 import React from 'react';
 import { GardenBed, PlantedItem, Plant } from '../../types';
 import BedThumbnail from './BedThumbnail';
+import { getPlantedItemQuantity, getTotalPlantedQuantity } from './utils/designerHelpers';
 
 interface BedSummaryCardProps {
   bed: GardenBed;
@@ -30,7 +31,8 @@ const BedSummaryCard: React.FC<BedSummaryCardProps> = ({
   activePlantedItems,
   onSelect,
 }) => {
-  const plantCount = activePlantedItems.length;
+  const placementCount = activePlantedItems.length;
+  const plantCount = getTotalPlantedQuantity(activePlantedItems);
   const totalSqFt = bed.width * bed.length;
 
   // Get unique plants with counts, sorted by count descending
@@ -40,7 +42,7 @@ const BedSummaryCard: React.FC<BedSummaryCardProps> = ({
     const key = item.variety ? `${item.plantId}::${item.variety}` : item.plantId;
     const existing = plantCounts.get(key);
     if (existing) {
-      existing.count += item.quantity;
+      existing.count += getPlantedItemQuantity(item);
     } else {
       const displayName = item.variety
         ? `${plant?.name || item.plantId} (${item.variety})`
@@ -48,7 +50,7 @@ const BedSummaryCard: React.FC<BedSummaryCardProps> = ({
       plantCounts.set(key, {
         name: displayName,
         icon: plant?.icon || '\uD83C\uDF31',
-        count: item.quantity,
+        count: getPlantedItemQuantity(item),
       });
     }
   }
@@ -62,12 +64,12 @@ const BedSummaryCard: React.FC<BedSummaryCardProps> = ({
 
   // Derive a status label
   const getStatus = (): { label: string; color: string } => {
-    if (plantCount === 0) return { label: 'Empty', color: 'bg-gray-100 text-gray-600' };
+    if (placementCount === 0) return { label: 'Empty', color: 'bg-gray-100 text-gray-600' };
     const statuses = activePlantedItems.map(i => i.status);
     const savingSeed = statuses.filter(s => s === 'saving-seed').length;
     const harvested = statuses.filter(s => s === 'harvested').length;
-    if (savingSeed > plantCount * 0.5) return { label: 'Saving seed', color: 'bg-purple-100 text-purple-700' };
-    if (harvested > plantCount * 0.5) return { label: 'Harvested', color: 'bg-amber-100 text-amber-700' };
+    if (savingSeed > placementCount * 0.5) return { label: 'Saving seed', color: 'bg-purple-100 text-purple-700' };
+    if (harvested > placementCount * 0.5) return { label: 'Harvested', color: 'bg-amber-100 text-amber-700' };
     // These are already date-filtered placed plants, so avoid "Planned" here.
     return { label: 'Growing', color: 'bg-green-100 text-green-700' };
   };
@@ -107,8 +109,11 @@ const BedSummaryCard: React.FC<BedSummaryCardProps> = ({
         />
         <div className="flex flex-col justify-center">
           <div className="text-2xl font-bold text-gray-800">{plantCount}</div>
-          <div className="text-xs text-gray-500">plants placed</div>
-          <div className="text-xs text-gray-400 mt-1">{totalSqFt} sq ft</div>
+          <div className="text-xs text-gray-500">plants</div>
+          <div className="text-xs text-gray-400 mt-1">
+            {placementCount} {placementCount === 1 ? 'cell' : 'cells'} filled
+          </div>
+          <div className="text-xs text-gray-400">{totalSqFt} sq ft</div>
         </div>
       </div>
 

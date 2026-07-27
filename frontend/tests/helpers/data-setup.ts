@@ -288,31 +288,144 @@ export async function fillBedRegion(
   endRow: number,
 ): Promise<number> {
   let count = 0;
+  let conflicts = 0;
+  const failures: string[] = [];
+
   // Place in batches of one row at a time for efficiency
   for (let row = startRow; row <= endRow; row++) {
     const rowPromises = [];
     for (let col = startCol; col <= endCol; col++) {
       rowPromises.push(
-        ctx.post('/api/planted-items', {
-          data: {
-            plantId,
-            variety,
-            gardenBedId: bedId,
-            plantedDate,
-            quantity: 1,
-            position: { x: col, y: row },
-          },
-        }),
+        ctx
+          .post('/api/planted-items', {
+            data: {
+              plantId,
+              variety,
+              gardenBedId: bedId,
+              plantedDate,
+              quantity: 1,
+              position: { x: col, y: row },
+            },
+          })
+          .then(async (resp) => {
+            if (resp.ok()) {
+              count++;
+            } else if (resp.status() === 409) {
+              // The app refusing an overlapping planting — a real answer, not
+              // a broken request. Happens where this scenario sows every cell
+              // of a crop whose spacing spans several cells, or relays onto
+              // ground the previous crop still occupies. Counted and reported,
+              // not fatal, because it reflects the garden plan's density
+              // choices rather than a defect.
+              conflicts++;
+            } else if (failures.length < 5) {
+              // Keep only the first few — a whole-region failure would
+              // otherwise produce hundreds of identical lines.
+              failures.push(`(${col},${row}) → ${resp.status()} ${(await resp.text()).slice(0, 120)}`);
+            } else {
+              failures.push('');
+            }
+          }),
       );
-      count++;
     }
     // Execute one row in parallel
     await Promise.all(rowPromises);
   }
+
+  // Fail loudly on malformed requests rather than returning a short count.
+  //
+  // This helper used to ignore responses entirely, so a region addressing
+  // cells outside the bed was silently discarded — the Row and MIGardener beds
+  // were sized 4x12 and 4x8 while their sowings addressed 8x24 and 16x32, so
+  // most of every sowing vanished and no test noticed, because as far as the
+  // suite was concerned the placements had "succeeded". A setup step that
+  // cannot fail is a setup step that hides bugs.
+  //
+  // 409s are excluded above: those are the app correctly enforcing spacing.
+  if (failures.length > 0) {
+    const shown = failures.filter(Boolean);
+    throw new Error(
+      `fillBedRegion: ${failures.length} of ${failures.length + count + conflicts} placements failed ` +
+        `for ${plantId} in bed ${bedId} over cols ${startCol}-${endCol}, rows ${startRow}-${endRow}.\n` +
+        `First failures:\n  ${shown.join('\n  ')}`,
+    );
+  }
+
+  if (conflicts > 0) {
+    // Visible so density problems in the scenario stay noticeable instead of
+    // silently shrinking a planting.
+    console.warn(
+      `[fillBedRegion] ${plantId} in bed ${bedId}: ${count} placed, ` +
+        `${conflicts} refused as overlapping (cols ${startCol}-${endCol}, rows ${startRow}-${endRow}).`,
+    );
+  }
+
   return count;
 }
 
 // ── UI Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Ensure the Garden Designer is showing its DETAIL view.
+ *
+ * The designer opens in OVERVIEW mode — a grid of BedSummaryCards. Everything
+ * specs typically reach for (the `bed-selector` dropdown, `active-bed-indicator`,
+ * the plant grid, the "Active:" label, the future-plantings toggle) only exists
+ * in DETAIL mode, which you enter by picking a bed.
+ *
+ * Specs written before the overview existed assume navigating to the designer
+ * lands them in detail view. Call this straight after navigating to bridge that
+ * gap, rather than each spec waiting on an element that will never appear.
+ *
+ * Pass `bedName` to open a specific bed; omit it to open the first one.
+ * Safe to call when already in detail view — it returns immediately.
+ */
+export async function openDesignerDetailView(
+  page: any,
+  bedName?: string,
+): Promise<void> {
+  // Wait for whichever view rendered before deciding which one we're in;
+  // checking counts immediately would race the initial render.
+  await page
+    .locator('[data-testid^="bed-card-"], [data-testid="bed-selector"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 });
+
+  if (await page.locator('[data-testid="bed-selector"]').count()) {
+    return; // already in detail view
+  }
+
+  const cards = page.locator('[data-testid^="bed-card-"]');
+  const target = bedName ? cards.filter({ hasText: bedName }).first() : cards.first();
+  await target.click();
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(300); // let React settle before assertions
+}
+
+/**
+ * Open the Garden Designer's collapsible settings panel.
+ *
+ * Controls such as the future-plantings toggle live inside this panel, which is
+ * closed by default (its state persists in localStorage under
+ * `designerSettingsOpen`). Requires DETAIL view — the toggle button itself only
+ * renders there — so call after openDesignerDetailView/selectBedByName.
+ *
+ * Idempotent: returns immediately if the panel is already open, so it will not
+ * accidentally close it.
+ */
+export async function openDesignerSettingsPanel(page: any): Promise<void> {
+  const panelToggle = page.locator('[data-testid="designer-settings-toggle"]');
+  await panelToggle.waitFor({ state: 'visible', timeout: 10000 });
+
+  // The future-plantings control is the panel's first child; use it to tell
+  // whether the panel is already expanded.
+  if (await page.locator('[data-testid="future-plantings-toggle"]').count()) {
+    return;
+  }
+
+  await panelToggle.click();
+  await page.waitForTimeout(300);
+}
 
 /**
  * Select a garden bed from the bed selector dropdown by partial name match.
@@ -322,7 +435,32 @@ export async function selectBedByName(
   page: any,
   bedName: string,
 ): Promise<void> {
-  // Wait for the bed selector to appear
+  // The Garden Designer opens in OVERVIEW mode, which renders one
+  // BedSummaryCard per bed and no dropdown — the bed-selector <select> only
+  // exists in DETAIL mode. Clicking a bed card selects that bed and switches
+  // to detail mode, so do that first when we're on the overview.
+  //
+  // Wait for EITHER view to render before deciding which one we're in.
+  // Checking .count() straight away would race the initial render: zero cards
+  // would look like "detail mode" and send us to a dropdown that never exists.
+  await page
+    .locator('[data-testid^="bed-card-"], [data-testid="bed-selector"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 });
+
+  const bedCard = page
+    .locator('[data-testid^="bed-card-"]')
+    .filter({ hasText: bedName })
+    .first();
+
+  if (await bedCard.count()) {
+    await bedCard.click();
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(500); // Allow React state to settle
+    return;
+  }
+
+  // Already in detail mode: use the dropdown.
   const bedSelector = page.locator('[data-testid="bed-selector"]').first();
   await bedSelector.waitFor({ state: 'visible', timeout: 15000 });
 
@@ -364,34 +502,55 @@ export async function selectBedByName(
  * Promote a user to admin using the bootstrap admin account.
  * Bootstrap admin: username="admin", password="admin123"
  */
-export async function promoteToAdmin(
+/**
+ * Set a user's admin flag via the bootstrap admin account.
+ *
+ * NOTE: this logs `ctx` in as the bootstrap admin, replacing whatever session
+ * it held. Pass a dedicated context when the caller's own session matters.
+ *
+ * Throws rather than using `expect()` so it is safe to call from afterAll
+ * hooks, where a failed expectation would be reported confusingly.
+ */
+export async function setUserAdminFlag(
   ctx: APIRequestContext,
   targetUsername: string,
+  isAdmin: boolean,
 ): Promise<void> {
-  // Login as bootstrap admin
-  const adminCtx = ctx; // reuse same context temporarily
-  const loginResp = await adminCtx.post(`${BACKEND_URL}/api/auth/login`, {
+  const loginResp = await ctx.post(`${BACKEND_URL}/api/auth/login`, {
     data: { username: 'admin', password: 'admin123' },
   });
   if (!loginResp.ok()) {
     throw new Error(`Bootstrap admin login failed: ${loginResp.status()}`);
   }
 
-  // Search for target user
-  const searchResp = await adminCtx.get(
+  const searchResp = await ctx.get(
     `${BACKEND_URL}/api/admin/users?search=${targetUsername}`,
   );
-  expect(searchResp.ok()).toBeTruthy();
-  const users = await searchResp.json();
-  const user = users.find((u: any) => u.username === targetUsername);
-  if (!user) {
-    throw new Error(`User ${targetUsername} not found for promotion`);
+  if (!searchResp.ok()) {
+    throw new Error(`Admin user search failed: ${searchResp.status()}`);
   }
 
-  // Promote
-  const promoteResp = await adminCtx.put(
-    `${BACKEND_URL}/api/admin/users/${user.id}`,
-    { data: { isAdmin: true } },
-  );
-  expect(promoteResp.ok()).toBeTruthy();
+  // Endpoint has returned both a bare array and { users: [...] } — accept either.
+  const body = await searchResp.json();
+  const users = Array.isArray(body) ? body : body.users ?? [];
+  const user = users.find((u: any) => u.username === targetUsername);
+  if (!user) {
+    throw new Error(`User ${targetUsername} not found`);
+  }
+
+  const updateResp = await ctx.put(`${BACKEND_URL}/api/admin/users/${user.id}`, {
+    data: { isAdmin },
+  });
+  if (!updateResp.ok()) {
+    throw new Error(
+      `Failed to set isAdmin=${isAdmin} on ${targetUsername}: ${updateResp.status()}`,
+    );
+  }
+}
+
+export async function promoteToAdmin(
+  ctx: APIRequestContext,
+  targetUsername: string,
+): Promise<void> {
+  await setUserAdminFlag(ctx, targetUsername, true);
 }
